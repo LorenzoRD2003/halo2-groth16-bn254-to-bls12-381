@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 / Week 3 now includes a first Fp2 slice, minimal Fp6 and Fp12 slices, a minimal G2 affine slice, and a narrow Jacobian G2 projective slice. It still does not implement subgroup checks, scalar multiplication, pairings, verifier logic, or a production wrapper circuit.
+This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 / Week 3 now includes a first Fp2 slice, minimal Fp6 and Fp12 slices, a minimal G2 affine slice, a narrow Jacobian G2 projective slice, and a Miller-path G2 line-extraction slice. It still does not implement subgroup checks, scalar multiplication, a full Miller loop, pairings, verifier logic, or a production wrapper circuit.
 
 ## Intended Data Flow
 
@@ -37,7 +37,8 @@ Circuit code and backend integration change for different reasons.
 - the BN254 foreign-field layer introduced in Week 1 and extended in Week 2 / Week 3 with Fp2, Fp6, and Fp12
 - the BN254 G1 abstraction layer introduced in Week 1
 - the BN254 G2 affine representation layer introduced in Week 2
-- the BN254 G2 Jacobian projective layer introduced in the next Week 2 slice
+- the BN254 G2 Jacobian projective layer introduced in Week 2
+- the BN254 G2 Miller-path line-extraction layer introduced in Week 3
 
 `wrapper-backends` will eventually own:
 
@@ -111,7 +112,6 @@ Current properties:
 Current limitations:
 
 - no inversion in this slice
-- no sparse line-function helpers in this slice
 - no Miller-loop or final-exponentiation logic yet
 
 ## BN254 G1 Abstraction Layer
@@ -153,7 +153,7 @@ Current limitations:
 
 ## BN254 G2 Projective Layer
 
-The next Week 2 slice adds an `AssignedG2Projective` abstraction in `wrapper-circuits`.
+The current narrow Week 2 slice adds an `AssignedG2Projective` abstraction in `wrapper-circuits`.
 
 Current properties:
 
@@ -175,6 +175,30 @@ Current limitations:
 - no subgroup checks yet
 - no scalar multiplication yet
 - no pairing support
+
+## BN254 G2 Miller-Step Layer
+
+The current Week 3 line-extraction slice adds a dedicated Miller-path G2 step state and sparse line coefficients in `wrapper-circuits`.
+
+Current properties:
+
+- a dedicated `AssignedG2MillerPoint` homogeneous-projective state `(X : Y : Z)` with affine model `x = X / Z`, `y = Y / Z`
+- this state is intentionally separate from `AssignedG2Projective`, which remains Jacobian for the narrow general-purpose G2 arithmetic slice
+- a dedicated `AssignedG2LineCoeffs` type with the Miller-ready sparse layout `(ell_0, ell_w, ell_vw)`
+- the line layout is chosen for the BN254 D-twist sparse Fp12 embedding
+  `ell_0 * y_P + ell_w * x_P * w + ell_vw * v * w`
+- `double_with_line` follows the homogeneous-projective BN prepared-G2 doubling step used by arkworks `G2HomProjective::double_in_place`
+- `mixed_add_with_line` follows the homogeneous-projective BN prepared-G2 mixed-add step used by arkworks `G2HomProjective::add_in_place`
+- a minimal consumption boundary evaluates those sparse coefficients into an `AssignedFp12` value shaped for a later Miller-loop accumulator
+- deterministic arkworks-backed reference tests cover point updates, extracted coefficients, sparse Fp12 embedding, and unsupported edge cases
+- real layout metrics for `g2_double_with_line` and `g2_mixed_add_with_line`
+
+Current limitations:
+
+- the Miller-path state is intentionally non-identity only in this slice
+- `mixed_add_with_line` is intentionally unsupported for exceptional cases such as `P = Q` and `P = -Q`
+- no accumulation loop over the coefficients exists yet
+- no final exponentiation or full pairing pipeline exists yet
 
 ## Current Architectural Contracts
 

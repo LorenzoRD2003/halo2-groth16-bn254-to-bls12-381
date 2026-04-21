@@ -27,6 +27,8 @@ criterion_group!(
   ecc::bench_g2_neg,
   ecc::bench_g2_proj_from_affine,
   ecc::bench_g2_proj_double,
-  ecc::bench_g2_proj_add
+  ecc::bench_g2_proj_add,
+  ecc::bench_g2_double_with_line,
+  ecc::bench_g2_mixed_add_with_line
 );
 criterion_main!(primitive_benches);

@@ -2,7 +2,7 @@
 
 This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based outer proof system that may eventually verify Groth16 BN254 proofs inside a Halo2 wrapper.
 
-The current phase is still intentionally narrow, but it is no longer just repository bootstrap: the project now includes a circuit-backed BN254 primitive layer built on `midnight-circuits` and `midnight-proofs`, together with CI, benchmarks, CLI diagnostics, and contributor documentation. Week 2 now includes a first Fp2 slice, a minimal G2 affine slice, a narrow Jacobian-style G2 projective slice for `from_affine`, `neg`, `double`, and incomplete `add`, and the current Week 3 extension-field slices in Fp6 and Fp12. Pairings remain out of scope.
+The current phase is still intentionally narrow, but it is no longer just repository bootstrap: the project now includes a circuit-backed BN254 primitive layer built on `midnight-circuits` and `midnight-proofs`, together with CI, benchmarks, CLI diagnostics, and contributor documentation. Week 2 now includes a first Fp2 slice, a minimal G2 affine slice, and a narrow Jacobian-style G2 projective slice for `from_affine`, `neg`, `double`, and incomplete `add`. Week 3 now includes the extension-field slices in Fp6 and Fp12 plus Miller-oriented G2 `double_with_line` / `mixed_add_with_line` extraction. Pairings remain out of scope.
 
 ## Current Status
 
@@ -15,6 +15,7 @@ What the repository currently contains:
 - A minimal BN254 Fp12 layer in `wrapper-circuits`, built as two circuit-backed `AssignedFp6` coordinates using the same arkworks / Midnight BN254 tower.
 - A minimal Week 2 BN254 G2 affine layer in `wrapper-circuits`, backed by `AssignedFp2` coordinates with circuit-backed negation and twist on-curve validation.
 - A narrow Week 2 BN254 G2 projective layer in Jacobian coordinates `(X:Y:Z)` with affine embedding, negation, doubling, incomplete addition, measured costs, and arkworks-backed sanity tests.
+- A Week 3 BN254 Miller-path G2 step layer with a dedicated homogeneous-projective state, `double_with_line`, `mixed_add_with_line`, and Miller-ready sparse line coefficients.
 - Placeholder outer-wrapper planning and backend integration boundaries that are honest about what is still missing.
 - Contributor-oriented documentation covering architecture, roadmap, and initial design decisions.
 - A `wrapper-cli` binary with honest developer commands for environment inspection and configuration validation.
@@ -125,6 +126,12 @@ What works now:
 - Circuit-backed G2 affine negation plus twist on-curve validation
 - Narrow BN254 G2 Jacobian support wrapped as `AssignedG2Projective = (X, Y, Z)` with affine model `x = X / Z^2`, `y = Y / Z^3`
 - Circuit-backed `from_affine`, `neg`, `double`, and incomplete Jacobian-Jacobian `add`
+- Miller-path G2 state wrapped as `AssignedG2MillerPoint = (X, Y, Z)` in homogeneous projective coordinates with affine model `x = X / Z`, `y = Y / Z`
+- Miller-ready BN254 line coefficients wrapped as `AssignedG2LineCoeffs = (ell_0, ell_w, ell_vw)`
+- Line-coefficient layout chosen for BN254 D-twist sparse `Fp12` consumption:
+  `ell_0 * y_P + ell_w * x_P * w + ell_vw * v * w`
+- Circuit-backed `double_with_line` and `mixed_add_with_line` following the same homogeneous-projective prepared-G2 formulas used by arkworks / Midnight for BN prepared-G2 generation
+- A minimal boundary that evaluates those sparse line coefficients into an `AssignedFp12` value ready for later Miller-loop accumulator multiplication
 - Deterministic randomized tests against arkworks reference behavior
 - Real row/layout measurements via `midnight_proofs::dev::cost_model`
 - Small Criterion benchmark hooks over the actual Week 1 sanity circuits
@@ -135,6 +142,8 @@ What still does not exist:
 
 - pairings
 - G2 subgroup checks or scalar multiplication
+- full Miller loop line accumulation
+- final exponentiation
 - MSM
 - Groth16 verification
 - wrapper verifier logic
@@ -172,6 +181,7 @@ For the current primitive-foundation phase, prefer correctness and measured layo
 - Stage 1 / Week 2 slice 3: narrow BN254 G2 Jacobian projective embedding, negation, doubling, incomplete addition, and cost visibility
 - Stage 1 / early Week 3 slice: BN254 `fp6` arithmetic over the existing `AssignedFp2` layer, with measured add/mul/square costs
 - Stage 1 / Week 3 slice: BN254 `fp12` arithmetic over the existing `AssignedFp6` layer, with measured add/mul/square costs
+- Stage 1 / Week 3 slice: BN254 G2 `double_with_line` / `mixed_add_with_line` extraction with Miller-ready sparse coefficient layout
 - Later pairing work: foreign field and pairing-related gadget research
 - Later wrapper verifier work: Groth16 verifier logic inside the outer proof system
 - Possible Cardano integration: ecosystem-specific packaging, artifacts, and engineering constraints
@@ -214,4 +224,4 @@ Future strategy:
 
 ## Disclaimer
 
-This repository now contains a circuit-backed BN254 primitive layer using `midnight-circuits` and `midnight-proofs`, organized under `wrapper-circuits/src/bn254/`, including a first Week 2 Fp2 slice, minimal Fp6 and Fp12 slices, a minimal G2 affine slice, and a narrow Jacobian G2 projective slice. The Fp6 and Fp12 layers currently support `add`, `sub`, `neg`, `mul`, and `square` over the arkworks-compatible BN254 tower; the projective G2 layer supports non-identity `from_affine`, `neg`, `double`, and incomplete `add`. The repository still does not include subgroup checks, scalar multiplication, pairings, Groth16 verification, or a wrapper verifier circuit. Current Criterion benchmarks are sanity-check hooks over small implemented circuits and should not be read as production cryptographic performance claims.
+This repository now contains a circuit-backed BN254 primitive layer using `midnight-circuits` and `midnight-proofs`, organized under `wrapper-circuits/src/bn254/`, including a first Week 2 Fp2 slice, minimal Fp6 and Fp12 slices, a minimal G2 affine slice, a narrow Jacobian G2 projective slice, and a Miller-path G2 line-extraction slice. The Fp6 and Fp12 layers support `add`, `sub`, `neg`, `mul`, and `square` over the arkworks-compatible BN254 tower; the Jacobian G2 layer supports non-identity `from_affine`, `neg`, `double`, and incomplete `add`; and the Miller-path layer supports non-identity `double_with_line` and `mixed_add_with_line` with sparse `Fp12`-facing coefficients. The repository still does not include subgroup checks, scalar multiplication, a full Miller loop, final exponentiation, pairings, Groth16 verification, or a wrapper verifier circuit. Current Criterion benchmarks are sanity-check hooks over small implemented circuits and should not be read as production cryptographic performance claims.

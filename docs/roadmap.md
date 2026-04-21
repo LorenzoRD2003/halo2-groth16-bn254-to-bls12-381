@@ -31,6 +31,7 @@ Goals:
 - land circuit-backed BN254 `fp12` arithmetic
 - land minimal BN254 G1 addition and on-curve enforcement
 - land minimal BN254 G2 affine representation, negation, and on-curve enforcement
+- land Miller-path BN254 G2 `double_with_line` / `mixed_add_with_line` extraction with a clear sparse Fp12-facing boundary
 - measure real layout/row cost for the Week 1 primitives
 - refine outer circuit configuration boundaries
 - define sharper interfaces for normalized proof and VK inputs
@@ -38,7 +39,10 @@ Goals:
 Still excluded unless explicitly planned:
 
 - pairings
-- G2 addition / doubling / subgroup checks
+- full Miller loop
+- final exponentiation
+- G2 subgroup checks
+- scalar multiplication
 - Groth16 verifier logic
 - production-ready backend support
 

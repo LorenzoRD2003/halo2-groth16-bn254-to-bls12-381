@@ -4,7 +4,7 @@
 
 This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based wrapper that may eventually verify Groth16 BN254 proofs inside an outer Halo2 proof system.
 
-The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations, the narrow Week 2 slices, and the current Week 3 extension-field slice, but it is still far from a Groth16 wrapper verifier.
+The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations, the narrow Week 2 slices, the Week 3 extension-field slice, and the first Miller-oriented G2 line-extraction slice, but it is still far from a Groth16 wrapper verifier.
 
 ## Current Phase and Scope Boundaries
 
@@ -28,8 +28,12 @@ Implemented in scope today:
 - `AssignedG2Affine` with assignment, `neg`, `assert_equal`, and explicit twist `assert_on_curve`
 - Narrow BN254 G2 projective support in Jacobian coordinates over `AssignedFp2`
 - `AssignedG2Projective` with reserved identity encoding plus `from_affine`, `neg`, `double`, and incomplete `add`
+- Miller-path BN254 G2 step support in homogeneous projective coordinates over `AssignedFp2`
+- `AssignedG2MillerPoint` with non-identity `from_affine`, `double_with_line`, and `mixed_add_with_line`
+- Miller-ready sparse line coefficients via `AssignedG2LineCoeffs = (ell_0, ell_w, ell_vw)`
+- A minimal sparse `Fp12` consumption boundary that evaluates line coefficients into an `AssignedFp12` value for a later Miller accumulator
 - Real layout and row visibility through the Halo2/Midnight cost model
-- Deterministic arkworks-backed tests for `Fp`, `Fp2`, `Fp6`, `Fp12`, G1, and the current narrow G2 affine/projective behavior
+- Deterministic arkworks-backed tests for `Fp`, `Fp2`, `Fp6`, `Fp12`, G1, and the current narrow G2 affine / Jacobian / Miller-step behavior
 - Criterion sanity benchmarks for the currently implemented primitive circuits
 - a single authoritative BN254 primitive path in `wrapper-circuits/src/bn254/`
 
@@ -38,7 +42,6 @@ Out of scope right now:
 - G2 subgroup checks
 - scalar multiplication on G2
 - pairings
-- line functions
 - Miller loop
 - final exponentiation
 - Groth16 verifier logic
@@ -72,7 +75,7 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 `wrapper-circuits`
 
 - Own Halo2-facing code, Midnight integration, circuit planning, and primitive gadget boundaries.
-- Currently owns the BN254 `AssignedFp`, `AssignedFp2`, `AssignedFp6`, `AssignedFp12`, `AssignedG1`, `AssignedG2Affine`, and narrow `AssignedG2Projective` circuit-backed layer.
+- Currently owns the BN254 `AssignedFp`, `AssignedFp2`, `AssignedFp6`, `AssignedFp12`, `AssignedG1`, `AssignedG2Affine`, narrow `AssignedG2Projective`, Miller-path `AssignedG2MillerPoint`, and `AssignedG2LineCoeffs` circuit-backed layer.
 - Keeps the active BN254 primitive implementation under `src/bn254/`, split by concern instead of one monolithic file.
 - Should depend on `wrapper-core`.
 - Must not absorb artifact parsing or backend-specific concerns.
@@ -140,6 +143,7 @@ When touching the current BN254 primitive code:
 - keep `fp12` work aligned with the current representation `Fq12(c0, c1)` and `w^2 = v`
 - keep G1 work limited to the currently supported primitive surface unless the roadmap explicitly expands it
 - keep G2 work limited to the currently supported affine plus narrow Jacobian projective surface unless the roadmap explicitly expands it
+- keep Miller-path G2 work aligned with the homogeneous prepared-step formulas used by arkworks BN prepared-G2 generation
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
 - keep CLI reporting aligned with the measured state of the codebase
@@ -155,6 +159,11 @@ Concrete BN254 conventions already in use:
 - `AssignedFp12` follows `c0 + c1 * w`
 - `Fq12` coordinate order is `(c0, c1)` to match arkworks
 - the quadratic nonresidue is `v = Fp6(0, 1, 0)`, so `Fp12 = Fp6[w] / (w^2 - v)`
+- Miller-path G2 line coefficients use the sparse BN254 D-twist layout `(ell_0, ell_w, ell_vw)`
+- evaluating those coefficients at a G1 affine point `(x_P, y_P)` yields
+  `ell_0 * y_P + ell_w * x_P * w + ell_vw * v * w`
+- that sparse embedding maps directly into Fp12 slots `(c0, c3, c4)` for the later `mul_by_034`-style Miller accumulator path
+- Miller-path `double_with_line` and `mixed_add_with_line` follow the homogeneous-projective BN prepared-G2 formulas used by arkworks / Midnight, not the Jacobian formulas used by `AssignedG2Projective`
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
   `Fq2(19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)`
@@ -178,11 +187,14 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `g2 proj from_affine`: 970 rows / 58 queries, `k=10`
 - `g2 proj double`: 2594 rows / 58 queries, `k=12`
 - `g2 proj add`: 4582 rows / 58 queries, `k=13`
+- `g2 double_with_line`: 2768 rows / 58 queries, `k=12`
+- `g2 mixed_add_with_line`: 3374 rows / 58 queries, `k=12`
 
 Interpretation guidance:
 
 - `g2 neg` is not a measure of a raw sign flip alone; the current benchmark circuit includes assignment, on-curve checks, negation, and equality against the expected output
 - `fp12 mul` and `fp12 square` are measurements of the actual sanity circuits over the implemented tower, not optimized pairing-ready kernels
+- `g2 double_with_line` and `g2 mixed_add_with_line` are measurements of the actual Miller-step sanity circuits, not a full Miller loop
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
 
 ## Coding Standards
@@ -220,6 +232,7 @@ Current test expectations for the primitive layer:
 - `Fp12` tests should include algebra identities, deterministic randomized add/mul/square checks, and structured `c0`-only / `c1`-only cases
 - minimal G2 tests should include valid affine points, negative on-curve cases, negation validity, and equality behavior
 - narrow G2 projective tests should stay explicit about the supported domain: `from_affine`, `neg`, `double`, incomplete `add`, and reserved identity encoding
+- Miller-path G2 tests should cover `double_with_line`, `mixed_add_with_line`, sparse `Fp12` embedding, and explicitly unsupported exceptional cases such as `P = Q`
 
 ## Benchmarking Standards
 
@@ -248,6 +261,8 @@ Current benchmark entry points include:
 - `bench_g2_proj_from_affine`
 - `bench_g2_proj_double`
 - `bench_g2_proj_add`
+- `bench_g2_double_with_line`
+- `bench_g2_mixed_add_with_line`
 
 ## Documentation Standards
 
@@ -288,12 +303,12 @@ When refactoring `wrapper-circuits/src/bn254/`:
 For tasks in the current repository state, do not assume that because `fp add`, `fp mul`, `fp2`, minimal G1, and minimal G2 affine support exist, the project is ready for:
 
 - generalized `Fp12` helper optimizations for pairing workloads
-- line-function gadgets
 - pairing gadgets
 - Groth16 verification
 - wrapped verifier composition
 - public-input verifier logic
 - G2 arithmetic beyond the currently implemented narrow Jacobian `from_affine` / `neg` / `double` / incomplete `add` slice
+- extending Miller-path G2 steps into a full Miller loop without a dedicated design pass
 - full MSM infrastructure
 
 Those remain future-stage work unless the task explicitly advances the roadmap.

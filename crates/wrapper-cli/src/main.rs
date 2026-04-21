@@ -139,6 +139,16 @@ fn print_primitive_costs(primitive_costs: &PrimitiveCostTable) {
     primitive_costs.g2_proj_double_layout,
   );
   print_cost_line("g2 proj add", primitive_costs.g2_proj_add, primitive_costs.g2_proj_add_layout);
+  print_cost_line(
+    "g2 double_with_line",
+    primitive_costs.g2_double_with_line,
+    primitive_costs.g2_double_with_line_layout,
+  );
+  print_cost_line(
+    "g2 mixed_add_with_line",
+    primitive_costs.g2_mixed_add_with_line,
+    primitive_costs.g2_mixed_add_with_line_layout,
+  );
 }
 
 fn run_bench_info() {
@@ -166,6 +176,8 @@ fn run_bench_info() {
   println!("  - bench_g2_proj_from_affine");
   println!("  - bench_g2_proj_double");
   println!("  - bench_g2_proj_add");
+  println!("  - bench_g2_double_with_line");
+  println!("  - bench_g2_mixed_add_with_line");
   println!(
     "Warning: current benchmarks use small Midnight-backed sanity circuits and do not cover subgroup checks, pairings, or verifier logic."
   );
@@ -199,12 +211,14 @@ fn run_validate_config(path: &PathBuf) -> Result<()> {
 fn run_about() {
   info!("printing project overview");
   println!("Project: Halo2 wrapper workspace");
-  println!("Phase: stage 1 / week 2 to early week 3 (fp2 + fp6 + narrow g2 affine/projective)");
+  println!(
+    "Phase: stage 1 / week 3 (fp2 + fp6 + fp12 + narrow g2 affine/projective + line extraction)"
+  );
   println!("Purpose: stage a serious multi-crate codebase for Halo2 wrapper research.");
   println!(
-    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2/fp6 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg plus projective from_affine/add/double/neg, CLI, and sanity-check benches."
+    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2/fp6/fp12 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg, Jacobian projective from_affine/add/double/neg, Miller-path G2 double_with_line and mixed_add_with_line, CLI, and sanity-check benches."
   );
   println!(
-    "Not implemented: G2 subgroup checks or scalar multiplication, Fp12, pairings, Groth16 verification, and wrapper verifier circuits."
+    "Not implemented: G2 subgroup checks or scalar multiplication, full Miller loop, final exponentiation, pairings, Groth16 verification, and wrapper verifier circuits."
   );
 }

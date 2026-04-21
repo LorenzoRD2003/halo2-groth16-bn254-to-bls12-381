@@ -3,8 +3,8 @@ use ark_bn254::{
   Fq12Config as ArkFq12Config, G1Affine as ArkG1Affine, G1Projective as ArkG1Projective,
   G2Affine as ArkG2Affine, G2Projective as ArkG2Projective, g2,
 };
-use ark_ec::{AffineRepr, CurveGroup, models::short_weierstrass::SWCurveConfig};
-use ark_ff::{BigInteger, Fp6Config, Fp12Config, PrimeField, UniformRand};
+use ark_ec::{AdditiveGroup, AffineRepr, CurveGroup, models::short_weierstrass::SWCurveConfig};
+use ark_ff::{BigInteger, Field as ArkField, Fp6Config, Fp12Config, PrimeField, UniformRand};
 use ff::{Field, PrimeField as HaloPrimeField};
 use halo2curves::group::Group;
 use midnight_circuits::midnight_proofs::{
@@ -18,6 +18,7 @@ use rand_chacha::ChaCha20Rng;
 
 use super::metrics::measure_layout;
 use super::*;
+use crate::bn254::g2::G2LineEvaluationCircuit;
 
 type Fp2AssignedValue = (Value<ForeignField>, Value<ForeignField>);
 type Fp6ConstantValue =
@@ -25,6 +26,24 @@ type Fp6ConstantValue =
 type Fp12ConstantValue = (Fp6ConstantValue, Fp6ConstantValue);
 type G2AssignedValue = (Fp2AssignedValue, Fp2AssignedValue);
 type G2ConstantValue = ((ForeignField, ForeignField), (ForeignField, ForeignField));
+type G2MillerPointConstantValue =
+  ((ForeignField, ForeignField), (ForeignField, ForeignField), (ForeignField, ForeignField));
+type G2LineCoeffsConstantValue =
+  ((ForeignField, ForeignField), (ForeignField, ForeignField), (ForeignField, ForeignField));
+
+#[derive(Clone, Copy, Debug)]
+struct ArkG2MillerPoint {
+  x: ArkFq2,
+  y: ArkFq2,
+  z: ArkFq2,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ArkG2LineCoeffs {
+  constant: ArkFq2,
+  x_scale: ArkFq2,
+  vw: ArkFq2,
+}
 
 fn ark_to_midnight_fq(value: ArkFq) -> ForeignField {
   let bytes = value.into_bigint().to_bytes_le();
@@ -84,6 +103,97 @@ fn ark_to_assigned_g2_coords(
 ) -> ((ForeignField, ForeignField), (ForeignField, ForeignField)) {
   assert!(!point.is_zero(), "this narrow G2 affine slice does not support infinity");
   (ark_to_midnight_fq2(point.x), ark_to_midnight_fq2(point.y))
+}
+
+fn ark_zero_fq2() -> ArkFq2 {
+  ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64))
+}
+
+fn ark_to_miller_point_constant(point: ArkG2MillerPoint) -> G2MillerPointConstantValue {
+  (ark_to_midnight_fq2(point.x), ark_to_midnight_fq2(point.y), ark_to_midnight_fq2(point.z))
+}
+
+fn ark_scale_fq2(mut value: ArkFq2, scalar: ArkFq) -> ArkFq2 {
+  value.mul_assign_by_fp(&scalar);
+  value
+}
+
+fn ark_to_line_coeffs_constant(line: ArkG2LineCoeffs) -> G2LineCoeffsConstantValue {
+  (
+    ark_to_midnight_fq2(line.constant),
+    ark_to_midnight_fq2(line.x_scale),
+    ark_to_midnight_fq2(line.vw),
+  )
+}
+
+fn ark_miller_point_from_affine(point: ArkG2Affine) -> ArkG2MillerPoint {
+  ArkG2MillerPoint {
+    x: point.x,
+    y: point.y,
+    z: ArkFq2::new(ArkFq::from(1_u64), ArkFq::from(0_u64)),
+  }
+}
+
+fn ark_miller_point_to_affine(point: ArkG2MillerPoint) -> ArkG2Affine {
+  let z_inv = point.z.inverse().expect("test Miller-step point should remain non-identity");
+  ArkG2Affine::new_unchecked(point.x * z_inv, point.y * z_inv)
+}
+
+fn ark_double_with_line(mut point: ArkG2MillerPoint) -> (ArkG2MillerPoint, ArkG2LineCoeffs) {
+  let two_inv = ArkFq::from(2_u64).inverse().expect("hard-coded two should be invertible");
+  let xy_half = ark_scale_fq2(point.x * point.y, two_inv);
+  let y_square = point.y.square();
+  let z_square = point.z.square();
+  let twist_times_three_z_square = g2::Config::COEFF_B * (z_square.double() + z_square);
+  let triple_twist_term = twist_times_three_z_square.double() + twist_times_three_z_square;
+  let average_y_square_and_twist = ark_scale_fq2(y_square + triple_twist_term, two_inv);
+  let y_plus_z_cross = (point.y + point.z).square() - (y_square + z_square);
+  let vertical_term = twist_times_three_z_square - y_square;
+  let x_square = point.x.square();
+  let twist_term_square = twist_times_three_z_square.square();
+
+  point.x = xy_half * (y_square - triple_twist_term);
+  point.y = average_y_square_and_twist.square() - (twist_term_square.double() + twist_term_square);
+  point.z = y_square * y_plus_z_cross;
+
+  (
+    point,
+    ArkG2LineCoeffs {
+      constant: -y_plus_z_cross,
+      x_scale: x_square.double() + x_square,
+      vw: vertical_term,
+    },
+  )
+}
+
+fn ark_mixed_add_with_line(
+  mut point: ArkG2MillerPoint,
+  addend: ArkG2Affine,
+) -> (ArkG2MillerPoint, ArkG2LineCoeffs) {
+  let theta = point.y - addend.y * point.z;
+  let lambda = point.x - addend.x * point.z;
+  let theta_square = theta.square();
+  let lambda_square = lambda.square();
+  let lambda_cubed = lambda * lambda_square;
+  let z_times_theta_square = point.z * theta_square;
+  let x_times_lambda_square = point.x * lambda_square;
+  let next_x_intermediate = lambda_cubed + z_times_theta_square - x_times_lambda_square.double();
+
+  point.x = lambda * next_x_intermediate;
+  point.y = theta * (x_times_lambda_square - next_x_intermediate) - lambda_cubed * point.y;
+  point.z *= lambda_cubed;
+
+  (
+    point,
+    ArkG2LineCoeffs { constant: lambda, x_scale: -theta, vw: theta * addend.x - lambda * addend.y },
+  )
+}
+
+fn ark_line_evaluation(line: ArkG2LineCoeffs, g1: ArkG1Affine) -> ArkFq12 {
+  ArkFq12::new(
+    ArkFq6::new(ark_scale_fq2(line.constant, g1.y), ark_zero_fq2(), ark_zero_fq2()),
+    ArkFq6::new(ark_scale_fq2(line.x_scale, g1.x), line.vw, ark_zero_fq2()),
+  )
 }
 
 fn assert_satisfied<CircuitT: Circuit<NativeField>>(circuit: &CircuitT) {
@@ -830,6 +940,87 @@ fn g2_projective_addition_of_inverses_is_not_supported_in_this_slice() {
 }
 
 #[test]
+fn g2_double_with_line_matches_arkworks_reference() {
+  let mut rng = ChaCha20Rng::from_seed([57_u8; 32]);
+
+  for _ in 0..8 {
+    let point = ArkG2Projective::rand(&mut rng).into_affine();
+    if point.is_zero() {
+      continue;
+    }
+
+    let (next_point, line) = ark_double_with_line(ark_miller_point_from_affine(point));
+    let expected_point = ark_miller_point_to_affine(next_point);
+
+    assert_satisfied(&G2DoubleWithLineCircuit::new(
+      ark_to_assigned_g2_coords(point),
+      ark_to_assigned_g2_coords(expected_point),
+      ark_to_line_coeffs_constant(line),
+    ));
+  }
+}
+
+#[test]
+fn g2_mixed_add_with_line_matches_arkworks_reference() {
+  let mut rng = ChaCha20Rng::from_seed([58_u8; 32]);
+
+  for _ in 0..8 {
+    let seed_point = ArkG2Projective::rand(&mut rng).into_affine();
+    let addend = ArkG2Projective::rand(&mut rng).into_affine();
+
+    if seed_point.is_zero() || addend.is_zero() {
+      continue;
+    }
+
+    let doubled_state = ark_double_with_line(ark_miller_point_from_affine(seed_point)).0;
+    let current_affine = ark_miller_point_to_affine(doubled_state);
+    if addend == current_affine || addend == -current_affine {
+      continue;
+    }
+
+    let (next_point, line) = ark_mixed_add_with_line(doubled_state, addend);
+    let expected_point = ark_miller_point_to_affine(next_point);
+
+    assert_satisfied(&G2MixedAddWithLineCircuit::new(
+      ark_to_miller_point_constant(doubled_state),
+      ark_to_assigned_g2_coords(addend),
+      ark_to_assigned_g2_coords(expected_point),
+      ark_to_line_coeffs_constant(line),
+    ));
+  }
+}
+
+#[test]
+fn g2_line_coeff_evaluation_matches_sparse_fp12_embedding() {
+  let g2_point = ArkG2Affine::generator();
+  let g1_point = ArkG1Affine::generator();
+  let (_, line) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
+  let expected = ark_line_evaluation(line, g1_point);
+
+  assert_satisfied(&G2LineEvaluationCircuit::new(
+    ark_to_line_coeffs_constant(line),
+    ark_to_midnight_fq(g1_point.x),
+    ark_to_midnight_fq(g1_point.y),
+    &ark_to_midnight_fq12(&expected),
+  ));
+}
+
+#[test]
+fn g2_mixed_add_with_line_same_point_is_not_supported_in_this_slice() {
+  let point = ArkG2Affine::generator();
+  let current_state = ark_miller_point_from_affine(point);
+  let honest_double = (point.into_group() + point).into_affine();
+  let (_, honest_line) = ark_double_with_line(current_state);
+
+  assert!(!prover_result(&G2MixedAddWithLineCircuit::new(
+    ark_to_miller_point_constant(current_state),
+    ark_to_assigned_g2_coords(point),
+    ark_to_assigned_g2_coords(honest_double),
+    ark_to_line_coeffs_constant(honest_line),
+  )));
+}
+
+#[test]
 fn g2_assert_equal_accepts_identical_points() {
   let point = ark_to_assigned_g2_coords(ArkG2Affine::generator());
 
@@ -854,15 +1045,21 @@ fn g2_layout_metrics_are_real_and_nonzero() {
   let from_affine_metrics = g2_proj_from_affine_layout_metrics();
   let double_metrics = g2_proj_double_layout_metrics();
   let add_metrics = g2_proj_add_layout_metrics();
+  let double_with_line_metrics = g2_double_with_line_layout_metrics();
+  let mixed_add_with_line_metrics = g2_mixed_add_with_line_layout_metrics();
 
   assert!(on_curve_metrics.rows > 0);
   assert!(neg_metrics.rows > 0);
   assert!(from_affine_metrics.rows > 0);
   assert!(double_metrics.rows > 0);
   assert!(add_metrics.rows > 0);
+  assert!(double_with_line_metrics.rows > 0);
+  assert!(mixed_add_with_line_metrics.rows > 0);
   assert!(on_curve_metrics.column_queries > 0);
   assert!(neg_metrics.column_queries > 0);
   assert!(from_affine_metrics.column_queries > 0);
   assert!(double_metrics.column_queries > 0);
   assert!(add_metrics.column_queries > 0);
+  assert!(double_with_line_metrics.column_queries > 0);
+  assert!(mixed_add_with_line_metrics.column_queries > 0);
 }

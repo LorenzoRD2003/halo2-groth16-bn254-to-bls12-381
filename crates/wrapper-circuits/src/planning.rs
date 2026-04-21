@@ -7,8 +7,9 @@ use crate::{
   fp2_add_layout_metrics, fp2_mul_layout_metrics, fp2_square_layout_metrics,
   fp6_add_layout_metrics, fp6_mul_layout_metrics, fp6_square_layout_metrics,
   fp12_add_layout_metrics, fp12_mul_layout_metrics, fp12_square_layout_metrics,
-  g1_add_layout_metrics, g2_neg_layout_metrics, g2_on_curve_layout_metrics,
-  g2_proj_add_layout_metrics, g2_proj_double_layout_metrics, g2_proj_from_affine_layout_metrics,
+  g1_add_layout_metrics, g2_double_with_line_layout_metrics, g2_mixed_add_with_line_layout_metrics,
+  g2_neg_layout_metrics, g2_on_curve_layout_metrics, g2_proj_add_layout_metrics,
+  g2_proj_double_layout_metrics, g2_proj_from_affine_layout_metrics,
 };
 
 /// Layout and cost data for the currently implemented primitive layer.
@@ -82,6 +83,14 @@ pub struct PrimitiveCostTable {
   pub g2_proj_add_layout: LayoutMetrics,
   /// G2 projective addition cost summary.
   pub g2_proj_add: CostEstimate,
+  /// G2 Miller-path doubling-with-line layout metrics.
+  pub g2_double_with_line_layout: LayoutMetrics,
+  /// G2 Miller-path doubling-with-line cost summary.
+  pub g2_double_with_line: CostEstimate,
+  /// G2 Miller-path mixed-add-with-line layout metrics.
+  pub g2_mixed_add_with_line_layout: LayoutMetrics,
+  /// G2 Miller-path mixed-add-with-line cost summary.
+  pub g2_mixed_add_with_line: CostEstimate,
 }
 
 /// Read-only planning view for CLI inspection.
@@ -126,6 +135,8 @@ impl CircuitPlanningView {
     let g2_projective_from_affine_layout = g2_proj_from_affine_layout_metrics();
     let g2_projective_double_layout = g2_proj_double_layout_metrics();
     let g2_projective_add_layout = g2_proj_add_layout_metrics();
+    let g2_double_with_line_layout = g2_double_with_line_layout_metrics();
+    let g2_mixed_add_with_line_layout = g2_mixed_add_with_line_layout_metrics();
 
     PrimitiveCostTable {
       fp_add: base_field_add_layout.cost_estimate(),
@@ -162,6 +173,10 @@ impl CircuitPlanningView {
       g2_proj_double_layout: g2_projective_double_layout,
       g2_proj_add: g2_projective_add_layout.cost_estimate(),
       g2_proj_add_layout: g2_projective_add_layout,
+      g2_double_with_line: g2_double_with_line_layout.cost_estimate(),
+      g2_double_with_line_layout,
+      g2_mixed_add_with_line: g2_mixed_add_with_line_layout.cost_estimate(),
+      g2_mixed_add_with_line_layout,
     }
   }
 }

@@ -3,8 +3,9 @@
 use criterion::{BenchmarkId, Criterion};
 use midnight_proofs::dev::MockProver;
 use wrapper_circuits::{
-  G1AddCircuit, G2NegCircuit, G2OnCurveCircuit, G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit,
-  G2ProjectiveFromAffineCircuit, g1_add_k, g2_neg_k, g2_on_curve_k, g2_proj_add_k,
+  G1AddCircuit, G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
+  G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit, g1_add_k,
+  g2_double_with_line_k, g2_mixed_add_with_line_k, g2_neg_k, g2_on_curve_k, g2_proj_add_k,
   g2_proj_double_k, g2_proj_from_affine_k,
 };
 
@@ -52,6 +53,22 @@ fn run_g2_proj_add_circuit() {
   let circuit = G2ProjectiveAddCircuit::sample();
   let prover = MockProver::run(g2_proj_add_k(), &circuit, vec![vec![], vec![]])
     .expect("g2 projective add circuit should build");
+
+  assert_eq!(prover.verify(), Ok(()));
+}
+
+fn run_g2_double_with_line_circuit() {
+  let circuit = G2DoubleWithLineCircuit::sample();
+  let prover = MockProver::run(g2_double_with_line_k(), &circuit, vec![vec![], vec![]])
+    .expect("g2 double_with_line circuit should build");
+
+  assert_eq!(prover.verify(), Ok(()));
+}
+
+fn run_g2_mixed_add_with_line_circuit() {
+  let circuit = G2MixedAddWithLineCircuit::sample();
+  let prover = MockProver::run(g2_mixed_add_with_line_k(), &circuit, vec![vec![], vec![]])
+    .expect("g2 mixed_add_with_line circuit should build");
 
   assert_eq!(prover.verify(), Ok(()));
 }
@@ -106,6 +123,24 @@ pub fn bench_g2_proj_add(criterion: &mut Criterion) {
   let mut group = criterion.benchmark_group("ecc");
   group.bench_with_input(BenchmarkId::new("bench_g2_proj_add", 1), &1_u8, |bench, _| {
     bench.iter(run_g2_proj_add_circuit);
+  });
+  group.finish();
+}
+
+/// Benchmarks the current Midnight-backed BN254 G2 doubling-with-line circuit.
+pub fn bench_g2_double_with_line(criterion: &mut Criterion) {
+  let mut group = criterion.benchmark_group("ecc");
+  group.bench_with_input(BenchmarkId::new("bench_g2_double_with_line", 1), &1_u8, |bench, _| {
+    bench.iter(run_g2_double_with_line_circuit);
+  });
+  group.finish();
+}
+
+/// Benchmarks the current Midnight-backed BN254 G2 mixed-add-with-line circuit.
+pub fn bench_g2_mixed_add_with_line(criterion: &mut Criterion) {
+  let mut group = criterion.benchmark_group("ecc");
+  group.bench_with_input(BenchmarkId::new("bench_g2_mixed_add_with_line", 1), &1_u8, |bench, _| {
+    bench.iter(run_g2_mixed_add_with_line_circuit);
   });
   group.finish();
 }

@@ -5,8 +5,8 @@ use crate::metrics::LayoutMetrics;
 use super::{
   Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit,
   Fp12AddCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit, FpMulCircuit, G1AddCircuit,
-  G2NegCircuit, G2OnCurveCircuit, G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit,
-  G2ProjectiveFromAffineCircuit, NativeField,
+  G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
+  G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit, NativeField,
 };
 
 /// Models a circuit and returns real layout metrics.
@@ -117,6 +117,18 @@ pub fn g2_proj_add_layout_metrics() -> LayoutMetrics {
   measure_layout(&G2ProjectiveAddCircuit::sample())
 }
 
+/// Real layout metrics for the current BN254 G2 Miller-path doubling-with-line circuit.
+#[must_use]
+pub fn g2_double_with_line_layout_metrics() -> LayoutMetrics {
+  measure_layout(&G2DoubleWithLineCircuit::sample())
+}
+
+/// Real layout metrics for the current BN254 G2 Miller-path mixed-add-with-line circuit.
+#[must_use]
+pub fn g2_mixed_add_with_line_layout_metrics() -> LayoutMetrics {
+  measure_layout(&G2MixedAddWithLineCircuit::sample())
+}
+
 /// Returns the smallest power-of-two domain reported by the cost model.
 #[must_use]
 pub fn fp_add_k() -> u32 {
@@ -217,4 +229,16 @@ pub fn g2_proj_double_k() -> u32 {
 #[must_use]
 pub fn g2_proj_add_k() -> u32 {
   g2_proj_add_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn g2_double_with_line_k() -> u32 {
+  g2_double_with_line_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn g2_mixed_add_with_line_k() -> u32 {
+  g2_mixed_add_with_line_layout_metrics().k
 }

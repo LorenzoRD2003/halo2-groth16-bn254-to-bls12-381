@@ -140,6 +140,20 @@ impl AssignedFp2 {
     Ok(Self::new(chip.sub(layouter, &a_sq, &b_sq)?, two_ab))
   }
 
+  /// Scales an Fp2 value by a BN254 base-field element inside the circuit.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if either coordinate multiplication fails.
+  pub fn scale_by_fp(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    scalar: &AssignedFp,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(chip.mul(layouter, &self.c0, scalar)?, chip.mul(layouter, &self.c1, scalar)?))
+  }
+
   /// Asserts coordinate-wise equality against another assigned Fp2 value.
   ///
   /// # Errors

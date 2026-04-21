@@ -41,7 +41,7 @@ impl ProjectStatusReport {
         "bn254 fp, fp2, fp6, fp12, g1, and narrow g2 affine/projective support are still early-stage foundations only"
           .to_owned(),
         "no subgroup checks beyond the selected g1 construction path".to_owned(),
-        "g2 support is still limited to affine checks plus incomplete Jacobian from_affine/neg/double/add primitives"
+        "g2 support is still limited to affine checks, narrow Jacobian from_affine/neg/double/add primitives, and Miller-path double_with_line/mixed_add_with_line steps"
           .to_owned(),
         "no pairings".to_owned(),
         "no Groth16 verifier logic".to_owned(),
