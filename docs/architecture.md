@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 now includes a first Fp2 slice, a minimal G2 affine slice, and a narrow Jacobian G2 projective slice. It still does not implement subgroup checks, scalar multiplication, pairings, verifier logic, or a production wrapper circuit.
+This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 / early Week 3 now includes a first Fp2 slice, a minimal Fp6 slice, a minimal G2 affine slice, and a narrow Jacobian G2 projective slice. It still does not implement subgroup checks, scalar multiplication, Fp12, pairings, verifier logic, or a production wrapper circuit.
 
 ## Intended Data Flow
 
@@ -34,7 +34,7 @@ Circuit code and backend integration change for different reasons.
 - chip and gadget organization
 - layout and witness-shape planning
 - outer wrapper circuit boundary definitions
-- the BN254 foreign-field layer introduced in Week 1 and extended in early Week 2 with Fp2
+- the BN254 foreign-field layer introduced in Week 1 and extended in early Week 2 / early Week 3 with Fp2 and Fp6
 - the BN254 G1 abstraction layer introduced in Week 1
 - the BN254 G2 affine representation layer introduced in Week 2
 - the BN254 G2 Jacobian projective layer introduced in the next Week 2 slice
@@ -73,9 +73,28 @@ Current properties:
 
 Current limitations:
 
-- no Fp6, Fp12, or pairing-specific arithmetic yet
+- no Fp12 or pairing-specific arithmetic yet
 - no production-oriented optimization or custom layout tuning yet
 - row and query reporting is real, but still only for the narrow implemented circuits
+
+## BN254 Fp6 Layer
+
+The next extension-field slice adds an `AssignedFp6` abstraction in `wrapper-circuits`.
+
+Current properties:
+
+- Fp6 elements represented as `(c0, c1, c2)` for `c0 + c1 * v + c2 * v^2`
+- exact arkworks BN254 tower: `Fp2 = Fp[u] / (u^2 + 1)` and `Fp6 = Fp2[v] / (v^3 - (9 + u))`
+- exact arkworks BN254 cubic nonresidue `9 + u`
+- circuit-backed `add`, `sub`, `neg`, `mul`, and `square`
+- deterministic arkworks-backed randomized correctness tests
+- real layout metrics for `fp6_add`, `fp6_mul`, and `fp6_square`
+
+Current limitations:
+
+- no inversion in this slice
+- no Fp12 yet
+- no pairing-specific line-function or Miller-loop logic yet
 
 ## BN254 G1 Abstraction Layer
 

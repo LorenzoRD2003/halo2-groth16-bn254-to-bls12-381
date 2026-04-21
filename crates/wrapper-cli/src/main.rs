@@ -129,6 +129,30 @@ fn run_doctor() {
     primitive_costs.fp2_square_layout.fixed_columns
   );
   println!(
+    "  - fp6 add: {} rows / {} queries (k={}, advice={}, fixed={})",
+    primitive_costs.fp6_add.rows,
+    primitive_costs.fp6_add.constraints,
+    primitive_costs.fp6_add_layout.k,
+    primitive_costs.fp6_add_layout.advice_columns,
+    primitive_costs.fp6_add_layout.fixed_columns
+  );
+  println!(
+    "  - fp6 mul: {} rows / {} queries (k={}, advice={}, fixed={})",
+    primitive_costs.fp6_mul.rows,
+    primitive_costs.fp6_mul.constraints,
+    primitive_costs.fp6_mul_layout.k,
+    primitive_costs.fp6_mul_layout.advice_columns,
+    primitive_costs.fp6_mul_layout.fixed_columns
+  );
+  println!(
+    "  - fp6 square: {} rows / {} queries (k={}, advice={}, fixed={})",
+    primitive_costs.fp6_square.rows,
+    primitive_costs.fp6_square.constraints,
+    primitive_costs.fp6_square_layout.k,
+    primitive_costs.fp6_square_layout.advice_columns,
+    primitive_costs.fp6_square_layout.fixed_columns
+  );
+  println!(
     "  - g1 add: {} rows / {} queries (k={}, advice={}, fixed={}, lookups={})",
     primitive_costs.g1_add.rows,
     primitive_costs.g1_add.constraints,
@@ -192,6 +216,9 @@ fn run_bench_info() {
   println!("  - bench_fp2_add");
   println!("  - bench_fp2_mul");
   println!("  - bench_fp2_square");
+  println!("  - bench_fp6_add");
+  println!("  - bench_fp6_mul");
+  println!("  - bench_fp6_square");
   println!("  - bench_g1_add");
   println!("  - bench_g2_on_curve");
   println!("  - bench_g2_neg");
@@ -231,12 +258,12 @@ fn run_validate_config(path: &PathBuf) -> Result<()> {
 fn run_about() {
   info!("printing project overview");
   println!("Project: Halo2 wrapper workspace");
-  println!("Phase: stage 1 / week 2 (fp2 + narrow g2 affine/projective)");
+  println!("Phase: stage 1 / week 2 to early week 3 (fp2 + fp6 + narrow g2 affine/projective)");
   println!("Purpose: stage a serious multi-crate codebase for Halo2 wrapper research.");
   println!(
-    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg plus projective from_affine/add/double/neg, CLI, and sanity-check benches."
+    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2/fp6 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg plus projective from_affine/add/double/neg, CLI, and sanity-check benches."
   );
   println!(
-    "Not implemented: G2 subgroup checks or scalar multiplication, Fp6/Fp12, pairings, Groth16 verification, and wrapper verifier circuits."
+    "Not implemented: G2 subgroup checks or scalar multiplication, Fp12, pairings, Groth16 verification, and wrapper verifier circuits."
   );
 }

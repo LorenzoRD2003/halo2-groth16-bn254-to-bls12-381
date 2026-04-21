@@ -4,7 +4,8 @@ use wrapper_core::{LayoutDescriptor, ProjectConfig};
 
 use crate::{
   CostEstimate, LayoutMetrics, fp_add_layout_metrics, fp_mul_layout_metrics,
-  fp2_add_layout_metrics, fp2_mul_layout_metrics, fp2_square_layout_metrics, g1_add_layout_metrics,
+  fp2_add_layout_metrics, fp2_mul_layout_metrics, fp2_square_layout_metrics,
+  fp6_add_layout_metrics, fp6_mul_layout_metrics, fp6_square_layout_metrics, g1_add_layout_metrics,
   g2_neg_layout_metrics, g2_on_curve_layout_metrics, g2_proj_add_layout_metrics,
   g2_proj_double_layout_metrics, g2_proj_from_affine_layout_metrics,
 };
@@ -32,6 +33,18 @@ pub struct PrimitiveCostTable {
   pub fp2_square_layout: LayoutMetrics,
   /// Fp2 square cost summary.
   pub fp2_square: CostEstimate,
+  /// Fp6 addition layout metrics.
+  pub fp6_add_layout: LayoutMetrics,
+  /// Fp6 addition cost summary.
+  pub fp6_add: CostEstimate,
+  /// Fp6 multiplication layout metrics.
+  pub fp6_mul_layout: LayoutMetrics,
+  /// Fp6 multiplication cost summary.
+  pub fp6_mul: CostEstimate,
+  /// Fp6 square layout metrics.
+  pub fp6_square_layout: LayoutMetrics,
+  /// Fp6 square cost summary.
+  pub fp6_square: CostEstimate,
   /// G1 addition layout metrics.
   pub g1_add_layout: LayoutMetrics,
   /// G1 addition cost summary.
@@ -88,6 +101,9 @@ impl CircuitPlanningView {
     let quadratic_field_add_layout = fp2_add_layout_metrics();
     let quadratic_field_mul_layout = fp2_mul_layout_metrics();
     let quadratic_field_square_layout = fp2_square_layout_metrics();
+    let cubic_field_add_layout = fp6_add_layout_metrics();
+    let cubic_field_mul_layout = fp6_mul_layout_metrics();
+    let cubic_field_square_layout = fp6_square_layout_metrics();
     let g1_point_add_layout = g1_add_layout_metrics();
     let g2_affine_on_curve_layout = g2_on_curve_layout_metrics();
     let g2_affine_neg_layout = g2_neg_layout_metrics();
@@ -106,6 +122,12 @@ impl CircuitPlanningView {
       fp2_mul_layout: quadratic_field_mul_layout,
       fp2_square: quadratic_field_square_layout.cost_estimate(),
       fp2_square_layout: quadratic_field_square_layout,
+      fp6_add: cubic_field_add_layout.cost_estimate(),
+      fp6_add_layout: cubic_field_add_layout,
+      fp6_mul: cubic_field_mul_layout.cost_estimate(),
+      fp6_mul_layout: cubic_field_mul_layout,
+      fp6_square: cubic_field_square_layout.cost_estimate(),
+      fp6_square_layout: cubic_field_square_layout,
       g1_add: g1_point_add_layout.cost_estimate(),
       g1_add_layout: g1_point_add_layout,
       g2_on_curve: g2_affine_on_curve_layout.cost_estimate(),

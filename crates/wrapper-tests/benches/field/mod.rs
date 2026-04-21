@@ -3,8 +3,9 @@
 use criterion::{BenchmarkId, Criterion};
 use midnight_proofs::dev::MockProver;
 use wrapper_circuits::{
-  Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, FpAddCircuit, FpMulCircuit, fp_add_k, fp_mul_k,
-  fp2_add_k, fp2_mul_k, fp2_square_k,
+  Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit,
+  FpAddCircuit, FpMulCircuit, fp_add_k, fp_mul_k, fp2_add_k, fp2_mul_k, fp2_square_k, fp6_add_k,
+  fp6_mul_k, fp6_square_k,
 };
 
 fn run_fp_add_circuit() {
@@ -43,6 +44,30 @@ fn run_fp2_square_circuit() {
   let circuit = Fp2SquareCircuit::sample();
   let prover = MockProver::run(fp2_square_k(), &circuit, vec![vec![], vec![]])
     .expect("fp2 square circuit should build");
+
+  assert_eq!(prover.verify(), Ok(()));
+}
+
+fn run_fp6_add_circuit() {
+  let circuit = Fp6AddCircuit::sample();
+  let prover = MockProver::run(fp6_add_k(), &circuit, vec![vec![], vec![]])
+    .expect("fp6 add circuit should build");
+
+  assert_eq!(prover.verify(), Ok(()));
+}
+
+fn run_fp6_mul_circuit() {
+  let circuit = Fp6MulCircuit::sample();
+  let prover = MockProver::run(fp6_mul_k(), &circuit, vec![vec![], vec![]])
+    .expect("fp6 mul circuit should build");
+
+  assert_eq!(prover.verify(), Ok(()));
+}
+
+fn run_fp6_square_circuit() {
+  let circuit = Fp6SquareCircuit::sample();
+  let prover = MockProver::run(fp6_square_k(), &circuit, vec![vec![], vec![]])
+    .expect("fp6 square circuit should build");
 
   assert_eq!(prover.verify(), Ok(()));
 }
@@ -88,6 +113,33 @@ pub fn bench_fp2_square(criterion: &mut Criterion) {
   let mut group = criterion.benchmark_group("field");
   group.bench_with_input(BenchmarkId::new("bench_fp2_square", 1), &1_u8, |bench, _| {
     bench.iter(run_fp2_square_circuit);
+  });
+  group.finish();
+}
+
+/// Benchmarks the current Midnight-backed BN254 Fp6 addition circuit.
+pub fn bench_fp6_add(criterion: &mut Criterion) {
+  let mut group = criterion.benchmark_group("field");
+  group.bench_with_input(BenchmarkId::new("bench_fp6_add", 1), &1_u8, |bench, _| {
+    bench.iter(run_fp6_add_circuit);
+  });
+  group.finish();
+}
+
+/// Benchmarks the current Midnight-backed BN254 Fp6 multiplication circuit.
+pub fn bench_fp6_mul(criterion: &mut Criterion) {
+  let mut group = criterion.benchmark_group("field");
+  group.bench_with_input(BenchmarkId::new("bench_fp6_mul", 1), &1_u8, |bench, _| {
+    bench.iter(run_fp6_mul_circuit);
+  });
+  group.finish();
+}
+
+/// Benchmarks the current Midnight-backed BN254 Fp6 square circuit.
+pub fn bench_fp6_square(criterion: &mut Criterion) {
+  let mut group = criterion.benchmark_group("field");
+  group.bench_with_input(BenchmarkId::new("bench_fp6_square", 1), &1_u8, |bench, _| {
+    bench.iter(run_fp6_square_circuit);
   });
   group.finish();
 }

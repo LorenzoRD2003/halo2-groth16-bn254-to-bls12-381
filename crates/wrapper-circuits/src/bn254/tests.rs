@@ -1,9 +1,9 @@
 use ark_bn254::{
-  Fq as ArkFq, Fq2 as ArkFq2, G1Affine as ArkG1Affine, G1Projective as ArkG1Projective,
-  G2Affine as ArkG2Affine, G2Projective as ArkG2Projective, g2,
+  Fq as ArkFq, Fq2 as ArkFq2, Fq6 as ArkFq6, Fq6Config as ArkFq6Config, G1Affine as ArkG1Affine,
+  G1Projective as ArkG1Projective, G2Affine as ArkG2Affine, G2Projective as ArkG2Projective, g2,
 };
 use ark_ec::{AffineRepr, CurveGroup, models::short_weierstrass::SWCurveConfig};
-use ark_ff::{BigInteger, PrimeField, UniformRand};
+use ark_ff::{BigInteger, Fp6Config, PrimeField, UniformRand};
 use ff::{Field, PrimeField as HaloPrimeField};
 use halo2curves::group::Group;
 use midnight_circuits::midnight_proofs::{
@@ -19,6 +19,8 @@ use super::metrics::measure_layout;
 use super::*;
 
 type Fp2AssignedValue = (Value<ForeignField>, Value<ForeignField>);
+type Fp6ConstantValue =
+  ((ForeignField, ForeignField), (ForeignField, ForeignField), (ForeignField, ForeignField));
 type G2AssignedValue = (Fp2AssignedValue, Fp2AssignedValue);
 type G2ConstantValue = ((ForeignField, ForeignField), (ForeignField, ForeignField));
 
@@ -49,6 +51,10 @@ fn ark_to_midnight_g1(point: ArkG1Affine) -> ForeignCurve {
 
 fn ark_to_midnight_fq2(value: ArkFq2) -> (ForeignField, ForeignField) {
   (ark_to_midnight_fq(value.c0), ark_to_midnight_fq(value.c1))
+}
+
+fn ark_to_midnight_fq6(value: ArkFq6) -> Fp6ConstantValue {
+  (ark_to_midnight_fq2(value.c0), ark_to_midnight_fq2(value.c1), ark_to_midnight_fq2(value.c2))
 }
 
 fn ark_to_assigned_g2_coords(
@@ -257,6 +263,134 @@ fn fp2_layout_metrics_are_real_and_nonzero() {
 }
 
 #[test]
+fn fp6_nonresidue_matches_arkworks() {
+  assert_eq!(fp6_nonresidue(), ark_to_midnight_fq2(ArkFq6Config::NONRESIDUE));
+}
+
+#[test]
+fn fp6_zero_plus_x_is_x() {
+  let x = ArkFq6::new(
+    ArkFq2::new(ArkFq::from(5_u64), ArkFq::from(8_u64)),
+    ArkFq2::new(ArkFq::from(13_u64), ArkFq::from(21_u64)),
+    ArkFq2::new(ArkFq::from(34_u64), ArkFq::from(55_u64)),
+  );
+  let zero = ArkFq6::new(
+    ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+    ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+    ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+  );
+
+  assert_satisfied(&Fp6AddCircuit::new(ark_to_midnight_fq6(zero), ark_to_midnight_fq6(x)));
+}
+
+#[test]
+fn fp6_one_times_x_is_x() {
+  let x = ArkFq6::new(
+    ArkFq2::new(ArkFq::from(9_u64), ArkFq::from(4_u64)),
+    ArkFq2::new(ArkFq::from(7_u64), ArkFq::from(3_u64)),
+    ArkFq2::new(ArkFq::from(11_u64), ArkFq::from(6_u64)),
+  );
+  let one = ArkFq6::new(
+    ArkFq2::new(ArkFq::from(1_u64), ArkFq::from(0_u64)),
+    ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+    ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+  );
+
+  assert_satisfied(&Fp6MulCircuit::new(ark_to_midnight_fq6(one), ark_to_midnight_fq6(x)));
+}
+
+#[test]
+fn fp6_x_plus_neg_x_is_zero() {
+  let x = ArkFq6::new(
+    ArkFq2::new(ArkFq::from(12_u64), ArkFq::from(19_u64)),
+    ArkFq2::new(ArkFq::from(2_u64), ArkFq::from(7_u64)),
+    ArkFq2::new(ArkFq::from(5_u64), ArkFq::from(14_u64)),
+  );
+
+  assert_satisfied(&Fp6AddCircuit::new(ark_to_midnight_fq6(x), ark_to_midnight_fq6(-x)));
+}
+
+#[test]
+fn fp6_randomized_additions_match_arkworks() {
+  let mut rng = ChaCha20Rng::from_seed([61_u8; 32]);
+
+  for _ in 0..10 {
+    let left = ArkFq6::rand(&mut rng);
+    let right = ArkFq6::rand(&mut rng);
+
+    assert_satisfied(&Fp6AddCircuit::new(ark_to_midnight_fq6(left), ark_to_midnight_fq6(right)));
+  }
+}
+
+#[test]
+fn fp6_randomized_multiplications_match_arkworks() {
+  let mut rng = ChaCha20Rng::from_seed([62_u8; 32]);
+
+  for _ in 0..10 {
+    let left = ArkFq6::rand(&mut rng);
+    let right = ArkFq6::rand(&mut rng);
+
+    assert_satisfied(&Fp6MulCircuit::new(ark_to_midnight_fq6(left), ark_to_midnight_fq6(right)));
+  }
+}
+
+#[test]
+fn fp6_randomized_squares_match_arkworks() {
+  let mut rng = ChaCha20Rng::from_seed([63_u8; 32]);
+
+  for _ in 0..10 {
+    let value = ArkFq6::rand(&mut rng);
+
+    assert_satisfied(&Fp6SquareCircuit::new(ark_to_midnight_fq6(value)));
+  }
+}
+
+#[test]
+fn fp6_edge_cases_match_arkworks() {
+  let vectors = [
+    ArkFq6::new(
+      ArkFq2::new(ArkFq::from(7_u64), ArkFq::from(0_u64)),
+      ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+      ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+    ),
+    ArkFq6::new(
+      ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+      ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(9_u64)),
+      ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+    ),
+    ArkFq6::new(
+      ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+      ArkFq2::new(ArkFq::from(0_u64), ArkFq::from(0_u64)),
+      ArkFq2::new(ArkFq::from(4_u64), ArkFq::from(6_u64)),
+    ),
+    ArkFq6::new(
+      ArkFq2::new(ArkFq::from(1_u64), ArkFq::from(1_u64)),
+      ArkFq2::new(ArkFq::from(2_u64), ArkFq::from(3_u64)),
+      ArkFq2::new(ArkFq::from(5_u64), ArkFq::from(8_u64)),
+    ),
+  ];
+
+  assert_satisfied(&Fp6AddCircuit::new(
+    ark_to_midnight_fq6(vectors[0]),
+    ark_to_midnight_fq6(vectors[1]),
+  ));
+  assert_satisfied(&Fp6MulCircuit::new(
+    ark_to_midnight_fq6(vectors[0]),
+    ark_to_midnight_fq6(vectors[3]),
+  ));
+  assert_satisfied(&Fp6MulCircuit::new(
+    ark_to_midnight_fq6(vectors[1]),
+    ark_to_midnight_fq6(vectors[3]),
+  ));
+  assert_satisfied(&Fp6MulCircuit::new(
+    ark_to_midnight_fq6(vectors[2]),
+    ark_to_midnight_fq6(vectors[3]),
+  ));
+  assert_satisfied(&Fp6SquareCircuit::new(ark_to_midnight_fq6(vectors[2])));
+  assert_satisfied(&Fp6SquareCircuit::new(ark_to_midnight_fq6(vectors[3])));
+}
+
+#[test]
 fn fp_layout_metrics_are_real_and_nonzero() {
   let add_metrics = fp_add_layout_metrics();
   let mul_metrics = fp_mul_layout_metrics();
@@ -264,6 +398,20 @@ fn fp_layout_metrics_are_real_and_nonzero() {
   assert!(add_metrics.rows > 0);
   assert!(mul_metrics.rows > 0);
   assert!(mul_metrics.column_queries > 0);
+}
+
+#[test]
+fn fp6_layout_metrics_are_real_and_nonzero() {
+  let add_metrics = fp6_add_layout_metrics();
+  let mul_metrics = fp6_mul_layout_metrics();
+  let square_metrics = fp6_square_layout_metrics();
+
+  assert!(add_metrics.rows > 0);
+  assert!(mul_metrics.rows > 0);
+  assert!(square_metrics.rows > 0);
+  assert!(add_metrics.column_queries > 0);
+  assert!(mul_metrics.column_queries > 0);
+  assert!(square_metrics.column_queries > 0);
 }
 
 #[test]
@@ -447,9 +595,6 @@ fn g2_projective_addition_matches_arkworks_for_distinct_points() {
 
     while right == left || right == -left {
       right = ArkG2Projective::rand(&mut rng).into_affine();
-      if right.is_zero() {
-        continue;
-      }
     }
 
     let expected = (left.into_group() + right).into_affine();

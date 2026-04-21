@@ -38,12 +38,12 @@ impl ProjectStatusReport {
       phase: ProjectPhase::Stage1,
       capabilities: CapabilityMatrix::scaffolded(),
       limitations: vec![
-        "bn254 fp, fp2, g1, and narrow g2 affine/projective support are still early-stage foundations only"
+        "bn254 fp, fp2, fp6, g1, and narrow g2 affine/projective support are still early-stage foundations only"
           .to_owned(),
         "no subgroup checks beyond the selected g1 construction path".to_owned(),
         "g2 support is still limited to affine checks plus incomplete Jacobian from_affine/neg/double/add primitives"
           .to_owned(),
-        "no fp6 or fp12 support".to_owned(),
+        "no fp12 support".to_owned(),
         "no pairings".to_owned(),
         "no Groth16 verifier logic".to_owned(),
         "no wrapper verifier circuit beyond the narrow primitive layer".to_owned(),
