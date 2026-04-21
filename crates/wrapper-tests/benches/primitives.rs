@@ -18,6 +18,9 @@ criterion_group!(
   field::bench_fp2_square,
   ecc::bench_g1_add,
   ecc::bench_g2_on_curve,
-  ecc::bench_g2_neg
+  ecc::bench_g2_neg,
+  ecc::bench_g2_proj_from_affine,
+  ecc::bench_g2_proj_double,
+  ecc::bench_g2_proj_add
 );
 criterion_main!(primitive_benches);

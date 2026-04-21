@@ -379,6 +379,125 @@ fn g2_negation_preserves_on_curve_validity() {
 }
 
 #[test]
+fn g2_projective_identity_encoding_is_available() {
+  assert_satisfied(&G2ProjectiveIdentityCircuit);
+}
+
+#[test]
+fn g2_projective_from_affine_matches_the_same_affine_point() {
+  let mut rng = ChaCha20Rng::from_seed([53_u8; 32]);
+
+  for _ in 0..6 {
+    let point = ArkG2Projective::rand(&mut rng).into_affine();
+    if point.is_zero() {
+      continue;
+    }
+
+    assert_satisfied(&G2ProjectiveFromAffineCircuit::new(ark_to_assigned_g2_coords(point)));
+  }
+}
+
+#[test]
+fn g2_projective_negation_matches_arkworks() {
+  let mut rng = ChaCha20Rng::from_seed([54_u8; 32]);
+
+  for _ in 0..6 {
+    let point = ArkG2Projective::rand(&mut rng).into_affine();
+    if point.is_zero() {
+      continue;
+    }
+
+    let negated = -point;
+    assert_satisfied(&G2ProjectiveNegCircuit::new(
+      ark_to_assigned_g2_coords(point),
+      ark_to_assigned_g2_coords(negated),
+    ));
+  }
+}
+
+#[test]
+fn g2_projective_doubling_matches_arkworks() {
+  let mut rng = ChaCha20Rng::from_seed([55_u8; 32]);
+
+  for _ in 0..8 {
+    let point = ArkG2Projective::rand(&mut rng).into_affine();
+    if point.is_zero() {
+      continue;
+    }
+
+    let doubled = (point.into_group() + point).into_affine();
+    assert_satisfied(&G2ProjectiveDoubleCircuit::new(
+      ark_to_assigned_g2_coords(point),
+      ark_to_assigned_g2_coords(doubled),
+    ));
+  }
+}
+
+#[test]
+fn g2_projective_addition_matches_arkworks_for_distinct_points() {
+  let mut rng = ChaCha20Rng::from_seed([56_u8; 32]);
+
+  for _ in 0..8 {
+    let left = ArkG2Projective::rand(&mut rng).into_affine();
+    let mut right = ArkG2Projective::rand(&mut rng).into_affine();
+
+    if left.is_zero() || right.is_zero() {
+      continue;
+    }
+
+    while right == left || right == -left {
+      right = ArkG2Projective::rand(&mut rng).into_affine();
+      if right.is_zero() {
+        continue;
+      }
+    }
+
+    let expected = (left.into_group() + right).into_affine();
+    assert_satisfied(&G2ProjectiveAddCircuit::new(
+      ark_to_assigned_g2_coords(left),
+      ark_to_assigned_g2_coords(right),
+      ark_to_assigned_g2_coords(expected),
+    ));
+  }
+}
+
+#[test]
+fn g2_projective_doubling_matches_generator_edge_case() {
+  let generator = ArkG2Affine::generator();
+  let expected = (generator.into_group() + generator).into_affine();
+
+  assert_satisfied(&G2ProjectiveDoubleCircuit::new(
+    ark_to_assigned_g2_coords(generator),
+    ark_to_assigned_g2_coords(expected),
+  ));
+}
+
+#[test]
+fn g2_projective_addition_matches_generator_plus_double_generator() {
+  let generator = ArkG2Affine::generator();
+  let double_generator = (generator.into_group() + generator).into_affine();
+  let expected = (generator.into_group() + double_generator).into_affine();
+
+  assert_satisfied(&G2ProjectiveAddCircuit::new(
+    ark_to_assigned_g2_coords(generator),
+    ark_to_assigned_g2_coords(double_generator),
+    ark_to_assigned_g2_coords(expected),
+  ));
+}
+
+#[test]
+fn g2_projective_addition_of_inverses_is_not_supported_in_this_slice() {
+  let point = ArkG2Affine::generator();
+  let negated = -point;
+
+  assert!(!prover_result(&G2ProjectiveAddCircuit::new(
+    ark_to_assigned_g2_coords(point),
+    ark_to_assigned_g2_coords(negated),
+    ark_to_assigned_g2_coords(point),
+  )));
+}
+
+#[test]
 fn g2_assert_equal_accepts_identical_points() {
   let point = ark_to_assigned_g2_coords(ArkG2Affine::generator());
 
@@ -400,9 +519,18 @@ fn g2_assert_equal_rejects_distinct_points() {
 fn g2_layout_metrics_are_real_and_nonzero() {
   let on_curve_metrics = g2_on_curve_layout_metrics();
   let neg_metrics = g2_neg_layout_metrics();
+  let from_affine_metrics = g2_proj_from_affine_layout_metrics();
+  let double_metrics = g2_proj_double_layout_metrics();
+  let add_metrics = g2_proj_add_layout_metrics();
 
   assert!(on_curve_metrics.rows > 0);
   assert!(neg_metrics.rows > 0);
+  assert!(from_affine_metrics.rows > 0);
+  assert!(double_metrics.rows > 0);
+  assert!(add_metrics.rows > 0);
   assert!(on_curve_metrics.column_queries > 0);
   assert!(neg_metrics.column_queries > 0);
+  assert!(from_affine_metrics.column_queries > 0);
+  assert!(double_metrics.column_queries > 0);
+  assert!(add_metrics.column_queries > 0);
 }

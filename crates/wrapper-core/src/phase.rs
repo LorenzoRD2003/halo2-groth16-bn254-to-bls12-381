@@ -38,10 +38,10 @@ impl ProjectStatusReport {
       phase: ProjectPhase::Stage1,
       capabilities: CapabilityMatrix::scaffolded(),
       limitations: vec![
-        "bn254 fp, fp2, g1, and minimal g2 affine support are still early-stage foundations only"
+        "bn254 fp, fp2, g1, and narrow g2 affine/projective support are still early-stage foundations only"
           .to_owned(),
         "no subgroup checks beyond the selected g1 construction path".to_owned(),
-        "no g2 arithmetic beyond affine representation, negation, and on-curve validation"
+        "g2 support is still limited to affine checks plus incomplete Jacobian from_affine/neg/double/add primitives"
           .to_owned(),
         "no fp6 or fp12 support".to_owned(),
         "no pairings".to_owned(),

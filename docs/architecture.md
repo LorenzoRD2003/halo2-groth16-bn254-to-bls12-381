@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 has started with a first Fp2 slice plus a minimal G2 affine representation/on-curve slice. It still does not implement G2 arithmetic, pairings, verifier logic, or a production wrapper circuit.
+This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 now includes a first Fp2 slice, a minimal G2 affine slice, and a narrow Jacobian G2 projective slice. It still does not implement subgroup checks, scalar multiplication, pairings, verifier logic, or a production wrapper circuit.
 
 ## Intended Data Flow
 
@@ -37,6 +37,7 @@ Circuit code and backend integration change for different reasons.
 - the BN254 foreign-field layer introduced in Week 1 and extended in early Week 2 with Fp2
 - the BN254 G1 abstraction layer introduced in Week 1
 - the BN254 G2 affine representation layer introduced in Week 2
+- the BN254 G2 Jacobian projective layer introduced in the next Week 2 slice
 
 `wrapper-backends` will eventually own:
 
@@ -110,8 +111,32 @@ Current properties:
 Current limitations:
 
 - no identity/infinity representation in this slice
-- no G2 addition, doubling, projective formulas, or scalar multiplication
 - no subgroup checks yet
+- no pairing support
+
+## BN254 G2 Projective Layer
+
+The next Week 2 slice adds an `AssignedG2Projective` abstraction in `wrapper-circuits`.
+
+Current properties:
+
+- Jacobian coordinates `(X : Y : Z)` over `AssignedFp2`
+- affine model `x = X / Z^2`, `y = Y / Z^3` for `Z != 0`
+- explicit reserved infinity encoding via the conventional Jacobian representative `(1 : 1 : 0)`
+- circuit-backed `from_affine` embedding with `Z = 1`
+- circuit-backed `neg`
+- circuit-backed doubling with the standard short-Weierstrass Jacobian doubling formula for `a = 0` (`dbl-2009-l`)
+- circuit-backed Jacobian-Jacobian addition with the standard incomplete formula (`add-2007-bl`)
+- affine-equivalence checks used in tests and sanity circuits instead of full in-circuit normalization
+- deterministic arkworks-backed randomized correctness tests
+- real layout metrics for `g2_proj_from_affine`, `g2_proj_double`, and `g2_proj_add`
+
+Current limitations:
+
+- arithmetic is intentionally incomplete and only intended for non-identity points
+- `add` does not yet support identity operands, `P = Q`, or `P = -Q`
+- no subgroup checks yet
+- no scalar multiplication yet
 - no pairing support
 
 ## Current Architectural Contracts

@@ -153,6 +153,30 @@ fn run_doctor() {
     primitive_costs.g2_neg_layout.advice_columns,
     primitive_costs.g2_neg_layout.fixed_columns
   );
+  println!(
+    "  - g2 proj from_affine: {} rows / {} queries (k={}, advice={}, fixed={})",
+    primitive_costs.g2_proj_from_affine.rows,
+    primitive_costs.g2_proj_from_affine.constraints,
+    primitive_costs.g2_proj_from_affine_layout.k,
+    primitive_costs.g2_proj_from_affine_layout.advice_columns,
+    primitive_costs.g2_proj_from_affine_layout.fixed_columns
+  );
+  println!(
+    "  - g2 proj double: {} rows / {} queries (k={}, advice={}, fixed={})",
+    primitive_costs.g2_proj_double.rows,
+    primitive_costs.g2_proj_double.constraints,
+    primitive_costs.g2_proj_double_layout.k,
+    primitive_costs.g2_proj_double_layout.advice_columns,
+    primitive_costs.g2_proj_double_layout.fixed_columns
+  );
+  println!(
+    "  - g2 proj add: {} rows / {} queries (k={}, advice={}, fixed={})",
+    primitive_costs.g2_proj_add.rows,
+    primitive_costs.g2_proj_add.constraints,
+    primitive_costs.g2_proj_add_layout.k,
+    primitive_costs.g2_proj_add_layout.advice_columns,
+    primitive_costs.g2_proj_add_layout.fixed_columns
+  );
 }
 
 fn run_bench_info() {
@@ -171,8 +195,11 @@ fn run_bench_info() {
   println!("  - bench_g1_add");
   println!("  - bench_g2_on_curve");
   println!("  - bench_g2_neg");
+  println!("  - bench_g2_proj_from_affine");
+  println!("  - bench_g2_proj_double");
+  println!("  - bench_g2_proj_add");
   println!(
-    "Warning: current benchmarks use small Midnight-backed sanity circuits and do not cover G2 arithmetic, pairings, or verifier logic."
+    "Warning: current benchmarks use small Midnight-backed sanity circuits and do not cover subgroup checks, pairings, or verifier logic."
   );
 }
 
@@ -204,12 +231,12 @@ fn run_validate_config(path: &PathBuf) -> Result<()> {
 fn run_about() {
   info!("printing project overview");
   println!("Project: Halo2 wrapper workspace");
-  println!("Phase: stage 1 / week 2 (fp2 + minimal g2 affine)");
+  println!("Phase: stage 1 / week 2 (fp2 + narrow g2 affine/projective)");
   println!("Purpose: stage a serious multi-crate codebase for Halo2 wrapper research.");
   println!(
-    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2 arithmetic, minimal G1 add/on-curve checks, minimal G2 affine assign/on-curve/neg, CLI, and sanity-check benches."
+    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg plus projective from_affine/add/double/neg, CLI, and sanity-check benches."
   );
   println!(
-    "Not implemented: G2 add/double/subgroup checks, Fp6/Fp12, pairings, Groth16 verification, and wrapper verifier circuits."
+    "Not implemented: G2 subgroup checks or scalar multiplication, Fp6/Fp12, pairings, Groth16 verification, and wrapper verifier circuits."
   );
 }
