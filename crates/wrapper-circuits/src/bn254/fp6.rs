@@ -192,6 +192,26 @@ impl AssignedFp6 {
     Ok(AssignedFp2::new(c0, c1))
   }
 
+  /// Multiplies an Fp6 value by the arkworks BN254 quadratic-over-cubic nonresidue `v`.
+  ///
+  /// The Fp12 tower is `Fp12 = Fp6[w] / (w^2 - v)`, so multiplication by `v`
+  /// maps `(c0, c1, c2)` to `(c2 * (9 + u), c0, c1)` inside the existing Fp6 tower.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any underlying Fp2 operation fails.
+  pub fn mul_by_nonresidue(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      Self::mul_by_nonresidue_fp2(&self.c2, chip, layouter)?,
+      self.c0.clone(),
+      self.c1.clone(),
+    ))
+  }
+
   /// Adds two Fp6 values inside the circuit.
   ///
   /// # Errors

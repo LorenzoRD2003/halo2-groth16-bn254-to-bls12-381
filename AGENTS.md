@@ -4,11 +4,11 @@
 
 This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based wrapper that may eventually verify Groth16 BN254 proofs inside an outer Halo2 proof system.
 
-The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations plus the first narrow Week 2 slices, but it is still far from a Groth16 wrapper verifier.
+The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations, the narrow Week 2 slices, and the current Week 3 extension-field slice, but it is still far from a Groth16 wrapper verifier.
 
 ## Current Phase and Scope Boundaries
 
-Current phase: Stage 1 / Week 2 narrow primitive expansion.
+Current phase: Stage 1 / Week 3 narrow primitive expansion.
 
 Implemented in scope today:
 
@@ -17,30 +17,34 @@ Implemented in scope today:
 - Circuit-backed `fp add`, `fp mul`, and related minimal field wiring
 - Circuit-backed BN254 `fp2` support represented as `a + bu` with `u^2 = -1`
 - `AssignedFp2` over two `AssignedFp` coordinates with `new`, assignment, `zero`, `one`, `add`, `sub`, `neg`, `mul`, `square`, and equality helpers
+- Circuit-backed BN254 `fp6` support represented as `c0 + c1 * v + c2 * v^2`
+- `AssignedFp6` over three `AssignedFp2` coordinates with `new`, assignment, `zero`, `one`, `add`, `sub`, `neg`, `mul`, `square`, and equality helpers
+- Circuit-backed BN254 `fp12` support represented as `c0 + c1 * w`
+- `AssignedFp12` over two `AssignedFp6` coordinates with `new`, assignment, `zero`, `one`, `add`, `sub`, `neg`, `mul`, `square`, and equality helpers
 - Minimal BN254 G1 support backed by Midnight foreign ECC chips
 - Circuit-backed G1 addition
 - Coordinate-to-point construction with on-curve enforcement
 - Minimal BN254 G2 affine support backed by `AssignedFp2`
 - `AssignedG2Affine` with assignment, `neg`, `assert_equal`, and explicit twist `assert_on_curve`
+- Narrow BN254 G2 projective support in Jacobian coordinates over `AssignedFp2`
+- `AssignedG2Projective` with reserved identity encoding plus `from_affine`, `neg`, `double`, and incomplete `add`
 - Real layout and row visibility through the Halo2/Midnight cost model
-- Deterministic arkworks-backed tests for `Fp`, `Fp2`, G1, and minimal G2 affine/on-curve behavior
+- Deterministic arkworks-backed tests for `Fp`, `Fp2`, `Fp6`, `Fp12`, G1, and the current narrow G2 affine/projective behavior
 - Criterion sanity benchmarks for the currently implemented primitive circuits
 - a single authoritative BN254 primitive path in `wrapper-circuits/src/bn254/`
 
 Out of scope right now:
 
-- G2 addition / doubling
 - G2 subgroup checks
-- projective G2 formulas
 - scalar multiplication on G2
-- Fp6 / Fp12
 - pairings
+- line functions
 - Miller loop
 - final exponentiation
 - Groth16 verifier logic
 - MSM as a public supported layer
 - wrapper verifier circuit composition
-- production optimization of layout/cost beyond the narrow Week 1 circuits
+- production optimization of layout/cost beyond the narrow implemented sanity circuits
 
 Do not treat the current code as a full verifier foundation. It is a deliberately narrow primitive layer.
 
@@ -68,7 +72,7 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 `wrapper-circuits`
 
 - Own Halo2-facing code, Midnight integration, circuit planning, and primitive gadget boundaries.
-- Currently owns the BN254 `AssignedFp`, `AssignedFp2`, `AssignedG1`, and minimal `AssignedG2Affine` circuit-backed layer.
+- Currently owns the BN254 `AssignedFp`, `AssignedFp2`, `AssignedFp6`, `AssignedFp12`, `AssignedG1`, `AssignedG2Affine`, and narrow `AssignedG2Projective` circuit-backed layer.
 - Keeps the active BN254 primitive implementation under `src/bn254/`, split by concern instead of one monolithic file.
 - Should depend on `wrapper-core`.
 - Must not absorb artifact parsing or backend-specific concerns.
@@ -119,7 +123,7 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 - Record major cryptographic architecture choices in `docs/decisions/`.
 - Prefer extending the existing Midnight-backed BN254 layer over creating a second incompatible primitive stack.
 
-## Specific Week 1 Guidance
+## Specific Current Primitive Guidance
 
 The current primitive layer is built around:
 
@@ -132,8 +136,10 @@ When touching the current BN254 primitive code:
 
 - keep `fp` work limited to the currently supported primitive surface unless the roadmap explicitly expands it
 - keep `fp2` work aligned with the current representation `Fq2(c0, c1)` and `u^2 = -1`
+- keep `fp6` work aligned with the current representation `Fq6(c0, c1, c2)` and `v^3 = 9 + u`
+- keep `fp12` work aligned with the current representation `Fq12(c0, c1)` and `w^2 = v`
 - keep G1 work limited to the currently supported primitive surface unless the roadmap explicitly expands it
-- keep G2 work limited to the currently supported affine surface unless the roadmap explicitly expands it
+- keep G2 work limited to the currently supported affine plus narrow Jacobian projective surface unless the roadmap explicitly expands it
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
 - keep CLI reporting aligned with the measured state of the codebase
@@ -143,6 +149,12 @@ Concrete BN254 conventions already in use:
 - `AssignedFp2` follows the standard BN254 extension representation `a + bu`
 - `Fq2` coordinate order is `(c0, c1)` to match arkworks
 - `u^2 = -1`
+- `AssignedFp6` follows `c0 + c1 * v + c2 * v^2`
+- `Fq6` coordinate order is `(c0, c1, c2)` to match arkworks
+- the cubic nonresidue is `9 + u`, so `Fp6 = Fp2[v] / (v^3 - (9 + u))`
+- `AssignedFp12` follows `c0 + c1 * w`
+- `Fq12` coordinate order is `(c0, c1)` to match arkworks
+- the quadratic nonresidue is `v = Fp6(0, 1, 0)`, so `Fp12 = Fp6[w] / (w^2 - v)`
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
   `Fq2(19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)`
@@ -154,13 +166,23 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `fp2 add`: 80 rows / 58 queries, `k=9`
 - `fp2 mul`: 152 rows / 58 queries, `k=9`
 - `fp2 square`: 114 rows / 58 queries, `k=9`
+- `fp6 add`: 240 rows / 58 queries, `k=9`
+- `fp6 mul`: 1384 rows / 58 queries, `k=11`
+- `fp6 square`: 868 rows / 58 queries, `k=10`
+- `fp12 add`: 480 rows / 58 queries, `k=9`
+- `fp12 mul`: 4538 rows / 58 queries, `k=13`
+- `fp12 square`: 3056 rows / 58 queries, `k=12`
 - `g1 add`: 319 rows / 105 queries, `k=9`
 - `g2 on_curve`: 400 rows / 58 queries, `k=9`
 - `g2 neg`: 930 rows / 58 queries, `k=10`
+- `g2 proj from_affine`: 970 rows / 58 queries, `k=10`
+- `g2 proj double`: 2594 rows / 58 queries, `k=12`
+- `g2 proj add`: 4582 rows / 58 queries, `k=13`
 
 Interpretation guidance:
 
 - `g2 neg` is not a measure of a raw sign flip alone; the current benchmark circuit includes assignment, on-curve checks, negation, and equality against the expected output
+- `fp12 mul` and `fp12 square` are measurements of the actual sanity circuits over the implemented tower, not optimized pairing-ready kernels
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
 
 ## Coding Standards
@@ -194,8 +216,10 @@ Interpretation guidance:
 Current test expectations for the primitive layer:
 
 - `Fp2` tests should include algebra identities, deterministic randomized add/mul/square checks, and edge-oriented real/imaginary cases
+- `Fp6` tests should include algebra identities, deterministic randomized add/mul/square checks, and structured single-coordinate cases
+- `Fp12` tests should include algebra identities, deterministic randomized add/mul/square checks, and structured `c0`-only / `c1`-only cases
 - minimal G2 tests should include valid affine points, negative on-curve cases, negation validity, and equality behavior
-- keep G2 tests affine and non-infinity unless the task explicitly adds identity handling
+- narrow G2 projective tests should stay explicit about the supported domain: `from_affine`, `neg`, `double`, incomplete `add`, and reserved identity encoding
 
 ## Benchmarking Standards
 
@@ -212,9 +236,18 @@ Current benchmark entry points include:
 - `bench_fp2_add`
 - `bench_fp2_mul`
 - `bench_fp2_square`
+- `bench_fp6_add`
+- `bench_fp6_mul`
+- `bench_fp6_square`
+- `bench_fp12_add`
+- `bench_fp12_mul`
+- `bench_fp12_square`
 - `bench_g1_add`
 - `bench_g2_on_curve`
 - `bench_g2_neg`
+- `bench_g2_proj_from_affine`
+- `bench_g2_proj_double`
+- `bench_g2_proj_add`
 
 ## Documentation Standards
 
@@ -254,11 +287,13 @@ When refactoring `wrapper-circuits/src/bn254/`:
 
 For tasks in the current repository state, do not assume that because `fp add`, `fp mul`, `fp2`, minimal G1, and minimal G2 affine support exist, the project is ready for:
 
+- generalized `Fp12` helper optimizations for pairing workloads
+- line-function gadgets
 - pairing gadgets
 - Groth16 verification
 - wrapped verifier composition
 - public-input verifier logic
-- G2 arithmetic beyond affine negation and on-curve checks
+- G2 arithmetic beyond the currently implemented narrow Jacobian `from_affine` / `neg` / `double` / incomplete `add` slice
 - full MSM infrastructure
 
 Those remain future-stage work unless the task explicitly advances the roadmap.

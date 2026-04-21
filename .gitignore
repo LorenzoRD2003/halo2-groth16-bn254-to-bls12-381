@@ -1,4 +1,5 @@
 /target
+/.omx
 Cargo.lock
 *.log
 .DS_Store

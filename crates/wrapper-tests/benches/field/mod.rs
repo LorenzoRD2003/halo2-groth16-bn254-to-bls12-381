@@ -4,8 +4,9 @@ use criterion::{BenchmarkId, Criterion};
 use midnight_proofs::dev::MockProver;
 use wrapper_circuits::{
   Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit,
-  FpAddCircuit, FpMulCircuit, fp_add_k, fp_mul_k, fp2_add_k, fp2_mul_k, fp2_square_k, fp6_add_k,
-  fp6_mul_k, fp6_square_k,
+  Fp12AddCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit, FpMulCircuit, fp_add_k,
+  fp_mul_k, fp2_add_k, fp2_mul_k, fp2_square_k, fp6_add_k, fp6_mul_k, fp6_square_k, fp12_add_k,
+  fp12_mul_k, fp12_square_k,
 };
 
 fn run_fp_add_circuit() {
@@ -68,6 +69,30 @@ fn run_fp6_square_circuit() {
   let circuit = Fp6SquareCircuit::sample();
   let prover = MockProver::run(fp6_square_k(), &circuit, vec![vec![], vec![]])
     .expect("fp6 square circuit should build");
+
+  assert_eq!(prover.verify(), Ok(()));
+}
+
+fn run_fp12_add_circuit() {
+  let circuit = Fp12AddCircuit::sample();
+  let prover = MockProver::run(fp12_add_k(), &circuit, vec![vec![], vec![]])
+    .expect("fp12 add circuit should build");
+
+  assert_eq!(prover.verify(), Ok(()));
+}
+
+fn run_fp12_mul_circuit() {
+  let circuit = Fp12MulCircuit::sample();
+  let prover = MockProver::run(fp12_mul_k(), &circuit, vec![vec![], vec![]])
+    .expect("fp12 mul circuit should build");
+
+  assert_eq!(prover.verify(), Ok(()));
+}
+
+fn run_fp12_square_circuit() {
+  let circuit = Fp12SquareCircuit::sample();
+  let prover = MockProver::run(fp12_square_k(), &circuit, vec![vec![], vec![]])
+    .expect("fp12 square circuit should build");
 
   assert_eq!(prover.verify(), Ok(()));
 }
@@ -140,6 +165,33 @@ pub fn bench_fp6_square(criterion: &mut Criterion) {
   let mut group = criterion.benchmark_group("field");
   group.bench_with_input(BenchmarkId::new("bench_fp6_square", 1), &1_u8, |bench, _| {
     bench.iter(run_fp6_square_circuit);
+  });
+  group.finish();
+}
+
+/// Benchmarks the current Midnight-backed BN254 Fp12 addition circuit.
+pub fn bench_fp12_add(criterion: &mut Criterion) {
+  let mut group = criterion.benchmark_group("field");
+  group.bench_with_input(BenchmarkId::new("bench_fp12_add", 1), &1_u8, |bench, _| {
+    bench.iter(run_fp12_add_circuit);
+  });
+  group.finish();
+}
+
+/// Benchmarks the current Midnight-backed BN254 Fp12 multiplication circuit.
+pub fn bench_fp12_mul(criterion: &mut Criterion) {
+  let mut group = criterion.benchmark_group("field");
+  group.bench_with_input(BenchmarkId::new("bench_fp12_mul", 1), &1_u8, |bench, _| {
+    bench.iter(run_fp12_mul_circuit);
+  });
+  group.finish();
+}
+
+/// Benchmarks the current Midnight-backed BN254 Fp12 square circuit.
+pub fn bench_fp12_square(criterion: &mut Criterion) {
+  let mut group = criterion.benchmark_group("field");
+  group.bench_with_input(BenchmarkId::new("bench_fp12_square", 1), &1_u8, |bench, _| {
+    bench.iter(run_fp12_square_circuit);
   });
   group.finish();
 }

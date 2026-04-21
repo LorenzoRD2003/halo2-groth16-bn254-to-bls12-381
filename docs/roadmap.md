@@ -27,6 +27,8 @@ Goals:
 - introduce the first real Halo2 dependency decisions
 - land circuit-backed BN254 `fp add` / `fp mul`
 - land circuit-backed BN254 `fp2` arithmetic
+- land circuit-backed BN254 `fp6` arithmetic
+- land circuit-backed BN254 `fp12` arithmetic
 - land minimal BN254 G1 addition and on-curve enforcement
 - land minimal BN254 G2 affine representation, negation, and on-curve enforcement
 - measure real layout/row cost for the Week 1 primitives
@@ -37,7 +39,6 @@ Still excluded unless explicitly planned:
 
 - pairings
 - G2 addition / doubling / subgroup checks
-- Fp6 / Fp12
 - Groth16 verifier logic
 - production-ready backend support
 

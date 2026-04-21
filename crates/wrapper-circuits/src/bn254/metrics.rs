@@ -4,8 +4,9 @@ use crate::metrics::LayoutMetrics;
 
 use super::{
   Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit,
-  FpAddCircuit, FpMulCircuit, G1AddCircuit, G2NegCircuit, G2OnCurveCircuit, G2ProjectiveAddCircuit,
-  G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit, NativeField,
+  Fp12AddCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit, FpMulCircuit, G1AddCircuit,
+  G2NegCircuit, G2OnCurveCircuit, G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit,
+  G2ProjectiveFromAffineCircuit, NativeField,
 };
 
 /// Models a circuit and returns real layout metrics.
@@ -60,6 +61,24 @@ pub fn fp6_mul_layout_metrics() -> LayoutMetrics {
 #[must_use]
 pub fn fp6_square_layout_metrics() -> LayoutMetrics {
   measure_layout(&Fp6SquareCircuit::sample())
+}
+
+/// Real layout metrics for the current BN254 Fp12 addition circuit.
+#[must_use]
+pub fn fp12_add_layout_metrics() -> LayoutMetrics {
+  measure_layout(&Fp12AddCircuit::sample())
+}
+
+/// Real layout metrics for the current BN254 Fp12 multiplication circuit.
+#[must_use]
+pub fn fp12_mul_layout_metrics() -> LayoutMetrics {
+  measure_layout(&Fp12MulCircuit::sample())
+}
+
+/// Real layout metrics for the current BN254 Fp12 square circuit.
+#[must_use]
+pub fn fp12_square_layout_metrics() -> LayoutMetrics {
+  measure_layout(&Fp12SquareCircuit::sample())
 }
 
 /// Real layout metrics for the current BN254 G1 addition circuit.
@@ -144,6 +163,24 @@ pub fn fp6_mul_k() -> u32 {
 #[must_use]
 pub fn fp6_square_k() -> u32 {
   fp6_square_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn fp12_add_k() -> u32 {
+  fp12_add_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn fp12_mul_k() -> u32 {
+  fp12_mul_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn fp12_square_k() -> u32 {
+  fp12_square_layout_metrics().k
 }
 
 /// Returns the smallest power-of-two domain reported by the cost model.

@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 use wrapper_backends::BackendRegistry;
-use wrapper_circuits::CircuitPlanningView;
+use wrapper_circuits::{CircuitPlanningView, CostEstimate, LayoutMetrics, PrimitiveCostTable};
 use wrapper_core::{ProjectConfig, ProjectStatusReport};
 
 #[derive(Debug, Parser)]
@@ -71,6 +71,11 @@ fn run_doctor() {
   let planning = CircuitPlanningView::from_config(ProjectConfig::default());
   let primitive_costs = planning.primitive_cost_table();
 
+  print_doctor_status(report, &registry);
+  print_primitive_costs(&primitive_costs);
+}
+
+fn print_doctor_status(report: ProjectStatusReport, registry: &BackendRegistry) {
   println!("Phase: {:?}", report.phase);
   println!("Capabilities:");
   for (capability, status) in report.capabilities.entries {
@@ -86,121 +91,54 @@ fn run_doctor() {
   for entry in registry.entries() {
     println!("  - {}: {}", entry.id, entry.description);
   }
+}
 
-  println!("Week 1 / Week 2 primitive estimates:");
+fn print_cost_line(name: &str, cost: CostEstimate, layout: LayoutMetrics) {
   println!(
-    "  - fp add: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.fp_add.rows,
-    primitive_costs.fp_add.constraints,
-    primitive_costs.fp_add_layout.k,
-    primitive_costs.fp_add_layout.advice_columns,
-    primitive_costs.fp_add_layout.fixed_columns
+    "  - {name}: {} rows / {} queries (k={}, advice={}, fixed={})",
+    cost.rows, cost.constraints, layout.k, layout.advice_columns, layout.fixed_columns
   );
+}
+
+fn print_cost_line_with_lookups(name: &str, cost: CostEstimate, layout: LayoutMetrics) {
   println!(
-    "  - fp mul: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.fp_mul.rows,
-    primitive_costs.fp_mul.constraints,
-    primitive_costs.fp_mul_layout.k,
-    primitive_costs.fp_mul_layout.advice_columns,
-    primitive_costs.fp_mul_layout.fixed_columns
+    "  - {name}: {} rows / {} queries (k={}, advice={}, fixed={}, lookups={})",
+    cost.rows,
+    cost.constraints,
+    layout.k,
+    layout.advice_columns,
+    layout.fixed_columns,
+    layout.lookups
   );
-  println!(
-    "  - fp2 add: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.fp2_add.rows,
-    primitive_costs.fp2_add.constraints,
-    primitive_costs.fp2_add_layout.k,
-    primitive_costs.fp2_add_layout.advice_columns,
-    primitive_costs.fp2_add_layout.fixed_columns
+}
+
+fn print_primitive_costs(primitive_costs: &PrimitiveCostTable) {
+  println!("Week 1 / Week 3 primitive estimates:");
+  print_cost_line("fp add", primitive_costs.fp_add, primitive_costs.fp_add_layout);
+  print_cost_line("fp mul", primitive_costs.fp_mul, primitive_costs.fp_mul_layout);
+  print_cost_line("fp2 add", primitive_costs.fp2_add, primitive_costs.fp2_add_layout);
+  print_cost_line("fp2 mul", primitive_costs.fp2_mul, primitive_costs.fp2_mul_layout);
+  print_cost_line("fp2 square", primitive_costs.fp2_square, primitive_costs.fp2_square_layout);
+  print_cost_line("fp6 add", primitive_costs.fp6_add, primitive_costs.fp6_add_layout);
+  print_cost_line("fp6 mul", primitive_costs.fp6_mul, primitive_costs.fp6_mul_layout);
+  print_cost_line("fp6 square", primitive_costs.fp6_square, primitive_costs.fp6_square_layout);
+  print_cost_line("fp12 add", primitive_costs.fp12_add, primitive_costs.fp12_add_layout);
+  print_cost_line("fp12 mul", primitive_costs.fp12_mul, primitive_costs.fp12_mul_layout);
+  print_cost_line("fp12 square", primitive_costs.fp12_square, primitive_costs.fp12_square_layout);
+  print_cost_line_with_lookups("g1 add", primitive_costs.g1_add, primitive_costs.g1_add_layout);
+  print_cost_line("g2 on_curve", primitive_costs.g2_on_curve, primitive_costs.g2_on_curve_layout);
+  print_cost_line("g2 neg", primitive_costs.g2_neg, primitive_costs.g2_neg_layout);
+  print_cost_line(
+    "g2 proj from_affine",
+    primitive_costs.g2_proj_from_affine,
+    primitive_costs.g2_proj_from_affine_layout,
   );
-  println!(
-    "  - fp2 mul: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.fp2_mul.rows,
-    primitive_costs.fp2_mul.constraints,
-    primitive_costs.fp2_mul_layout.k,
-    primitive_costs.fp2_mul_layout.advice_columns,
-    primitive_costs.fp2_mul_layout.fixed_columns
+  print_cost_line(
+    "g2 proj double",
+    primitive_costs.g2_proj_double,
+    primitive_costs.g2_proj_double_layout,
   );
-  println!(
-    "  - fp2 square: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.fp2_square.rows,
-    primitive_costs.fp2_square.constraints,
-    primitive_costs.fp2_square_layout.k,
-    primitive_costs.fp2_square_layout.advice_columns,
-    primitive_costs.fp2_square_layout.fixed_columns
-  );
-  println!(
-    "  - fp6 add: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.fp6_add.rows,
-    primitive_costs.fp6_add.constraints,
-    primitive_costs.fp6_add_layout.k,
-    primitive_costs.fp6_add_layout.advice_columns,
-    primitive_costs.fp6_add_layout.fixed_columns
-  );
-  println!(
-    "  - fp6 mul: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.fp6_mul.rows,
-    primitive_costs.fp6_mul.constraints,
-    primitive_costs.fp6_mul_layout.k,
-    primitive_costs.fp6_mul_layout.advice_columns,
-    primitive_costs.fp6_mul_layout.fixed_columns
-  );
-  println!(
-    "  - fp6 square: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.fp6_square.rows,
-    primitive_costs.fp6_square.constraints,
-    primitive_costs.fp6_square_layout.k,
-    primitive_costs.fp6_square_layout.advice_columns,
-    primitive_costs.fp6_square_layout.fixed_columns
-  );
-  println!(
-    "  - g1 add: {} rows / {} queries (k={}, advice={}, fixed={}, lookups={})",
-    primitive_costs.g1_add.rows,
-    primitive_costs.g1_add.constraints,
-    primitive_costs.g1_add_layout.k,
-    primitive_costs.g1_add_layout.advice_columns,
-    primitive_costs.g1_add_layout.fixed_columns,
-    primitive_costs.g1_add_layout.lookups
-  );
-  println!(
-    "  - g2 on_curve: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.g2_on_curve.rows,
-    primitive_costs.g2_on_curve.constraints,
-    primitive_costs.g2_on_curve_layout.k,
-    primitive_costs.g2_on_curve_layout.advice_columns,
-    primitive_costs.g2_on_curve_layout.fixed_columns
-  );
-  println!(
-    "  - g2 neg: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.g2_neg.rows,
-    primitive_costs.g2_neg.constraints,
-    primitive_costs.g2_neg_layout.k,
-    primitive_costs.g2_neg_layout.advice_columns,
-    primitive_costs.g2_neg_layout.fixed_columns
-  );
-  println!(
-    "  - g2 proj from_affine: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.g2_proj_from_affine.rows,
-    primitive_costs.g2_proj_from_affine.constraints,
-    primitive_costs.g2_proj_from_affine_layout.k,
-    primitive_costs.g2_proj_from_affine_layout.advice_columns,
-    primitive_costs.g2_proj_from_affine_layout.fixed_columns
-  );
-  println!(
-    "  - g2 proj double: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.g2_proj_double.rows,
-    primitive_costs.g2_proj_double.constraints,
-    primitive_costs.g2_proj_double_layout.k,
-    primitive_costs.g2_proj_double_layout.advice_columns,
-    primitive_costs.g2_proj_double_layout.fixed_columns
-  );
-  println!(
-    "  - g2 proj add: {} rows / {} queries (k={}, advice={}, fixed={})",
-    primitive_costs.g2_proj_add.rows,
-    primitive_costs.g2_proj_add.constraints,
-    primitive_costs.g2_proj_add_layout.k,
-    primitive_costs.g2_proj_add_layout.advice_columns,
-    primitive_costs.g2_proj_add_layout.fixed_columns
-  );
+  print_cost_line("g2 proj add", primitive_costs.g2_proj_add, primitive_costs.g2_proj_add_layout);
 }
 
 fn run_bench_info() {
@@ -219,6 +157,9 @@ fn run_bench_info() {
   println!("  - bench_fp6_add");
   println!("  - bench_fp6_mul");
   println!("  - bench_fp6_square");
+  println!("  - bench_fp12_add");
+  println!("  - bench_fp12_mul");
+  println!("  - bench_fp12_square");
   println!("  - bench_g1_add");
   println!("  - bench_g2_on_curve");
   println!("  - bench_g2_neg");

@@ -99,27 +99,27 @@ fn g2_projective_from_affine_constant(point: G2AffineConstant) -> G2ProjectiveCo
 }
 
 fn g2_projective_double_constant(point: G2AffineConstant) -> G2ProjectiveConstant {
-  let (x, y, z) = g2_projective_from_affine_constant(point);
-  let a = fp2_square_constant(x);
-  let b = fp2_square_constant(y);
-  let c = fp2_square_constant(b);
-  let d = {
-    let x_plus_b = fp2_add_constant(x, b);
-    let x_plus_b_sq = fp2_square_constant(x_plus_b);
-    let d = fp2_sub_constant(fp2_sub_constant(x_plus_b_sq, a), c);
-    fp2_add_constant(d, d)
+  let (x_coord, y_coord, z_coord) = g2_projective_from_affine_constant(point);
+  let x_sq = fp2_square_constant(x_coord);
+  let y_sq = fp2_square_constant(y_coord);
+  let y_fourth = fp2_square_constant(y_sq);
+  let slope_intermediate = {
+    let x_plus_y_sq = fp2_add_constant(x_coord, y_sq);
+    let x_plus_y_sq_sq = fp2_square_constant(x_plus_y_sq);
+    let slope_intermediate = fp2_sub_constant(fp2_sub_constant(x_plus_y_sq_sq, x_sq), y_fourth);
+    fp2_add_constant(slope_intermediate, slope_intermediate)
   };
-  let e = fp2_add_constant(fp2_add_constant(a, a), a);
-  let f = fp2_square_constant(e);
-  let x3 = fp2_sub_constant(f, fp2_add_constant(d, d));
+  let slope = fp2_add_constant(fp2_add_constant(x_sq, x_sq), x_sq);
+  let slope_sq = fp2_square_constant(slope);
+  let x3 = fp2_sub_constant(slope_sq, fp2_add_constant(slope_intermediate, slope_intermediate));
   let y3 = {
-    let e_times_d_minus_x3 = fp2_mul_constant(e, fp2_sub_constant(d, x3));
-    let two_c = fp2_add_constant(c, c);
-    let four_c = fp2_add_constant(two_c, two_c);
-    let eight_c = fp2_add_constant(four_c, four_c);
-    fp2_sub_constant(e_times_d_minus_x3, eight_c)
+    let slope_times_delta = fp2_mul_constant(slope, fp2_sub_constant(slope_intermediate, x3));
+    let two_y_fourth = fp2_add_constant(y_fourth, y_fourth);
+    let four_y_fourth = fp2_add_constant(two_y_fourth, two_y_fourth);
+    let eight_y_fourth = fp2_add_constant(four_y_fourth, four_y_fourth);
+    fp2_sub_constant(slope_times_delta, eight_y_fourth)
   };
-  let yz = fp2_mul_constant(y, z);
+  let yz = fp2_mul_constant(y_coord, z_coord);
   let z3 = fp2_add_constant(yz, yz);
 
   (x3, y3, z3)
@@ -138,22 +138,28 @@ fn g2_projective_add_constant(
   let u2 = fp2_mul_constant(x2, z1z1);
   let s1 = fp2_mul_constant(y1, fp2_mul_constant(z2, z2z2));
   let s2 = fp2_mul_constant(y2, fp2_mul_constant(z1, z1z1));
-  let h = fp2_sub_constant(u2, u1);
-  let i = fp2_square_constant(fp2_add_constant(h, h));
-  let j = fp2_mul_constant(h, i);
-  let r = fp2_add_constant(fp2_sub_constant(s2, s1), fp2_sub_constant(s2, s1));
-  let v = fp2_mul_constant(u1, i);
-  let x3 = fp2_sub_constant(fp2_sub_constant(fp2_square_constant(r), j), fp2_add_constant(v, v));
+  let x_diff = fp2_sub_constant(u2, u1);
+  let x_diff_twice_sq = fp2_square_constant(fp2_add_constant(x_diff, x_diff));
+  let x_diff_cubed_scaled = fp2_mul_constant(x_diff, x_diff_twice_sq);
+  let y_diff_twice = fp2_add_constant(fp2_sub_constant(s2, s1), fp2_sub_constant(s2, s1));
+  let u1_times_scale = fp2_mul_constant(u1, x_diff_twice_sq);
+  let x3 = fp2_sub_constant(
+    fp2_sub_constant(fp2_square_constant(y_diff_twice), x_diff_cubed_scaled),
+    fp2_add_constant(u1_times_scale, u1_times_scale),
+  );
   let y3 = {
-    let r_times_v_minus_x3 = fp2_mul_constant(r, fp2_sub_constant(v, x3));
-    let two_s1j = fp2_add_constant(fp2_mul_constant(s1, j), fp2_mul_constant(s1, j));
-    fp2_sub_constant(r_times_v_minus_x3, two_s1j)
+    let y_slope_times_delta = fp2_mul_constant(y_diff_twice, fp2_sub_constant(u1_times_scale, x3));
+    let two_s1_scale = fp2_add_constant(
+      fp2_mul_constant(s1, x_diff_cubed_scaled),
+      fp2_mul_constant(s1, x_diff_cubed_scaled),
+    );
+    fp2_sub_constant(y_slope_times_delta, two_s1_scale)
   };
   let z3 = {
     let z1_plus_z2 = fp2_add_constant(z1, z2);
     let z1_plus_z2_sq = fp2_square_constant(z1_plus_z2);
     let z3_pre = fp2_sub_constant(fp2_sub_constant(z1_plus_z2_sq, z1z1), z2z2);
-    fp2_mul_constant(z3_pre, h)
+    fp2_mul_constant(z3_pre, x_diff)
   };
 
   (x3, y3, z3)
@@ -330,31 +336,32 @@ impl AssignedG2Projective {
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
   ) -> Result<Self, Error> {
-    let a = self.x.square(chip, layouter)?;
-    let b = self.y.square(chip, layouter)?;
-    let c = b.square(chip, layouter)?;
-    let d = {
-      let x_plus_b = self.x.add(chip, layouter, &b)?;
-      let x_plus_b_sq = x_plus_b.square(chip, layouter)?;
-      let d = x_plus_b_sq.sub(chip, layouter, &a)?.sub(chip, layouter, &c)?;
-      d.add(chip, layouter, &d)?
+    let x_sq = self.x.square(chip, layouter)?;
+    let y_sq = self.y.square(chip, layouter)?;
+    let y_fourth = y_sq.square(chip, layouter)?;
+    let slope_intermediate = {
+      let x_plus_y_sq = self.x.add(chip, layouter, &y_sq)?;
+      let x_plus_y_sq_sq = x_plus_y_sq.square(chip, layouter)?;
+      let slope_intermediate =
+        x_plus_y_sq_sq.sub(chip, layouter, &x_sq)?.sub(chip, layouter, &y_fourth)?;
+      slope_intermediate.add(chip, layouter, &slope_intermediate)?
     };
-    let e = {
-      let two_a = a.add(chip, layouter, &a)?;
-      two_a.add(chip, layouter, &a)?
+    let slope = {
+      let two_x_sq = x_sq.add(chip, layouter, &x_sq)?;
+      two_x_sq.add(chip, layouter, &x_sq)?
     };
-    let f = e.square(chip, layouter)?;
+    let slope_sq = slope.square(chip, layouter)?;
     let x3 = {
-      let two_d = d.add(chip, layouter, &d)?;
-      f.sub(chip, layouter, &two_d)?
+      let two_slope_intermediate = slope_intermediate.add(chip, layouter, &slope_intermediate)?;
+      slope_sq.sub(chip, layouter, &two_slope_intermediate)?
     };
     let y3 = {
-      let d_minus_x3 = d.sub(chip, layouter, &x3)?;
-      let e_times_d_minus_x3 = e.mul(chip, layouter, &d_minus_x3)?;
-      let two_c = c.add(chip, layouter, &c)?;
-      let four_c = two_c.add(chip, layouter, &two_c)?;
-      let eight_c = four_c.add(chip, layouter, &four_c)?;
-      e_times_d_minus_x3.sub(chip, layouter, &eight_c)?
+      let delta = slope_intermediate.sub(chip, layouter, &x3)?;
+      let slope_times_delta = slope.mul(chip, layouter, &delta)?;
+      let two_y_fourth = y_fourth.add(chip, layouter, &y_fourth)?;
+      let four_y_fourth = two_y_fourth.add(chip, layouter, &two_y_fourth)?;
+      let eight_y_fourth = four_y_fourth.add(chip, layouter, &four_y_fourth)?;
+      slope_times_delta.sub(chip, layouter, &eight_y_fourth)?
     };
     let z3 = {
       let yz = self.y.mul(chip, layouter, &self.z)?;
@@ -392,34 +399,38 @@ impl AssignedG2Projective {
       let z1_cubed = self.z.mul(chip, layouter, &z1z1)?;
       rhs.y.mul(chip, layouter, &z1_cubed)?
     };
-    let h = u2.sub(chip, layouter, &u1)?;
-    let i = {
-      let two_h = h.add(chip, layouter, &h)?;
-      two_h.square(chip, layouter)?
+    let x_diff = u2.sub(chip, layouter, &u1)?;
+    let x_diff_twice_sq = {
+      let two_x_diff = x_diff.add(chip, layouter, &x_diff)?;
+      two_x_diff.square(chip, layouter)?
     };
-    let j = h.mul(chip, layouter, &i)?;
-    let r = {
+    let x_diff_cubed_scaled = x_diff.mul(chip, layouter, &x_diff_twice_sq)?;
+    let y_diff_twice = {
       let s2_minus_s1 = s2.sub(chip, layouter, &s1)?;
       s2_minus_s1.add(chip, layouter, &s2_minus_s1)?
     };
-    let v = u1.mul(chip, layouter, &i)?;
+    let u1_times_scale = u1.mul(chip, layouter, &x_diff_twice_sq)?;
     let x3 = {
-      let r_sq = r.square(chip, layouter)?;
-      let two_v = v.add(chip, layouter, &v)?;
-      r_sq.sub(chip, layouter, &j)?.sub(chip, layouter, &two_v)?
+      let y_diff_twice_sq = y_diff_twice.square(chip, layouter)?;
+      let two_u1_times_scale = u1_times_scale.add(chip, layouter, &u1_times_scale)?;
+      y_diff_twice_sq.sub(chip, layouter, &x_diff_cubed_scaled)?.sub(
+        chip,
+        layouter,
+        &two_u1_times_scale,
+      )?
     };
     let y3 = {
-      let v_minus_x3 = v.sub(chip, layouter, &x3)?;
-      let r_times_v_minus_x3 = r.mul(chip, layouter, &v_minus_x3)?;
-      let s1j = s1.mul(chip, layouter, &j)?;
-      let two_s1j = s1j.add(chip, layouter, &s1j)?;
-      r_times_v_minus_x3.sub(chip, layouter, &two_s1j)?
+      let delta = u1_times_scale.sub(chip, layouter, &x3)?;
+      let y_slope_times_delta = y_diff_twice.mul(chip, layouter, &delta)?;
+      let s1_scaled = s1.mul(chip, layouter, &x_diff_cubed_scaled)?;
+      let two_s1_scaled = s1_scaled.add(chip, layouter, &s1_scaled)?;
+      y_slope_times_delta.sub(chip, layouter, &two_s1_scaled)?
     };
     let z3 = {
       let z1_plus_z2 = self.z.add(chip, layouter, &rhs.z)?;
       let z1_plus_z2_sq = z1_plus_z2.square(chip, layouter)?;
       let z3_pre = z1_plus_z2_sq.sub(chip, layouter, &z1z1)?.sub(chip, layouter, &z2z2)?;
-      z3_pre.mul(chip, layouter, &h)?
+      z3_pre.mul(chip, layouter, &x_diff)?
     };
 
     Ok(Self::new(x3, y3, z3))
