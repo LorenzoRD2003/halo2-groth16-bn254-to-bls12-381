@@ -1,0 +1,10 @@
+phase = "initialization"
+flavor = "research-scaffold"
+
+[paths]
+artifacts_dir = "fixtures/artifacts"
+reports_dir = "target/reports"
+
+[parameters]
+profile_name = "example"
+diagnostics_verbose = true

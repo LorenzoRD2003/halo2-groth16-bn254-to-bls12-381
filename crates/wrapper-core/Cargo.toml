@@ -1,0 +1,23 @@
+[package]
+name = "wrapper-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Domain-oriented types and architectural contracts for the Halo2 wrapper workspace."
+readme = "../../README.md"
+keywords = ["halo2", "groth16", "bn254", "wrapper"]
+categories = ["cryptography"]
+
+[features]
+default = []
+dev-tools = []
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

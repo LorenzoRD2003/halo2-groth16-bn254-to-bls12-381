@@ -1,0 +1,27 @@
+[package]
+name = "wrapper-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Shared fixtures and integration tests for the wrapper workspace."
+readme = "../../README.md"
+keywords = ["halo2", "groth16", "wrapper", "testing"]
+categories = ["development-tools::testing", "cryptography"]
+
+[dependencies]
+wrapper-backends = { path = "../wrapper-backends" }
+wrapper-circuits = { path = "../wrapper-circuits" }
+wrapper-core = { path = "../wrapper-core" }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "placeholders"
+harness = false
+
+[lints]
+workspace = true

@@ -1,0 +1,24 @@
+[package]
+name = "wrapper-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Developer CLI for the Halo2 wrapper workspace."
+readme = "../../README.md"
+keywords = ["halo2", "groth16", "wrapper", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+wrapper-backends = { path = "../wrapper-backends" }
+wrapper-circuits = { path = "../wrapper-circuits" }
+wrapper-core = { path = "../wrapper-core" }
+
+[lints]
+workspace = true

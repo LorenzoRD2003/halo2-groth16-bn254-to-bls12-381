@@ -1,0 +1,21 @@
+[package]
+name = "wrapper-circuits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Halo2-facing circuit skeletons for the wrapper workspace."
+readme = "../../README.md"
+keywords = ["halo2", "groth16", "bn254", "wrapper"]
+categories = ["cryptography"]
+
+[features]
+default = []
+halo2 = []
+
+[dependencies]
+wrapper-core = { path = "../wrapper-core" }
+
+[lints]
+workspace = true
