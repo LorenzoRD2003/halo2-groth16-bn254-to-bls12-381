@@ -4,7 +4,7 @@ use crate::metrics::LayoutMetrics;
 
 use super::{
   Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, FpAddCircuit, FpMulCircuit, G1AddCircuit,
-  NativeField,
+  G2NegCircuit, G2OnCurveCircuit, NativeField,
 };
 
 /// Models a circuit and returns real layout metrics.
@@ -49,6 +49,18 @@ pub fn g1_add_layout_metrics() -> LayoutMetrics {
   measure_layout(&G1AddCircuit::sample())
 }
 
+/// Real layout metrics for the current BN254 G2 on-curve circuit.
+#[must_use]
+pub fn g2_on_curve_layout_metrics() -> LayoutMetrics {
+  measure_layout(&G2OnCurveCircuit::sample())
+}
+
+/// Real layout metrics for the current BN254 G2 negation circuit.
+#[must_use]
+pub fn g2_neg_layout_metrics() -> LayoutMetrics {
+  measure_layout(&G2NegCircuit::sample())
+}
+
 /// Returns the smallest power-of-two domain reported by the cost model.
 #[must_use]
 pub fn fp_add_k() -> u32 {
@@ -83,4 +95,16 @@ pub fn fp2_square_k() -> u32 {
 #[must_use]
 pub fn g1_add_k() -> u32 {
   g1_add_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn g2_on_curve_k() -> u32 {
+  g2_on_curve_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn g2_neg_k() -> u32 {
+  g2_neg_layout_metrics().k
 }

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 has started with a first Fp2 slice. It still does not implement G2, pairings, verifier logic, or a production wrapper circuit.
+This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 has started with a first Fp2 slice plus a minimal G2 affine representation/on-curve slice. It still does not implement G2 arithmetic, pairings, verifier logic, or a production wrapper circuit.
 
 ## Intended Data Flow
 
@@ -36,6 +36,7 @@ Circuit code and backend integration change for different reasons.
 - outer wrapper circuit boundary definitions
 - the BN254 foreign-field layer introduced in Week 1 and extended in early Week 2 with Fp2
 - the BN254 G1 abstraction layer introduced in Week 1
+- the BN254 G2 affine representation layer introduced in Week 2
 
 `wrapper-backends` will eventually own:
 
@@ -71,7 +72,7 @@ Current properties:
 
 Current limitations:
 
-- no G2, Fp6, Fp12, or pairing-specific arithmetic yet
+- no Fp6, Fp12, or pairing-specific arithmetic yet
 - no production-oriented optimization or custom layout tuning yet
 - row and query reporting is real, but still only for the narrow implemented circuits
 
@@ -93,6 +94,26 @@ Current limitations:
 - no subgroup-check or cofactor-clearing workflow yet
 - no G2 or pairing support
 
+## BN254 G2 Affine Layer
+
+Week 2 adds a minimal `AssignedG2Affine` abstraction in `wrapper-circuits`.
+
+Current properties:
+
+- G2 affine points represented as `(x, y)` over `AssignedFp2`
+- circuit-backed non-infinity assignment from Fp2 coordinates
+- circuit-backed negation
+- circuit-backed equality checks
+- explicit twist on-curve validation against the BN254 G2 equation from arkworks
+- real layout metrics for narrow `g2 on_curve` and `g2 neg` sanity circuits
+
+Current limitations:
+
+- no identity/infinity representation in this slice
+- no G2 addition, doubling, projective formulas, or scalar multiplication
+- no subgroup checks yet
+- no pairing support
+
 ## Current Architectural Contracts
 
 The current skeleton defines:
@@ -102,6 +123,6 @@ The current skeleton defines:
 - repository configuration parsing and validation
 - layout descriptors for future circuit inspection
 - backend registry and artifact loader interfaces
-- BN254 field, Fp2, and G1 foundations with real layout visibility
+- BN254 field, Fp2, G1, and minimal G2 affine foundations with real layout visibility
 
 These contracts are intentionally conservative and meant to support staged development rather than predict final cryptographic APIs in detail.

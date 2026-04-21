@@ -5,6 +5,7 @@ use wrapper_core::{LayoutDescriptor, ProjectConfig};
 use crate::{
   CostEstimate, LayoutMetrics, fp_add_layout_metrics, fp_mul_layout_metrics,
   fp2_add_layout_metrics, fp2_mul_layout_metrics, fp2_square_layout_metrics, g1_add_layout_metrics,
+  g2_neg_layout_metrics, g2_on_curve_layout_metrics,
 };
 
 /// Layout and cost data for the currently implemented primitive layer.
@@ -34,6 +35,14 @@ pub struct PrimitiveCostTable {
   pub g1_add_layout: LayoutMetrics,
   /// G1 addition cost summary.
   pub g1_add: CostEstimate,
+  /// G2 on-curve layout metrics.
+  pub g2_on_curve_layout: LayoutMetrics,
+  /// G2 on-curve cost summary.
+  pub g2_on_curve: CostEstimate,
+  /// G2 negation layout metrics.
+  pub g2_neg_layout: LayoutMetrics,
+  /// G2 negation cost summary.
+  pub g2_neg: CostEstimate,
 }
 
 /// Read-only planning view for CLI inspection.
@@ -61,26 +70,32 @@ impl CircuitPlanningView {
   #[must_use]
   pub fn primitive_cost_table(&self) -> PrimitiveCostTable {
     let _ = &self.config;
-    let fp_add_layout = fp_add_layout_metrics();
-    let fp_mul_layout = fp_mul_layout_metrics();
-    let fp2_add_layout = fp2_add_layout_metrics();
-    let fp2_mul_layout = fp2_mul_layout_metrics();
-    let fp2_square_layout = fp2_square_layout_metrics();
-    let g1_add_layout = g1_add_layout_metrics();
+    let base_field_add_layout = fp_add_layout_metrics();
+    let base_field_mul_layout = fp_mul_layout_metrics();
+    let quadratic_field_add_layout = fp2_add_layout_metrics();
+    let quadratic_field_mul_layout = fp2_mul_layout_metrics();
+    let quadratic_field_square_layout = fp2_square_layout_metrics();
+    let g1_point_add_layout = g1_add_layout_metrics();
+    let g2_affine_on_curve_layout = g2_on_curve_layout_metrics();
+    let g2_affine_neg_layout = g2_neg_layout_metrics();
 
     PrimitiveCostTable {
-      fp_add: fp_add_layout.cost_estimate(),
-      fp_add_layout,
-      fp_mul: fp_mul_layout.cost_estimate(),
-      fp_mul_layout,
-      fp2_add: fp2_add_layout.cost_estimate(),
-      fp2_add_layout,
-      fp2_mul: fp2_mul_layout.cost_estimate(),
-      fp2_mul_layout,
-      fp2_square: fp2_square_layout.cost_estimate(),
-      fp2_square_layout,
-      g1_add: g1_add_layout.cost_estimate(),
-      g1_add_layout,
+      fp_add: base_field_add_layout.cost_estimate(),
+      fp_add_layout: base_field_add_layout,
+      fp_mul: base_field_mul_layout.cost_estimate(),
+      fp_mul_layout: base_field_mul_layout,
+      fp2_add: quadratic_field_add_layout.cost_estimate(),
+      fp2_add_layout: quadratic_field_add_layout,
+      fp2_mul: quadratic_field_mul_layout.cost_estimate(),
+      fp2_mul_layout: quadratic_field_mul_layout,
+      fp2_square: quadratic_field_square_layout.cost_estimate(),
+      fp2_square_layout: quadratic_field_square_layout,
+      g1_add: g1_point_add_layout.cost_estimate(),
+      g1_add_layout: g1_point_add_layout,
+      g2_on_curve: g2_affine_on_curve_layout.cost_estimate(),
+      g2_on_curve_layout: g2_affine_on_curve_layout,
+      g2_neg: g2_affine_neg_layout.cost_estimate(),
+      g2_neg_layout: g2_affine_neg_layout,
     }
   }
 }

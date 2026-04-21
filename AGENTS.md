@@ -4,29 +4,36 @@
 
 This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based wrapper that may eventually verify Groth16 BN254 proofs inside an outer Halo2 proof system.
 
-The project is intentionally incremental. The current codebase now includes a first circuit-backed Week 1 foundation for BN254 foreign-field arithmetic and minimal G1 work, but it is still far from a Groth16 wrapper verifier.
+The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations plus the first narrow Week 2 slices, but it is still far from a Groth16 wrapper verifier.
 
 ## Current Phase and Scope Boundaries
 
-Current phase: Week 1 foundation plus sanity checks.
+Current phase: Stage 1 / Week 2 narrow primitive expansion.
 
 Implemented in scope today:
 
 - Workspace structure, crate boundaries, docs, CLI, CI, and benchmark conventions
 - BN254 foreign-field support in `wrapper-circuits` backed by `midnight-circuits` / `midnight-proofs`
 - Circuit-backed `fp add`, `fp mul`, and related minimal field wiring
+- Circuit-backed BN254 `fp2` support represented as `a + bu` with `u^2 = -1`
+- `AssignedFp2` over two `AssignedFp` coordinates with `new`, assignment, `zero`, `one`, `add`, `sub`, `neg`, `mul`, `square`, and equality helpers
 - Minimal BN254 G1 support backed by Midnight foreign ECC chips
 - Circuit-backed G1 addition
 - Coordinate-to-point construction with on-curve enforcement
+- Minimal BN254 G2 affine support backed by `AssignedFp2`
+- `AssignedG2Affine` with assignment, `neg`, `assert_equal`, and explicit twist `assert_on_curve`
 - Real layout and row visibility through the Halo2/Midnight cost model
-- Deterministic randomized tests against arkworks
-- Criterion sanity benchmarks for the currently implemented Week 1 circuits
-- a single authoritative BN254 primitive path in `wrapper-circuits/src/bn254.rs`
+- Deterministic arkworks-backed tests for `Fp`, `Fp2`, G1, and minimal G2 affine/on-curve behavior
+- Criterion sanity benchmarks for the currently implemented primitive circuits
+- a single authoritative BN254 primitive path in `wrapper-circuits/src/bn254/`
 
 Out of scope right now:
 
-- Fp2 / Fp12
-- G2
+- G2 addition / doubling
+- G2 subgroup checks
+- projective G2 formulas
+- scalar multiplication on G2
+- Fp6 / Fp12
 - pairings
 - Miller loop
 - final exponentiation
@@ -40,11 +47,11 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 ## Repository Map
 
 - `crates/wrapper-core`: domain models, traits, config, errors, metadata, capability/status reporting
-- `crates/wrapper-circuits`: Halo2-facing code, Midnight-backed BN254 field/G1 layer, planning, layout reporting
+- `crates/wrapper-circuits`: Halo2-facing code, Midnight-backed BN254 primitive layer, planning, layout reporting
 - `crates/wrapper-backends`: backend adapter placeholders, artifact parsing entry points, future ecosystem integrations
 - `crates/wrapper-cli`: developer commands and diagnostics
 - `crates/wrapper-tests`: shared fixtures, benchmark entry points, and integration helpers
-- `docs/architecture.md`: intended layering and current Week 1 circuit boundaries
+- `docs/architecture.md`: intended layering and current primitive boundaries
 - `docs/roadmap.md`: staged implementation plan
 - `docs/benchmarking.md`: benchmark structure and conventions
 - `docs/decisions/0001-initial-workspace-structure.md`: ADR for the workspace split
@@ -61,8 +68,8 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 `wrapper-circuits`
 
 - Own Halo2-facing code, Midnight integration, circuit planning, and primitive gadget boundaries.
-- Currently owns the BN254 `AssignedFp` and `AssignedG1` circuit-backed layer.
-- Keeps the active Week 1 BN254 primitive implementation consolidated in `src/bn254.rs`.
+- Currently owns the BN254 `AssignedFp`, `AssignedFp2`, `AssignedG1`, and minimal `AssignedG2Affine` circuit-backed layer.
+- Keeps the active BN254 primitive implementation under `src/bn254/`, split by concern instead of one monolithic file.
 - Should depend on `wrapper-core`.
 - Must not absorb artifact parsing or backend-specific concerns.
 - Keep dead compatibility shims and obsolete host-side leftovers out of the crate.
@@ -78,7 +85,7 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 
 - Own user-facing commands, output formatting, and developer diagnostics.
 - Must report missing functionality honestly.
-- Should expose measured Week 1 status without overstating what is implemented.
+- Should expose measured primitive status without overstating what is implemented.
 
 `wrapper-tests`
 
@@ -91,7 +98,7 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 - Preserve the separation between domain, circuits, and backends unless there is a documented reason to change it.
 - Update `docs/architecture.md` and the relevant ADR when changing public architecture or ownership boundaries.
 - Prefer narrow interfaces in `wrapper-core` over leaking circuit implementation details across crates.
-- Keep the current Week 1 circuit-backed layer small and explicit.
+- Keep the current primitive layer small and explicit.
 - Do not introduce speculative abstractions for later pairing/verifier work unless they are needed immediately.
 
 ## Rules for Adding Dependencies
@@ -114,20 +121,47 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 
 ## Specific Week 1 Guidance
 
-The current Week 1 layer is built around:
+The current primitive layer is built around:
 
 - `midnight-circuits`
 - `midnight-proofs`
 - `midnight-curves`
 - arkworks as the reference implementation in tests
 
-When touching Week 1 code:
+When touching the current BN254 primitive code:
 
 - keep `fp` work limited to the currently supported primitive surface unless the roadmap explicitly expands it
+- keep `fp2` work aligned with the current representation `Fq2(c0, c1)` and `u^2 = -1`
 - keep G1 work limited to the currently supported primitive surface unless the roadmap explicitly expands it
+- keep G2 work limited to the currently supported affine surface unless the roadmap explicitly expands it
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
 - keep CLI reporting aligned with the measured state of the codebase
+
+Concrete BN254 conventions already in use:
+
+- `AssignedFp2` follows the standard BN254 extension representation `a + bu`
+- `Fq2` coordinate order is `(c0, c1)` to match arkworks
+- `u^2 = -1`
+- minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
+- the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
+  `Fq2(19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)`
+
+Current measured primitive costs from `wrapper-cli doctor`:
+
+- `fp add`: 40 rows / 58 queries, `k=9`
+- `fp mul`: 38 rows / 58 queries, `k=9`
+- `fp2 add`: 80 rows / 58 queries, `k=9`
+- `fp2 mul`: 152 rows / 58 queries, `k=9`
+- `fp2 square`: 114 rows / 58 queries, `k=9`
+- `g1 add`: 319 rows / 105 queries, `k=9`
+- `g2 on_curve`: 400 rows / 58 queries, `k=9`
+- `g2 neg`: 930 rows / 58 queries, `k=10`
+
+Interpretation guidance:
+
+- `g2 neg` is not a measure of a raw sign flip alone; the current benchmark circuit includes assignment, on-curve checks, negation, and equality against the expected output
+- cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
 
 ## Coding Standards
 
@@ -152,10 +186,16 @@ When touching Week 1 code:
 
 - Every new public behavior should have at least one test at the owning layer.
 - Keep unit tests near the crate that owns the behavior.
-- Use arkworks as the reference implementation for BN254 field and G1 sanity checks when appropriate.
+- Use arkworks as the reference implementation for BN254 field, Fp2, G1, and minimal G2 affine sanity checks when appropriate.
 - Keep randomized tests deterministic via fixed seeds unless there is a strong reason not to.
 - Use `wrapper-tests` for shared fixtures, integration coverage, and benchmark entry points.
 - Do not add tests that imply pairing or verifier support before those stages exist.
+
+Current test expectations for the primitive layer:
+
+- `Fp2` tests should include algebra identities, deterministic randomized add/mul/square checks, and edge-oriented real/imaginary cases
+- minimal G2 tests should include valid affine points, negative on-curve cases, negation validity, and equality behavior
+- keep G2 tests affine and non-infinity unless the task explicitly adds identity handling
 
 ## Benchmarking Standards
 
@@ -165,6 +205,17 @@ When touching Week 1 code:
 - Do not make performance claims beyond what the current benchmark actually measures.
 - When changing benchmark structure, update `docs/benchmarking.md` and `wrapper-cli bench-info`.
 
+Current benchmark entry points include:
+
+- `bench_fp_add`
+- `bench_fp_mul`
+- `bench_fp2_add`
+- `bench_fp2_mul`
+- `bench_fp2_square`
+- `bench_g1_add`
+- `bench_g2_on_curve`
+- `bench_g2_neg`
+
 ## Documentation Standards
 
 - Update the README when implemented scope or contributor workflow changes.
@@ -173,6 +224,12 @@ When touching Week 1 code:
 - Add or amend ADRs for architectural decisions that affect crate ownership or public interfaces.
 - Be explicit about what is circuit-backed, what is reference-tested, and what is still missing.
 - When cleanup removes obsolete files or paths, reflect the new simpler state in contributor docs.
+
+When refactoring `wrapper-circuits/src/bn254/`:
+
+- keep the public API stable through `bn254/mod.rs` re-exports when possible
+- prefer splitting by concept, for example `types.rs`, `field.rs`, `fp2.rs`, `g2.rs`, `metrics.rs`, `tests.rs`
+- if docs mention the primitive path, keep them pointed at `src/bn254/`, not the old deleted `src/bn254.rs`
 
 ## How to Propose a Change
 
@@ -187,20 +244,21 @@ When touching Week 1 code:
 
 - Do not collapse crates for convenience.
 - Do not place Halo2-specific concerns in `wrapper-core` without strong justification.
-- Do not implement Fp2, G2, pairings, Miller loop, final exponentiation, or Groth16 verifier logic unless the task explicitly asks for that stage.
+- Do not implement pairings, Miller loop, final exponentiation, or Groth16 verifier logic unless the task explicitly asks for that stage.
+- Do not jump from minimal G2 affine support to G2 arithmetic or subgroup logic unless the task explicitly asks for it.
 - Do not write placeholder code that pretends proofs are verified.
 - Do not add a second BN254 primitive implementation path that competes with the Midnight-backed one without a documented reason.
-- Do not overclaim performance or soundness from the current Week 1 circuits.
+- Do not overclaim performance or soundness from the current sanity circuits.
 
 ## Explicit Warning for Current Tasks
 
-For tasks in the current repository state, do not assume that because `fp add`, `fp mul`, and minimal G1 addition exist, the project is ready for:
+For tasks in the current repository state, do not assume that because `fp add`, `fp mul`, `fp2`, minimal G1, and minimal G2 affine support exist, the project is ready for:
 
 - pairing gadgets
 - Groth16 verification
 - wrapped verifier composition
 - public-input verifier logic
-- G2 arithmetic
+- G2 arithmetic beyond affine negation and on-curve checks
 - full MSM infrastructure
 
 Those remain future-stage work unless the task explicitly advances the roadmap.

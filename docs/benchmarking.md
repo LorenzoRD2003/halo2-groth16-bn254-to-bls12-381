@@ -6,7 +6,7 @@ Current status:
 
 - benchmark structure exists
 - benchmark commands work
-- the current primitive layer includes small Midnight-backed circuits for field add, field mul, fp2 add, fp2 mul, fp2 square, and G1 add
+- the current primitive layer includes small Midnight-backed circuits for field add, field mul, fp2 add, fp2 mul, fp2 square, G1 add, G2 on-curve, and G2 neg
 - benchmark coverage is still intentionally narrow
 
 No current benchmark should be interpreted as a production cryptographic performance claim.
@@ -59,6 +59,8 @@ Current benchmark entry points are:
 - `bench_fp2_mul`
 - `bench_fp2_square`
 - `bench_g1_add`
+- `bench_g2_on_curve`
+- `bench_g2_neg`
 
 ## Metrics That Will Matter Later
 
@@ -72,4 +74,4 @@ Additional metrics may be added later if circuit shape, witness generation, or b
 
 ## Warning
 
-Current benchmarks exercise small Midnight-backed BN254 primitive circuits. They do not measure G2, pairings, Groth16 verification, or a production wrapper circuit.
+Current benchmarks exercise small Midnight-backed BN254 primitive circuits. They do not measure G2 arithmetic, pairings, Groth16 verification, or a production wrapper circuit.

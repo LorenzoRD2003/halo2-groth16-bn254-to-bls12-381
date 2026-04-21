@@ -1,11 +1,15 @@
 use ark_bn254::{
   Fq as ArkFq, Fq2 as ArkFq2, G1Affine as ArkG1Affine, G1Projective as ArkG1Projective,
+  G2Affine as ArkG2Affine, G2Projective as ArkG2Projective, g2,
 };
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::{AffineRepr, CurveGroup, models::short_weierstrass::SWCurveConfig};
 use ark_ff::{BigInteger, PrimeField, UniformRand};
 use ff::{Field, PrimeField as HaloPrimeField};
 use halo2curves::group::Group;
-use midnight_circuits::midnight_proofs::plonk::Circuit;
+use midnight_circuits::midnight_proofs::{
+  circuit::{Layouter, SimpleFloorPlanner, Value},
+  plonk::{Circuit, ConstraintSystem, Error},
+};
 use midnight_curves::{CurveAffine, bn256::G1Affine};
 use midnight_proofs::dev::MockProver;
 use rand::SeedableRng;
@@ -13,6 +17,10 @@ use rand_chacha::ChaCha20Rng;
 
 use super::metrics::measure_layout;
 use super::*;
+
+type Fp2AssignedValue = (Value<ForeignField>, Value<ForeignField>);
+type G2AssignedValue = (Fp2AssignedValue, Fp2AssignedValue);
+type G2ConstantValue = ((ForeignField, ForeignField), (ForeignField, ForeignField));
 
 fn ark_to_midnight_fq(value: ArkFq) -> ForeignField {
   let bytes = value.into_bigint().to_bytes_le();
@@ -43,6 +51,13 @@ fn ark_to_midnight_fq2(value: ArkFq2) -> (ForeignField, ForeignField) {
   (ark_to_midnight_fq(value.c0), ark_to_midnight_fq(value.c1))
 }
 
+fn ark_to_assigned_g2_coords(
+  point: ArkG2Affine,
+) -> ((ForeignField, ForeignField), (ForeignField, ForeignField)) {
+  assert!(!point.is_zero(), "this narrow G2 affine slice does not support infinity");
+  (ark_to_midnight_fq2(point.x), ark_to_midnight_fq2(point.y))
+}
+
 fn assert_satisfied<CircuitT: Circuit<NativeField>>(circuit: &CircuitT) {
   let k = measure_layout(circuit).k;
   let prover = MockProver::run(k, circuit, vec![vec![], vec![]]).expect("mock prover should run");
@@ -53,6 +68,58 @@ fn prover_result<CircuitT: Circuit<NativeField>>(circuit: &CircuitT) -> bool {
   let k = measure_layout(circuit).k;
   let prover = MockProver::run(k, circuit, vec![vec![], vec![]]).expect("mock prover should run");
   prover.verify().is_ok()
+}
+
+#[derive(Clone, Debug)]
+struct G2EqualityCircuit {
+  left: G2AssignedValue,
+  right: G2AssignedValue,
+}
+
+impl G2EqualityCircuit {
+  fn new(left: G2ConstantValue, right: G2ConstantValue) -> Self {
+    Self {
+      left: (
+        (Value::known(left.0.0), Value::known(left.0.1)),
+        (Value::known(left.1.0), Value::known(left.1.1)),
+      ),
+      right: (
+        (Value::known(right.0.0), Value::known(right.0.1)),
+        (Value::known(right.1.0), Value::known(right.1.1)),
+      ),
+    }
+  }
+}
+
+impl Circuit<NativeField> for G2EqualityCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self {
+      left: ((Value::unknown(), Value::unknown()), (Value::unknown(), Value::unknown())),
+      right: ((Value::unknown(), Value::unknown()), (Value::unknown(), Value::unknown())),
+    }
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    mut layouter: impl Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    let chip = Bn254FieldChip::new(&config);
+    let left = AssignedG2Affine::assign(&chip, &mut layouter, self.left.0, self.left.1)?;
+    let right = AssignedG2Affine::assign(&chip, &mut layouter, self.right.0, self.right.1)?;
+    left.assert_on_curve(&chip, &mut layouter)?;
+    right.assert_on_curve(&chip, &mut layouter)?;
+    left.assert_equal(&chip, &mut layouter, &right)?;
+    chip.load(&mut layouter)
+  }
 }
 
 #[test]
@@ -242,4 +309,100 @@ fn g1_layout_metrics_are_real_and_nonzero() {
 
   assert!(metrics.rows > 0);
   assert!(metrics.lookups > 0 || metrics.permutations > 0);
+}
+
+#[test]
+fn g2_curve_coeff_b_matches_arkworks() {
+  assert_eq!(g2_curve_coeff_b(), ark_to_midnight_fq2(g2::Config::COEFF_B));
+}
+
+#[test]
+fn g2_generator_is_on_curve() {
+  let generator = ark_to_assigned_g2_coords(ArkG2Affine::generator());
+
+  assert_satisfied(&G2OnCurveCircuit::new(generator.0, generator.1));
+}
+
+#[test]
+fn random_valid_g2_points_pass_on_curve_checks() {
+  let mut rng = ChaCha20Rng::from_seed([51_u8; 32]);
+
+  for _ in 0..8 {
+    let point = ArkG2Projective::rand(&mut rng).into_affine();
+    if point.is_zero() {
+      continue;
+    }
+
+    let point = ark_to_assigned_g2_coords(point);
+    assert_satisfied(&G2OnCurveCircuit::new(point.0, point.1));
+  }
+}
+
+#[test]
+fn modified_g2_x_coordinates_are_rejected() {
+  let point = ArkG2Affine::generator();
+  let bad_x = ArkFq2::new(point.x.c0 + ArkFq::from(1_u64), point.x.c1);
+
+  assert!(!prover_result(&G2OnCurveCircuit::new(
+    ark_to_midnight_fq2(bad_x),
+    ark_to_midnight_fq2(point.y),
+  )));
+}
+
+#[test]
+fn perturbed_g2_y_coordinates_are_rejected() {
+  let point = ArkG2Affine::generator();
+  let bad_y = ArkFq2::new(point.y.c0, point.y.c1 + ArkFq::from(1_u64));
+
+  assert!(!prover_result(&G2OnCurveCircuit::new(
+    ark_to_midnight_fq2(point.x),
+    ark_to_midnight_fq2(bad_y),
+  )));
+}
+
+#[test]
+fn g2_negation_preserves_on_curve_validity() {
+  let mut rng = ChaCha20Rng::from_seed([52_u8; 32]);
+
+  for _ in 0..6 {
+    let point = ArkG2Projective::rand(&mut rng).into_affine();
+    if point.is_zero() {
+      continue;
+    }
+
+    let negated = -point;
+    assert_satisfied(&G2NegCircuit::new(
+      ark_to_assigned_g2_coords(point),
+      ark_to_assigned_g2_coords(negated),
+    ));
+  }
+}
+
+#[test]
+fn g2_assert_equal_accepts_identical_points() {
+  let point = ark_to_assigned_g2_coords(ArkG2Affine::generator());
+
+  assert_satisfied(&G2EqualityCircuit::new(point, point));
+}
+
+#[test]
+fn g2_assert_equal_rejects_distinct_points() {
+  let point = ArkG2Affine::generator();
+  let negated = -point;
+
+  assert!(!prover_result(&G2EqualityCircuit::new(
+    ark_to_assigned_g2_coords(point),
+    ark_to_assigned_g2_coords(negated),
+  )));
+}
+
+#[test]
+fn g2_layout_metrics_are_real_and_nonzero() {
+  let on_curve_metrics = g2_on_curve_layout_metrics();
+  let neg_metrics = g2_neg_layout_metrics();
+
+  assert!(on_curve_metrics.rows > 0);
+  assert!(neg_metrics.rows > 0);
+  assert!(on_curve_metrics.column_queries > 0);
+  assert!(neg_metrics.column_queries > 0);
 }

@@ -23,6 +23,10 @@ impl AssignedFp2 {
   }
 
   /// Assigns an Fp2 witness from its two base-field coordinates.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the underlying foreign-field assignments fail.
   pub fn assign(
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
@@ -33,6 +37,10 @@ impl AssignedFp2 {
   }
 
   /// Assigns the additive identity in Fp2.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the underlying foreign-field assignments fail.
   pub fn zero(
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
@@ -41,6 +49,10 @@ impl AssignedFp2 {
   }
 
   /// Assigns the multiplicative identity in Fp2.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the underlying foreign-field assignments fail.
   pub fn one(
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
@@ -49,6 +61,10 @@ impl AssignedFp2 {
   }
 
   /// Adds two Fp2 values inside the circuit.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any underlying Fp addition assignment fails.
   pub fn add(
     &self,
     chip: &Bn254FieldChip,
@@ -59,6 +75,10 @@ impl AssignedFp2 {
   }
 
   /// Subtracts two Fp2 values inside the circuit.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any underlying Fp subtraction assignment fails.
   pub fn sub(
     &self,
     chip: &Bn254FieldChip,
@@ -69,6 +89,10 @@ impl AssignedFp2 {
   }
 
   /// Negates an Fp2 value inside the circuit.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any underlying Fp negation assignment fails.
   pub fn neg(
     &self,
     chip: &Bn254FieldChip,
@@ -78,6 +102,11 @@ impl AssignedFp2 {
   }
 
   /// Multiplies two Fp2 values inside the circuit assuming `u^2 = -1`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any underlying Fp multiplication, addition, or subtraction assignment
+  /// fails.
   pub fn mul(
     &self,
     chip: &Bn254FieldChip,
@@ -93,6 +122,11 @@ impl AssignedFp2 {
   }
 
   /// Squares an Fp2 value inside the circuit assuming `u^2 = -1`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any underlying Fp multiplication, addition, or subtraction assignment
+  /// fails.
   pub fn square(
     &self,
     chip: &Bn254FieldChip,
@@ -107,6 +141,10 @@ impl AssignedFp2 {
   }
 
   /// Asserts coordinate-wise equality against another assigned Fp2 value.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if either coordinate equality constraint cannot be enforced.
   pub fn assert_equal(
     &self,
     chip: &Bn254FieldChip,
@@ -118,6 +156,10 @@ impl AssignedFp2 {
   }
 
   /// Asserts coordinate-wise equality against a fixed Fp2 constant.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if either coordinate-equals-constant constraint cannot be enforced.
   pub fn assert_equal_to_fixed(
     &self,
     chip: &Bn254FieldChip,
