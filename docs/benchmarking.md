@@ -6,9 +6,10 @@ Current status:
 
 - benchmark structure exists
 - benchmark commands work
-- benchmark logic is placeholder-only
+- Week 1 includes small Midnight-backed circuits for field add, field mul, and G1 add
+- benchmark coverage is still intentionally narrow
 
-No current benchmark should be interpreted as a cryptographic performance claim.
+No current benchmark should be interpreted as a production cryptographic performance claim.
 
 ## Running Benchmarks
 
@@ -18,7 +19,7 @@ Run all benchmarks with:
 cargo bench
 ```
 
-The current benchmark target lives in `crates/wrapper-tests/benches/placeholders.rs`.
+The current benchmark target lives in `crates/wrapper-tests/benches/primitives.rs`.
 
 ## Current Structure
 
@@ -26,14 +27,13 @@ Benchmarks are grouped by future implementation area:
 
 - `crates/wrapper-tests/benches/field/`
 - `crates/wrapper-tests/benches/ecc/`
-- `crates/wrapper-tests/benches/pairing/`
 
-This keeps the future benchmark layout aligned with the intended cryptographic workstreams without forcing those implementations to exist yet.
+This keeps the benchmark layout aligned with the intended cryptographic workstreams without forcing later-stage implementations to exist yet.
 
 ## Adding a New Benchmark
 
 1. Put the benchmark helper or module in the appropriate directory under `crates/wrapper-tests/benches/`.
-2. Register the benchmark function from `placeholders.rs` through `criterion_group!`.
+2. Register the benchmark function from `primitives.rs` through `criterion_group!`.
 3. Keep the benchmark logic honest and explicit about whether it measures a placeholder, parser path, layout calculation, or real cryptographic code.
 4. If the benchmark represents a new category of work, update this document and `wrapper-cli bench-info`.
 
@@ -51,7 +51,11 @@ Examples:
 - `bench_ecc_point_add`
 - `bench_pairing_miller_loop`
 
-The current bootstrap placeholders are intentionally generic and exist only to validate the benchmarking workflow.
+Current Week 1 benchmark entry points are:
+
+- `bench_fp_add`
+- `bench_fp_mul`
+- `bench_g1_add`
 
 ## Metrics That Will Matter Later
 
@@ -65,5 +69,4 @@ Additional metrics may be added later if circuit shape, witness generation, or b
 
 ## Warning
 
-All current benchmarks are placeholders only. They do not measure field arithmetic, ECC, pairings, Groth16 verification, or any real Halo2 cryptographic circuit logic.
-
+Current benchmarks exercise small Midnight-backed Week 1 circuits around BN254 operations. They do not measure pairings, Groth16 verification, or a production wrapper circuit.

@@ -1,4 +1,5 @@
 //! Test harness crate for workspace-level fixtures and integration helpers.
+#![allow(clippy::multiple_crate_versions)]
 
 use wrapper_backends as _;
 use wrapper_circuits as _;
@@ -6,6 +7,8 @@ use wrapper_core as _;
 
 #[cfg(test)]
 use criterion as _;
+#[cfg(test)]
+use midnight_proofs as _;
 
 /// Returns the example config bundled for integration tests.
 #[must_use]

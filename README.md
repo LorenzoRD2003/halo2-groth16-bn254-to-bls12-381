@@ -9,21 +9,19 @@ The current phase is intentionally narrow: this repository establishes crate bou
 What the repository currently contains:
 
 - A multi-crate Rust workspace with explicit boundaries between domain logic, circuit-facing code, backend adapters, CLI tooling, and test harness code.
-- Placeholder interfaces and metadata models for future wrapper work.
+- Week 1 BN254 foundations in `wrapper-circuits`: Midnight-backed foreign-field and G1 circuits with real layout measurements.
 - Contributor-oriented documentation covering architecture, roadmap, and initial design decisions.
 - A `wrapper-cli` binary with honest developer commands for environment inspection and configuration validation.
 
 What is explicitly not implemented yet:
 
-- Foreign field arithmetic
-- ECC gadgets
 - Pairing gadgets or pairing arithmetic
 - Groth16 verifier logic
-- Halo2 circuit logic beyond placeholders and layout descriptions
+- Fp2, Fp12, or G2 support
 - Real backend adapters to arkworks, Midnight, `blst`, or `snarkjs`
 - Cryptographic soundness claims of any kind
 
-This repository is scaffolded, not cryptographically implemented.
+This repository now includes Week 1 arithmetic foundations, but it is still far from a Groth16 wrapper verifier.
 
 ## Planned Architecture
 
@@ -90,17 +88,38 @@ Run the same commands locally before opening a PR.
 
 ## Benchmarking
 
-Placeholder Criterion benchmarks are scaffolded under `crates/wrapper-tests/benches/` and grouped by future work areas:
+Criterion benchmarks are scaffolded under `crates/wrapper-tests/benches/` and currently cover Week 1 sanity-check circuits:
 
 - `field/`
 - `ecc/`
-- `pairing/`
 
 Run them with:
 
 ```bash
 cargo bench
 ```
+
+## Week 1 Implemented
+
+What works now:
+
+- BN254 foreign-field values wrapped as `AssignedFp` over Midnight `FieldChip`
+- Circuit-backed `fp add` and `fp mul` in Halo2 via `midnight-circuits`
+- Minimal BN254 G1 support wrapped as `AssignedG1` over Midnight `ForeignEccChip`
+- Circuit-backed G1 addition plus coordinate-to-point on-curve enforcement
+- Deterministic randomized tests against arkworks reference behavior
+- Real row/layout measurements via `midnight_proofs::dev::cost_model`
+- Small Criterion benchmark hooks over the actual Week 1 sanity circuits
+
+What still does not exist:
+
+- pairings
+- G2
+- Fp2/Fp12
+- MSM
+- Groth16 verification
+- wrapper verifier logic
+- production-focused optimization or proof-system integration work
 
 ## Running the CLI
 
@@ -122,12 +141,12 @@ cargo run -p wrapper-cli -- bench-info
 4. Expose orchestration and diagnostics through `wrapper-cli`.
 5. Add regression coverage in `wrapper-tests` before growing implementation scope.
 
-For the current initialization phase, prefer architectural clarity over implementation depth.
+For the current Week 1 phase, prefer correctness and measured layout visibility over optimization.
 
 ## Roadmap / Phases
 
 - Initialization: workspace scaffold, docs, CLI, placeholders, tests
-- Stage 1: introduce first real circuit-oriented abstractions and minimal Halo2 integration boundaries
+- Stage 1 / Week 1: Midnight-backed BN254 `fp add` / `fp mul`, minimal G1 addition, arkworks sanity checks, layout visibility
 - Later pairing work: foreign field and pairing-related gadget research
 - Later wrapper verifier work: Groth16 verifier logic inside the outer proof system
 - Possible Cardano integration: ecosystem-specific packaging, artifacts, and engineering constraints
@@ -151,7 +170,8 @@ Current strategy:
 - Compile all crates
 - Validate CLI behavior
 - Test configuration parsing and placeholder metadata behavior
-- Keep placeholder benchmarks runnable so future performance work has a consistent home
+- Validate BN254 field and G1 behavior against arkworks
+- Keep small Midnight-backed sanity benchmarks runnable so future performance work has a consistent home
 
 Future strategy:
 
@@ -163,13 +183,10 @@ Future strategy:
 ## Non-Goals for This Phase
 
 - Shipping a usable wrapper proof system
-- Benchmarking cryptographic performance
-- Implementing any arithmetic gadget
+- Implementing pairings, Fp2/Fp12, G2, or Groth16 verification
 - Selecting a final proving backend
 - Claiming compatibility with production proof artifacts
 
 ## Disclaimer
 
-All cryptographic functionality in this repository is currently scaffolded only. Interfaces, crate boundaries, and developer tooling are present; proof verification, arithmetic gadgets, and cryptographic circuits are not implemented.
-Current Criterion benchmarks are placeholders only and do not represent cryptographic performance.
-
+This repository now contains a first circuit-backed Week 1 BN254 layer using `midnight-circuits` and `midnight-proofs`, but it does not implement pairings, Groth16 verification, or a wrapper verifier circuit. Current Criterion benchmarks are sanity-check hooks over small Week 1 circuits and should not be read as production cryptographic performance claims.

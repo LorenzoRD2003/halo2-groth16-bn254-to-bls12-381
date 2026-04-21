@@ -5,8 +5,8 @@ use wrapper_core::{LayoutDescriptor, ProjectConfig, ProjectPhase, WrapperError};
 /// Build status for the outer circuit shell.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CircuitBuildStatus {
-  /// The circuit exists only as a placeholder boundary.
-  Placeholder,
+  /// Week 1 primitive layers are available, but no wrapper verifier exists yet.
+  Week1Foundation,
 }
 
 /// Placeholder outer wrapper circuit definition.
@@ -26,7 +26,7 @@ impl OuterWrapperCircuit {
   /// Returns the current build status.
   #[must_use]
   pub fn build_status(&self) -> CircuitBuildStatus {
-    CircuitBuildStatus::Placeholder
+    CircuitBuildStatus::Week1Foundation
   }
 
   /// Returns the scaffold layout for reporting purposes.

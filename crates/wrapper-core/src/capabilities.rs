@@ -50,10 +50,10 @@ impl CapabilityMatrix {
     Self {
       entries: vec![
         (ProjectCapability::ConfigModel, ImplementationStatus::Implemented),
-        (ProjectCapability::CircuitSkeleton, ImplementationStatus::Scaffolded),
+        (ProjectCapability::CircuitSkeleton, ImplementationStatus::Experimental),
         (ProjectCapability::BackendSkeleton, ImplementationStatus::Scaffolded),
-        (ProjectCapability::ForeignFieldArithmetic, ImplementationStatus::NotImplemented),
-        (ProjectCapability::EccGadgets, ImplementationStatus::NotImplemented),
+        (ProjectCapability::ForeignFieldArithmetic, ImplementationStatus::Experimental),
+        (ProjectCapability::EccGadgets, ImplementationStatus::Experimental),
         (ProjectCapability::PairingGadgets, ImplementationStatus::NotImplemented),
         (ProjectCapability::Groth16Verifier, ImplementationStatus::NotImplemented),
       ],

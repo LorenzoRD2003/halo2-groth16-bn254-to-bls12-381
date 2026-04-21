@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state provides only architectural scaffolding and does not implement cryptographic functionality.
+This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a first circuit-backed Week 1 arithmetic layer, but it still does not implement pairings, verifier logic, or a production wrapper circuit.
 
 ## Intended Data Flow
 
@@ -13,7 +13,7 @@ The expected long-term flow is:
 3. `wrapper-circuits` consumes domain-level configuration and normalized metadata to construct Halo2-facing circuit descriptions.
 4. The CLI or future orchestration layers coordinate configuration loading, validation, inspection, and eventually proof-related workflows.
 
-The initialization phase implements only the configuration, metadata, and boundary definitions required for that flow.
+The current implementation includes enough BN254 arithmetic to validate Week 1 interfaces, circuit wiring, and layout measurements, while still stopping well short of a wrapper verifier.
 
 ## Why `wrapper-core` Stays Domain-Oriented
 
@@ -34,6 +34,8 @@ Circuit code and backend integration change for different reasons.
 - chip and gadget organization
 - layout and witness-shape planning
 - outer wrapper circuit boundary definitions
+- the BN254 foreign-field layer introduced in Week 1
+- the BN254 G1 abstraction layer introduced in Week 1
 
 `wrapper-backends` will eventually own:
 
@@ -46,13 +48,48 @@ Separating these concerns prevents parser logic, serialization quirks, or artifa
 
 ## Halo2 Boundary Strategy
 
-The project expects Halo2-specific code to live primarily in `wrapper-circuits`. During initialization, Halo2 is not yet required as a dependency because no actual circuit implementation exists.
+The project expects Halo2-specific code to live primarily in `wrapper-circuits`. Week 1 now uses `midnight-circuits` and `midnight-proofs` directly for a first real non-native BN254 layer, while keeping the supported surface intentionally small. This gives the project real circuit feedback without overcommitting to later-stage pairing or verifier APIs.
 
 When Halo2 is introduced later:
 
 - `wrapper-core` should still avoid direct dependence unless a boundary cannot be represented otherwise
 - `wrapper-circuits` should absorb the proving-system integration surface
 - `wrapper-backends` should remain focused on external artifact and ecosystem concerns
+
+## BN254 Foreign-Field Layer
+
+Week 1 adds an `AssignedFp` abstraction in `wrapper-circuits`.
+
+Current properties:
+
+- Midnight-backed assigned BN254 base-field values
+- circuit-backed `add`, `sub`, `neg`, `mul`, and `square`
+- real row and layout measurements via `midnight_proofs::dev::cost_model`
+- arkworks-backed randomized correctness tests
+
+Current limitations:
+
+- no public Week 1 support for Fp2/Fp12 or pairing-specific arithmetic
+- no production-oriented optimization or custom layout tuning yet
+- row and query reporting is real, but still only for the narrow Week 1 circuits
+
+## BN254 G1 Abstraction Layer
+
+Week 1 also adds an `AssignedG1` abstraction in `wrapper-circuits`.
+
+Current properties:
+
+- Midnight-backed assigned BN254 G1 points
+- circuit-backed complete point addition
+- coordinate-to-point construction with on-curve enforcement
+- deterministic arkworks-backed correctness tests
+- real layout metrics for the Week 1 G1 addition circuit
+
+Current limitations:
+
+- no public Week 1 MSM surface
+- no subgroup-check or cofactor-clearing workflow yet
+- no G2 or pairing support
 
 ## Current Architectural Contracts
 
@@ -63,6 +100,6 @@ The current skeleton defines:
 - repository configuration parsing and validation
 - layout descriptors for future circuit inspection
 - backend registry and artifact loader interfaces
+- BN254 field and G1 foundations with real layout visibility
 
-These contracts are intentionally small and meant to support staged development rather than predict final cryptographic APIs in detail.
-
+These contracts are intentionally conservative and meant to support staged development rather than predict final cryptographic APIs in detail.

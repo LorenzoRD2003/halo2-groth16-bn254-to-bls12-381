@@ -18,9 +18,10 @@ wrapper-core = { path = "../wrapper-core" }
 
 [dev-dependencies]
 criterion.workspace = true
+midnight-proofs.workspace = true
 
 [[bench]]
-name = "placeholders"
+name = "primitives"
 harness = false
 
 [lints]

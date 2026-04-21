@@ -1,26 +1,22 @@
-//! Placeholder ECC benchmarks.
+//! ECC benchmark hooks backed by the real Midnight BN254 G1 circuit.
 
-use criterion::{BenchmarkId, Criterion, black_box};
+use criterion::{BenchmarkId, Criterion};
+use midnight_proofs::dev::MockProver;
+use wrapper_circuits::{G1AddCircuit, g1_add_k};
 
-fn placeholder_ecc_walk(points: usize) -> (u64, u64) {
-  let mut x = 1_u64;
-  let mut y = 2_u64;
+fn run_g1_add_circuit() {
+  let circuit = G1AddCircuit::sample();
+  let prover = MockProver::run(g1_add_k(), &circuit, vec![vec![], vec![]])
+    .expect("g1 add circuit should build");
 
-  for index in 0..points {
-    x = x.wrapping_add((index as u64).rotate_left(5));
-    y = y.wrapping_add(x ^ 0xa5a5_a5a5);
-  }
-
-  (x, y)
+  assert_eq!(prover.verify(), Ok(()));
 }
 
-/// Benchmarks placeholder ECC-like work.
-pub fn bench_placeholder_ecc(criterion: &mut Criterion) {
+/// Benchmarks the current Midnight-backed BN254 G1 addition circuit.
+pub fn bench_g1_add(criterion: &mut Criterion) {
   let mut group = criterion.benchmark_group("ecc");
-  group.bench_with_input(
-    BenchmarkId::new("bench_placeholder_ecc", 512),
-    &512_usize,
-    |bench, points| bench.iter(|| black_box(placeholder_ecc_walk(*points))),
-  );
+  group.bench_with_input(BenchmarkId::new("bench_g1_add", 1), &1_u8, |bench, _| {
+    bench.iter(run_g1_add_circuit);
+  });
   group.finish();
 }

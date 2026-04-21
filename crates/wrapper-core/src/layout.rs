@@ -8,6 +8,10 @@ use serde::Serialize;
 pub enum LayoutComponentKind {
   /// Root wrapper circuit node.
   WrapperRoot,
+  /// BN254 foreign-field arithmetic layer.
+  ForeignFieldLayer,
+  /// BN254 G1 abstraction layer.
+  G1Layer,
   /// Metadata normalization stage.
   ArtifactIngress,
   /// Verification-key placeholder stage.
@@ -52,6 +56,16 @@ impl LayoutDescriptor {
           id: "artifact-ingress".to_owned(),
           title: "Artifact ingress placeholder".to_owned(),
           kind: LayoutComponentKind::ArtifactIngress,
+        },
+        LayoutNode {
+          id: "bn254-foreign-field".to_owned(),
+          title: "BN254 foreign-field layer".to_owned(),
+          kind: LayoutComponentKind::ForeignFieldLayer,
+        },
+        LayoutNode {
+          id: "bn254-g1-layer".to_owned(),
+          title: "BN254 G1 abstraction layer".to_owned(),
+          kind: LayoutComponentKind::G1Layer,
         },
         LayoutNode {
           id: "vk-envelope".to_owned(),

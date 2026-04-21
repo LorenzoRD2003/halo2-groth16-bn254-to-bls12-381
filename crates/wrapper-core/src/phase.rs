@@ -38,11 +38,11 @@ impl ProjectStatusReport {
       phase: ProjectPhase::Initialization,
       capabilities: CapabilityMatrix::scaffolded(),
       limitations: vec![
-        "no foreign field arithmetic".to_owned(),
-        "no ECC gadgets".to_owned(),
+        "bn254 field and g1 support are week-1 foundations only".to_owned(),
+        "no subgroup checks beyond the selected g1 construction path".to_owned(),
         "no pairings".to_owned(),
         "no Groth16 verifier logic".to_owned(),
-        "no cryptographic Halo2 circuit implementation".to_owned(),
+        "no wrapper verifier circuit beyond the narrow week-1 primitive layer".to_owned(),
       ],
     }
   }
