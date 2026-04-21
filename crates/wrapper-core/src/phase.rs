@@ -38,11 +38,12 @@ impl ProjectStatusReport {
       phase: ProjectPhase::Stage1,
       capabilities: CapabilityMatrix::scaffolded(),
       limitations: vec![
-        "bn254 field and g1 support are week-1 foundations only".to_owned(),
+        "bn254 fp, fp2, and g1 support are still early-stage foundations only".to_owned(),
         "no subgroup checks beyond the selected g1 construction path".to_owned(),
+        "no g2, fp6, or fp12 support".to_owned(),
         "no pairings".to_owned(),
         "no Groth16 verifier logic".to_owned(),
-        "no wrapper verifier circuit beyond the narrow week-1 primitive layer".to_owned(),
+        "no wrapper verifier circuit beyond the narrow primitive layer".to_owned(),
       ],
     }
   }

@@ -6,7 +6,7 @@ Current status:
 
 - benchmark structure exists
 - benchmark commands work
-- Week 1 includes small Midnight-backed circuits for field add, field mul, and G1 add
+- the current primitive layer includes small Midnight-backed circuits for field add, field mul, fp2 add, fp2 mul, fp2 square, and G1 add
 - benchmark coverage is still intentionally narrow
 
 No current benchmark should be interpreted as a production cryptographic performance claim.
@@ -51,10 +51,13 @@ Examples:
 - `bench_ecc_point_add`
 - `bench_pairing_miller_loop`
 
-Current Week 1 benchmark entry points are:
+Current benchmark entry points are:
 
 - `bench_fp_add`
 - `bench_fp_mul`
+- `bench_fp2_add`
+- `bench_fp2_mul`
+- `bench_fp2_square`
 - `bench_g1_add`
 
 ## Metrics That Will Matter Later
@@ -69,4 +72,4 @@ Additional metrics may be added later if circuit shape, witness generation, or b
 
 ## Warning
 
-Current benchmarks exercise small Midnight-backed Week 1 circuits around BN254 operations. They do not measure pairings, Groth16 verification, or a production wrapper circuit.
+Current benchmarks exercise small Midnight-backed BN254 primitive circuits. They do not measure G2, pairings, Groth16 verification, or a production wrapper circuit.

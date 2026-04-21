@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a first circuit-backed Week 1 arithmetic layer, but it still does not implement pairings, verifier logic, or a production wrapper circuit.
+This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 has started with a first Fp2 slice. It still does not implement G2, pairings, verifier logic, or a production wrapper circuit.
 
 ## Intended Data Flow
 
@@ -34,7 +34,7 @@ Circuit code and backend integration change for different reasons.
 - chip and gadget organization
 - layout and witness-shape planning
 - outer wrapper circuit boundary definitions
-- the BN254 foreign-field layer introduced in Week 1
+- the BN254 foreign-field layer introduced in Week 1 and extended in early Week 2 with Fp2
 - the BN254 G1 abstraction layer introduced in Week 1
 
 `wrapper-backends` will eventually own:
@@ -58,20 +58,22 @@ When Halo2 is introduced later:
 
 ## BN254 Foreign-Field Layer
 
-Week 1 adds an `AssignedFp` abstraction in `wrapper-circuits`.
+Week 1 adds an `AssignedFp` abstraction in `wrapper-circuits`, and Week 2 begins by layering `AssignedFp2` on top of it.
 
 Current properties:
 
 - Midnight-backed assigned BN254 base-field values
 - circuit-backed `add`, `sub`, `neg`, `mul`, and `square`
+- circuit-backed BN254 Fp2 values represented as `(c0, c1)` for `c0 + c1 * u`
+- Fp2 `add`, `sub`, `neg`, `mul`, and specialized `square` expressed through the existing `AssignedFp` layer
 - real row and layout measurements via `midnight_proofs::dev::cost_model`
 - arkworks-backed randomized correctness tests
 
 Current limitations:
 
-- no public Week 1 support for Fp2/Fp12 or pairing-specific arithmetic
+- no G2, Fp6, Fp12, or pairing-specific arithmetic yet
 - no production-oriented optimization or custom layout tuning yet
-- row and query reporting is real, but still only for the narrow Week 1 circuits
+- row and query reporting is real, but still only for the narrow implemented circuits
 
 ## BN254 G1 Abstraction Layer
 
@@ -100,6 +102,6 @@ The current skeleton defines:
 - repository configuration parsing and validation
 - layout descriptors for future circuit inspection
 - backend registry and artifact loader interfaces
-- BN254 field and G1 foundations with real layout visibility
+- BN254 field, Fp2, and G1 foundations with real layout visibility
 
 These contracts are intentionally conservative and meant to support staged development rather than predict final cryptographic APIs in detail.

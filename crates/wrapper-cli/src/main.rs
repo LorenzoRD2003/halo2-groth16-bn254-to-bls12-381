@@ -87,7 +87,7 @@ fn run_doctor() {
     println!("  - {}: {}", entry.id, entry.description);
   }
 
-  println!("Week 1 primitive estimates:");
+  println!("Week 1 / Week 2 primitive estimates:");
   println!(
     "  - fp add: {} rows / {} queries (k={}, advice={}, fixed={})",
     primitive_costs.fp_add.rows,
@@ -103,6 +103,30 @@ fn run_doctor() {
     primitive_costs.fp_mul_layout.k,
     primitive_costs.fp_mul_layout.advice_columns,
     primitive_costs.fp_mul_layout.fixed_columns
+  );
+  println!(
+    "  - fp2 add: {} rows / {} queries (k={}, advice={}, fixed={})",
+    primitive_costs.fp2_add.rows,
+    primitive_costs.fp2_add.constraints,
+    primitive_costs.fp2_add_layout.k,
+    primitive_costs.fp2_add_layout.advice_columns,
+    primitive_costs.fp2_add_layout.fixed_columns
+  );
+  println!(
+    "  - fp2 mul: {} rows / {} queries (k={}, advice={}, fixed={})",
+    primitive_costs.fp2_mul.rows,
+    primitive_costs.fp2_mul.constraints,
+    primitive_costs.fp2_mul_layout.k,
+    primitive_costs.fp2_mul_layout.advice_columns,
+    primitive_costs.fp2_mul_layout.fixed_columns
+  );
+  println!(
+    "  - fp2 square: {} rows / {} queries (k={}, advice={}, fixed={})",
+    primitive_costs.fp2_square.rows,
+    primitive_costs.fp2_square.constraints,
+    primitive_costs.fp2_square_layout.k,
+    primitive_costs.fp2_square_layout.advice_columns,
+    primitive_costs.fp2_square_layout.fixed_columns
   );
   println!(
     "  - g1 add: {} rows / {} queries (k={}, advice={}, fixed={}, lookups={})",
@@ -125,9 +149,12 @@ fn run_bench_info() {
   println!("Current benchmark entry points:");
   println!("  - bench_fp_add");
   println!("  - bench_fp_mul");
+  println!("  - bench_fp2_add");
+  println!("  - bench_fp2_mul");
+  println!("  - bench_fp2_square");
   println!("  - bench_g1_add");
   println!(
-    "Warning: current benchmarks use small Midnight-backed sanity circuits and do not cover pairings or verifier logic."
+    "Warning: current benchmarks use small Midnight-backed sanity circuits and do not cover G2, pairings, or verifier logic."
   );
 }
 
@@ -159,12 +186,12 @@ fn run_validate_config(path: &PathBuf) -> Result<()> {
 fn run_about() {
   info!("printing project overview");
   println!("Project: Halo2 wrapper workspace");
-  println!("Phase: stage 1 / week 1 foundation");
+  println!("Phase: stage 1 / week 2 (fp2 first slice)");
   println!("Purpose: stage a serious multi-crate codebase for Halo2 wrapper research.");
   println!(
-    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp add/fp mul, minimal G1 add/on-curve checks, CLI, and sanity-check benches."
+    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2 arithmetic, minimal G1 add/on-curve checks, CLI, and sanity-check benches."
   );
   println!(
-    "Not implemented: Fp2, G2, pairings, Groth16 verification, and wrapper verifier circuits."
+    "Not implemented: G2, Fp6/Fp12, pairings, Groth16 verification, and wrapper verifier circuits."
   );
 }

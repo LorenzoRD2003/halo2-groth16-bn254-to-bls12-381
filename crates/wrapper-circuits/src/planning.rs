@@ -3,10 +3,11 @@
 use wrapper_core::{LayoutDescriptor, ProjectConfig};
 
 use crate::{
-  CostEstimate, LayoutMetrics, fp_add_layout_metrics, fp_mul_layout_metrics, g1_add_layout_metrics,
+  CostEstimate, LayoutMetrics, fp_add_layout_metrics, fp_mul_layout_metrics,
+  fp2_add_layout_metrics, fp2_mul_layout_metrics, fp2_square_layout_metrics, g1_add_layout_metrics,
 };
 
-/// Layout and cost data for the currently implemented Week 1 primitives.
+/// Layout and cost data for the currently implemented primitive layer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PrimitiveCostTable {
   /// Foreign-field addition layout metrics.
@@ -17,6 +18,18 @@ pub struct PrimitiveCostTable {
   pub fp_mul_layout: LayoutMetrics,
   /// Foreign-field multiplication cost summary.
   pub fp_mul: CostEstimate,
+  /// Fp2 addition layout metrics.
+  pub fp2_add_layout: LayoutMetrics,
+  /// Fp2 addition cost summary.
+  pub fp2_add: CostEstimate,
+  /// Fp2 multiplication layout metrics.
+  pub fp2_mul_layout: LayoutMetrics,
+  /// Fp2 multiplication cost summary.
+  pub fp2_mul: CostEstimate,
+  /// Fp2 square layout metrics.
+  pub fp2_square_layout: LayoutMetrics,
+  /// Fp2 square cost summary.
+  pub fp2_square: CostEstimate,
   /// G1 addition layout metrics.
   pub g1_add_layout: LayoutMetrics,
   /// G1 addition cost summary.
@@ -44,12 +57,15 @@ impl CircuitPlanningView {
     LayoutDescriptor::scaffold()
   }
 
-  /// Returns measured layout metrics for the Week 1 primitive layer.
+  /// Returns measured layout metrics for the current primitive layer.
   #[must_use]
   pub fn primitive_cost_table(&self) -> PrimitiveCostTable {
     let _ = &self.config;
     let fp_add_layout = fp_add_layout_metrics();
     let fp_mul_layout = fp_mul_layout_metrics();
+    let fp2_add_layout = fp2_add_layout_metrics();
+    let fp2_mul_layout = fp2_mul_layout_metrics();
+    let fp2_square_layout = fp2_square_layout_metrics();
     let g1_add_layout = g1_add_layout_metrics();
 
     PrimitiveCostTable {
@@ -57,6 +73,12 @@ impl CircuitPlanningView {
       fp_add_layout,
       fp_mul: fp_mul_layout.cost_estimate(),
       fp_mul_layout,
+      fp2_add: fp2_add_layout.cost_estimate(),
+      fp2_add_layout,
+      fp2_mul: fp2_mul_layout.cost_estimate(),
+      fp2_mul_layout,
+      fp2_square: fp2_square_layout.cost_estimate(),
+      fp2_square_layout,
       g1_add: g1_add_layout.cost_estimate(),
       g1_add_layout,
     }
