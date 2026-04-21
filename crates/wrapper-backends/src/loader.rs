@@ -31,7 +31,11 @@ impl ArtifactLoaderError {
 
 impl fmt::Display for ArtifactLoaderError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "backend feature not implemented during initialization: {}", self.feature)
+    write!(
+      f,
+      "backend feature not implemented in the current stage-1 repository state: {}",
+      self.feature
+    )
   }
 }
 
@@ -47,7 +51,7 @@ pub trait ArtifactLoader {
   /// # Errors
   ///
   /// Returns an error by default because proof loading is only scaffolded
-  /// during the initialization phase.
+  /// in the current stage-1 repository state.
   fn load_proof(&self, _input: &[u8]) -> Result<NormalizedProofArtifact, ArtifactLoaderError> {
     Err(ArtifactLoaderError::not_implemented("proof artifact loading"))
   }
@@ -57,7 +61,7 @@ pub trait ArtifactLoader {
   /// # Errors
   ///
   /// Returns an error by default because verification-key loading is only
-  /// scaffolded during the initialization phase.
+  /// scaffolded in the current stage-1 repository state.
   fn load_vk(&self, _input: &[u8]) -> Result<NormalizedVerificationKey, ArtifactLoaderError> {
     Err(ArtifactLoaderError::not_implemented("verification-key loading"))
   }

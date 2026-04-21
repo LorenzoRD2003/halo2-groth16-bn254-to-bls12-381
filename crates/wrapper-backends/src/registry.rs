@@ -20,7 +20,7 @@ pub struct BackendRegistry {
 }
 
 impl BackendRegistry {
-  /// Returns the initialization-phase backend registry.
+  /// Returns the current backend registry placeholder set.
   #[must_use]
   pub fn scaffold() -> Self {
     Self {

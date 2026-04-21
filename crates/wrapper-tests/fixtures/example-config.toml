@@ -1,4 +1,4 @@
-phase = "initialization"
+phase = "stage1"
 flavor = "research-scaffold"
 
 [paths]

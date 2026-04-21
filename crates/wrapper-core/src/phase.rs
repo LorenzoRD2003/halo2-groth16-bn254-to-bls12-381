@@ -9,9 +9,9 @@ use crate::capabilities::CapabilityMatrix;
 #[serde(rename_all = "kebab-case")]
 pub enum ProjectPhase {
   /// Repository bootstrap and architecture setup.
-  #[default]
   Initialization,
   /// Future stage for early circuit-facing work.
+  #[default]
   Stage1,
   /// Future stage for pairing-related research and implementation.
   PairingResearch,
@@ -31,11 +31,11 @@ pub struct ProjectStatusReport {
 }
 
 impl ProjectStatusReport {
-  /// Returns the initialization-phase scaffold report.
+  /// Returns the current repository status report.
   #[must_use]
   pub fn scaffold() -> Self {
     Self {
-      phase: ProjectPhase::Initialization,
+      phase: ProjectPhase::Stage1,
       capabilities: CapabilityMatrix::scaffolded(),
       limitations: vec![
         "bn254 field and g1 support are week-1 foundations only".to_owned(),

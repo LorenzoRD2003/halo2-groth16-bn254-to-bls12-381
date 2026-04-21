@@ -21,6 +21,7 @@ Implemented in scope today:
 - Real layout and row visibility through the Halo2/Midnight cost model
 - Deterministic randomized tests against arkworks
 - Criterion sanity benchmarks for the currently implemented Week 1 circuits
+- a single authoritative BN254 primitive path in `wrapper-circuits/src/bn254.rs`
 
 Out of scope right now:
 
@@ -40,7 +41,7 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 
 - `crates/wrapper-core`: domain models, traits, config, errors, metadata, capability/status reporting
 - `crates/wrapper-circuits`: Halo2-facing code, Midnight-backed BN254 field/G1 layer, planning, layout reporting
-- `crates/wrapper-backends`: backend adapters, artifact parsing entry points, future ecosystem integrations
+- `crates/wrapper-backends`: backend adapter placeholders, artifact parsing entry points, future ecosystem integrations
 - `crates/wrapper-cli`: developer commands and diagnostics
 - `crates/wrapper-tests`: shared fixtures, benchmark entry points, and integration helpers
 - `docs/architecture.md`: intended layering and current Week 1 circuit boundaries
@@ -61,14 +62,17 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 
 - Own Halo2-facing code, Midnight integration, circuit planning, and primitive gadget boundaries.
 - Currently owns the BN254 `AssignedFp` and `AssignedG1` circuit-backed layer.
+- Keeps the active Week 1 BN254 primitive implementation consolidated in `src/bn254.rs`.
 - Should depend on `wrapper-core`.
 - Must not absorb artifact parsing or backend-specific concerns.
+- Keep dead compatibility shims and obsolete host-side leftovers out of the crate.
 
 `wrapper-backends`
 
 - Own parsing, loaders, serialization adapters, and future ecosystem bridges.
 - Should depend on `wrapper-core`.
 - Must not define circuit semantics independently of `wrapper-circuits`.
+- It is still mostly placeholder territory in the current repo state.
 
 `wrapper-cli`
 
@@ -132,7 +136,9 @@ When touching Week 1 code:
 - Keep comments purposeful and sparse.
 - Keep circuit-backed adapters thin where possible.
 - Avoid duplicate primitive stacks or parallel APIs for the same concept.
+- Prefer removing obsolete compatibility files once the Midnight-backed path replaces them.
 - Do not leave misleading stubs that imply verifier completeness.
+- Delete files that have become genuinely unused instead of keeping stale alternative paths around.
 
 ## Error Handling Standards
 
@@ -140,6 +146,7 @@ When touching Week 1 code:
 - Use `anyhow` at CLI or orchestration boundaries where context aggregation is helpful.
 - Errors should state what failed, at what boundary, and whether the feature is intentionally unimplemented.
 - If a circuit path is deliberately unsupported at this stage, say so explicitly instead of faking behavior.
+- Do not keep custom error layers that are no longer used after an integration shift.
 
 ## Testing Standards
 
@@ -165,6 +172,7 @@ When touching Week 1 code:
 - Update `docs/roadmap.md` when stage boundaries or sequencing change.
 - Add or amend ADRs for architectural decisions that affect crate ownership or public interfaces.
 - Be explicit about what is circuit-backed, what is reference-tested, and what is still missing.
+- When cleanup removes obsolete files or paths, reflect the new simpler state in contributor docs.
 
 ## How to Propose a Change
 

@@ -1,4 +1,4 @@
-//! Developer CLI for inspecting and validating the workspace scaffold.
+//! Developer CLI for inspecting and validating the current workspace state.
 #![allow(clippy::multiple_crate_versions)]
 
 use std::{fs, path::PathBuf};
@@ -15,8 +15,8 @@ use wrapper_core::{ProjectConfig, ProjectStatusReport};
 #[command(
   name = "wrapper-cli",
   version,
-  about = "Developer tooling for the Halo2 wrapper workspace scaffold",
-  long_about = "Developer tooling for the Halo2 wrapper workspace scaffold. This binary reports repository structure, validates configuration, and explains what is intentionally not implemented yet."
+  about = "Developer tooling for the Halo2 wrapper workspace",
+  long_about = "Developer tooling for the Halo2 wrapper workspace. This binary reports repository structure, validates configuration, and explains what is intentionally not implemented yet."
 )]
 struct Cli {
   #[command(subcommand)]
@@ -25,13 +25,13 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-  /// Report what the repository currently scaffolds and what is still missing.
+  /// Report what the repository currently implements and what is still missing.
   Doctor,
   /// Explain the benchmark layout and how to run placeholder Criterion benches.
   BenchInfo,
   /// Print the current placeholder layout for the future wrapper circuit.
   PrintLayout,
-  /// Validate a TOML configuration file against the current scaffold model.
+  /// Validate a TOML configuration file against the current project model.
   ValidateConfig {
     /// Path to a TOML config file.
     #[arg(long)]
@@ -132,7 +132,7 @@ fn run_bench_info() {
 }
 
 fn run_print_layout() {
-  info!("printing scaffold layout");
+  info!("printing current layout view");
   let config = ProjectConfig::default();
   let view = CircuitPlanningView::from_config(config);
   let layout = view.describe();
@@ -150,7 +150,7 @@ fn run_validate_config(path: &PathBuf) -> Result<()> {
   let config = ProjectConfig::from_toml_str(&raw)?;
   let json = serde_json::to_string_pretty(&config).context("failed to render config as JSON")?;
 
-  println!("Config is valid for the current scaffold.");
+  println!("Config is valid for the current project model.");
   println!("{json}");
 
   Ok(())
@@ -158,8 +158,8 @@ fn run_validate_config(path: &PathBuf) -> Result<()> {
 
 fn run_about() {
   info!("printing project overview");
-  println!("Project: Halo2 wrapper workspace skeleton");
-  println!("Phase: initialization");
+  println!("Project: Halo2 wrapper workspace");
+  println!("Phase: stage 1 / week 1 foundation");
   println!("Purpose: stage a serious multi-crate codebase for Halo2 wrapper research.");
   println!(
     "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp add/fp mul, minimal G1 add/on-curve checks, CLI, and sanity-check benches."

@@ -25,9 +25,9 @@ mod tests {
   use super::{ProjectConfig, ProjectPhase};
 
   #[test]
-  fn default_config_uses_initialization_phase() {
+  fn default_config_uses_stage1_phase() {
     let config = ProjectConfig::default();
 
-    assert_eq!(config.phase, ProjectPhase::Initialization);
+    assert_eq!(config.phase, ProjectPhase::Stage1);
   }
 }

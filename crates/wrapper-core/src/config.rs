@@ -43,7 +43,7 @@ pub struct WrapperParameters {
 
 impl Default for WrapperParameters {
   fn default() -> Self {
-    Self { profile_name: "bootstrap".to_owned(), diagnostics_verbose: true }
+    Self { profile_name: "week1-foundation".to_owned(), diagnostics_verbose: true }
   }
 }
 
@@ -66,7 +66,7 @@ impl ProjectConfig {
   /// # Errors
   ///
   /// Returns an error if the TOML is invalid or if validation fails for the
-  /// current scaffold rules.
+  /// current project rules.
   pub fn from_toml_str(input: &str) -> Result<Self, ConfigError> {
     let config = toml::from_str::<Self>(input)?;
     config.validate()?;
@@ -78,7 +78,7 @@ impl ProjectConfig {
   /// # Errors
   ///
   /// Returns an error if a required field is empty or otherwise invalid for the
-  /// initialization-stage configuration model.
+  /// current stage-1 configuration model.
   pub fn validate(&self) -> Result<(), ConfigError> {
     if self.parameters.profile_name.trim().is_empty() {
       return Err(ConfigError::InvalidField {
@@ -112,7 +112,7 @@ mod tests {
   #[test]
   fn parses_valid_toml() {
     let input = r#"
-phase = "initialization"
+ phase = "stage1"
 flavor = "research-scaffold"
 
 [paths]
@@ -132,7 +132,7 @@ diagnostics_verbose = true
   #[test]
   fn rejects_empty_profile_name() {
     let input = r#"
-phase = "initialization"
+ phase = "stage1"
 flavor = "research-scaffold"
 
 [paths]

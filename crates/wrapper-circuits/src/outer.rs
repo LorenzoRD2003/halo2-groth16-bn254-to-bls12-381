@@ -1,6 +1,6 @@
 //! Outer wrapper circuit placeholders.
 
-use wrapper_core::{LayoutDescriptor, ProjectConfig, ProjectPhase, WrapperError};
+use wrapper_core::{LayoutDescriptor, ProjectConfig, WrapperError};
 
 /// Build status for the outer circuit shell.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,7 +32,6 @@ impl OuterWrapperCircuit {
   /// Returns the scaffold layout for reporting purposes.
   #[must_use]
   pub fn layout_descriptor(&self) -> LayoutDescriptor {
-    let _ = self.config.phase == ProjectPhase::Initialization;
     LayoutDescriptor::scaffold()
   }
 
@@ -40,12 +39,12 @@ impl OuterWrapperCircuit {
   ///
   /// # Errors
   ///
-  /// Always returns an error during the initialization phase because synthesis
-  /// is intentionally not implemented yet.
+  /// Always returns an error during the current Week 1 phase because outer
+  /// wrapper synthesis is intentionally not implemented yet.
   pub fn assert_ready_for_synthesis(&self) -> Result<(), WrapperError> {
     let _ = self;
     Err(WrapperError::NotImplemented(
-      "outer wrapper synthesis is not available during initialization",
+      "outer wrapper synthesis is not available during the current week-1 foundation phase",
     ))
   }
 }

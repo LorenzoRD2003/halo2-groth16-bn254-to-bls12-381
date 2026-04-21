@@ -2,7 +2,7 @@
 
 ## Initialization
 
-Status: current phase.
+Status: completed.
 
 Goals:
 
@@ -15,21 +15,27 @@ Goals:
 Non-goals:
 
 - any cryptographic implementation
-- Halo2 circuit logic beyond placeholders
+- Halo2 circuit logic beyond the narrow Week 1 foundation
 - backend adapters beyond scaffolding
 
 ## Stage 1
 
+Status: current phase.
+
 Goals:
 
 - introduce the first real Halo2 dependency decisions
+- land circuit-backed BN254 `fp add` / `fp mul`
+- land minimal BN254 G1 addition and on-curve enforcement
+- measure real layout/row cost for the Week 1 primitives
 - refine outer circuit configuration boundaries
 - define sharper interfaces for normalized proof and VK inputs
-- begin layout-oriented planning for the wrapper circuit
 
 Still excluded unless explicitly planned:
 
 - pairings
+- Fp2 / Fp12
+- G2
 - Groth16 verifier logic
 - production-ready backend support
 
@@ -72,4 +78,3 @@ Potential goals:
 - collect implementation lessons from a real application-shaped example
 
 This case study belongs after core cryptographic machinery exists.
-
