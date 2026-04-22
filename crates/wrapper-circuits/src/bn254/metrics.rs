@@ -3,12 +3,13 @@ use midnight_circuits::midnight_proofs::{dev::cost_model::circuit_model, plonk::
 use crate::metrics::LayoutMetrics;
 
 use super::{
-  Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit,
-  Fp12AddCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit, FpMulCircuit, G1AddCircuit,
-  G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
-  G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit,
-  MillerAccumulatorMulByLineCircuit, MillerAccumulatorMulByLineSparseCircuit,
-  MillerAccumulatorSquareCircuit, MillerLoopCircuit, NativeField,
+  FinalExponentiationCircuit, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit,
+  Fp6MulCircuit, Fp6SquareCircuit, Fp12AddCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit,
+  FpMulCircuit, G1AddCircuit, G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit,
+  G2OnCurveCircuit, G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit,
+  G2ProjectiveFromAffineCircuit, MillerAccumulatorMulByLineCircuit,
+  MillerAccumulatorMulByLineSparseCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
+  NativeField, PairingCheckCircuit,
 };
 
 /// Models a circuit and returns real layout metrics.
@@ -155,6 +156,18 @@ pub fn miller_loop_layout_metrics() -> LayoutMetrics {
   measure_layout(&MillerLoopCircuit::sample())
 }
 
+/// Real layout metrics for the current narrow BN254 final exponentiation circuit.
+#[must_use]
+pub fn final_exponentiation_layout_metrics() -> LayoutMetrics {
+  measure_layout(&FinalExponentiationCircuit::sample())
+}
+
+/// Real layout metrics for the current narrow BN254 pairing-check circuit.
+#[must_use]
+pub fn pairing_check_layout_metrics() -> LayoutMetrics {
+  measure_layout(&PairingCheckCircuit::sample())
+}
+
 /// Returns the smallest power-of-two domain reported by the cost model.
 #[must_use]
 pub fn fp_add_k() -> u32 {
@@ -291,4 +304,16 @@ pub fn miller_accumulator_mul_by_line_sparse_k() -> u32 {
 #[must_use]
 pub fn miller_loop_k() -> u32 {
   miller_loop_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn final_exponentiation_k() -> u32 {
+  final_exponentiation_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn pairing_check_k() -> u32 {
+  pairing_check_layout_metrics().k
 }

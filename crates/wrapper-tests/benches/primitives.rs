@@ -33,6 +33,8 @@ criterion_group!(
   ecc::bench_miller_accumulator_square,
   ecc::bench_miller_accumulator_mul_by_line,
   ecc::bench_miller_accumulator_mul_by_line_sparse,
-  ecc::bench_miller_loop_narrow
+  ecc::bench_miller_loop_narrow,
+  ecc::bench_final_exponentiation,
+  ecc::bench_pairing_check
 );
 criterion_main!(primitive_benches);

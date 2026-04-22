@@ -3,7 +3,7 @@ use ark_bn254::{
   Fq12Config as ArkFq12Config, G1Affine as ArkG1Affine, G1Projective as ArkG1Projective,
   G2Affine as ArkG2Affine, G2Projective as ArkG2Projective, g2,
 };
-use ark_ec::{AffineRepr, CurveGroup, models::short_weierstrass::SWCurveConfig};
+use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, models::short_weierstrass::SWCurveConfig};
 use ark_ff::{Field as ArkField, Fp6Config, Fp12Config, UniformRand};
 use ff::Field;
 use midnight_circuits::midnight_proofs::{
@@ -14,13 +14,15 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
 use super::test_support::{
-  ArkMillerStep, Fp12ConstantValue, G2AssignedValue, G2ConstantValue, ark_double_with_line,
+  ArkMillerStep, Fp12ConstantValue, G2AssignedValue, G2ConstantValue,
+  ark_bn254_final_exponentiation, ark_bn254_miller_loop_accumulate,
+  ark_bn254_multi_miller_loop_product, ark_bn254_pairing, ark_bn254_pairing_check,
+  ark_bn254_pairing_product, ark_bn254_prepared_miller_steps, ark_double_with_line,
   ark_generator_double_add_fixture, ark_generator_double_line_fixture, ark_line_evaluation,
-  ark_miller_loop_accumulate, ark_miller_point_from_affine, ark_miller_point_to_affine,
-  ark_mixed_add_with_line, ark_one_fq6, ark_to_assigned_g2_coords, ark_to_line_coeffs_constant,
-  ark_to_midnight_fq, ark_to_midnight_fq2, ark_to_midnight_fq6, ark_to_midnight_fq12,
-  ark_to_midnight_g1, ark_to_miller_point_constant, ark_zero_fq6, assert_satisfied,
-  prover_result,
+  ark_miller_point_from_affine, ark_miller_point_to_affine, ark_mixed_add_with_line, ark_one_fq6,
+  ark_to_assigned_g2_coords, ark_to_line_coeffs_constant, ark_to_midnight_fq, ark_to_midnight_fq2,
+  ark_to_midnight_fq6, ark_to_midnight_fq12, ark_to_midnight_g1, ark_to_miller_point_constant,
+  ark_zero_fq6, assert_satisfied, prover_result,
 };
 use super::*;
 use crate::bn254::g2::{
@@ -992,7 +994,6 @@ fn miller_accumulator_square_matches_fixed_generator_line_fixture() {
   ));
 }
 
-
 #[test]
 fn miller_accumulator_mul_by_evaluated_line_matches_arkworks_reference() {
   let mut rng = ChaCha20Rng::from_seed([60_u8; 32]);
@@ -1069,28 +1070,6 @@ fn miller_accumulator_mul_by_line_baseline_and_sparse_match_randomized_fixtures(
 }
 
 #[test]
-fn double_with_line_then_accumulate_matches_arkworks_reference() {
-  let mut rng = ChaCha20Rng::from_seed([62_u8; 32]);
-
-  for _ in 0..8 {
-    let g2_point = ArkG2Projective::rand(&mut rng).into_affine();
-    let g1_point = ArkG1Projective::rand(&mut rng).into_affine();
-    if g2_point.is_zero() || g1_point.is_zero() {
-      continue;
-    }
-
-    let (_, line) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
-    let expected = ark_miller_loop_accumulate(&[ArkMillerStep::Double(line)], g1_point);
-
-    assert_satisfied(&MillerLoopCircuit::new(
-      (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
-      vec![MillerStepConstant::Double(ark_to_line_coeffs_constant(line))],
-      &ark_to_midnight_fq12(&expected),
-    ));
-  }
-}
-
-#[test]
 fn mixed_add_with_line_then_accumulate_matches_arkworks_reference() {
   let mut rng = ChaCha20Rng::from_seed([63_u8; 32]);
 
@@ -1137,60 +1116,61 @@ fn miller_accumulator_sparse_and_generic_mul_by_line_paths_match_same_reference(
 }
 
 #[test]
-fn miller_loop_single_double_matches_arkworks_reference() {
-  let (_, g1_point, _, line, expected) = ark_generator_double_line_fixture();
+fn bn254_miller_schedule_matches_expected_optimal_ate_shape() {
+  let expected_loop_digits = [
+    1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 0, -1, 0, 1, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0,
+    1, 0, 0, -1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 1, 0, 0, 0, -1, 0, 0, -1, 0, 1, 0,
+    1, 0, 0, 0,
+  ];
+  let mut expected = Vec::new();
+  for digit in expected_loop_digits {
+    expected.push(Bn254MillerScheduleStep::Double);
+    match digit {
+      1 => expected.push(Bn254MillerScheduleStep::Add(Bn254MillerAddend::Base)),
+      -1 => expected.push(Bn254MillerScheduleStep::Add(Bn254MillerAddend::NegBase)),
+      0 => {}
+      _ => unreachable!("test digits are ternary"),
+    }
+  }
+  expected.push(Bn254MillerScheduleStep::Add(Bn254MillerAddend::FrobeniusQ1));
+  expected.push(Bn254MillerScheduleStep::Add(Bn254MillerAddend::FrobeniusQ2NegY));
 
-  assert_satisfied(&MillerLoopCircuit::new(
-    (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
-    vec![MillerStepConstant::Double(ark_to_line_coeffs_constant(line))],
-    &ark_to_midnight_fq12(&expected),
-  ));
-}
+  let schedule = Bn254MillerSchedule::bn254();
 
-#[test]
-fn miller_loop_double_then_add_matches_arkworks_reference() {
-  let (_g2_point, g1_point, _, double_line, add_line, expected) =
-    ark_generator_double_add_fixture();
-
-  assert_satisfied(&MillerLoopCircuit::new(
-    (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
-    vec![
-      MillerStepConstant::Double(ark_to_line_coeffs_constant(double_line)),
-      MillerStepConstant::Add(ark_to_line_coeffs_constant(add_line)),
-    ],
-    &ark_to_midnight_fq12(&expected),
-  ));
-}
-
-#[test]
-fn miller_loop_multiple_steps_match_arkworks_reference() {
-  let g2_point = ArkG2Affine::generator();
-  let g1_point = ArkG1Affine::generator();
-  let (state_1, double_line_1) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
-  let (state_2, add_line_1) = ark_mixed_add_with_line(state_1, g2_point);
-  let (_, double_line_2) = ark_double_with_line(state_2);
-  let expected = ark_miller_loop_accumulate(
-    &[
-      ArkMillerStep::Double(double_line_1),
-      ArkMillerStep::Add(add_line_1),
-      ArkMillerStep::Double(double_line_2),
-    ],
-    g1_point,
+  assert_eq!(bn254_ate_loop_count().len(), 65);
+  assert_eq!(schedule.steps, expected);
+  assert_eq!(
+    schedule.steps.iter().filter(|step| matches!(step, Bn254MillerScheduleStep::Double)).count(),
+    64,
   );
+}
+
+#[test]
+fn bn254_prepared_schedule_matches_arkworks_prepared_coeffs() {
+  let g2_point = ArkG2Affine::generator();
+  let expected = ark_bn254_prepared_miller_steps(g2_point);
+  let schedule = Bn254MillerSchedule::bn254();
+
+  assert_eq!(expected.len(), schedule.steps.len());
+  assert!(matches!(expected.first(), Some(ArkMillerStep::Double(_))));
+  assert!(matches!(expected.last(), Some(ArkMillerStep::Add(_))));
+}
+
+#[test]
+fn miller_loop_real_bn254_schedule_matches_arkworks_reference_on_generator() {
+  let g1_point = ArkG1Affine::generator();
+  let g2_point = ArkG2Affine::generator();
+  let expected = ark_bn254_miller_loop_accumulate(g2_point, g1_point);
 
   assert_satisfied(&MillerLoopCircuit::new(
     (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
-    vec![
-      MillerStepConstant::Double(ark_to_line_coeffs_constant(double_line_1)),
-      MillerStepConstant::Add(ark_to_line_coeffs_constant(add_line_1)),
-      MillerStepConstant::Double(ark_to_line_coeffs_constant(double_line_2)),
-    ],
+    ark_to_assigned_g2_coords(g2_point),
     &ark_to_midnight_fq12(&expected),
   ));
 }
 
 #[test]
-fn miller_loop_longer_deterministic_schedule_matches_arkworks_reference() {
+fn miller_loop_real_bn254_schedule_matches_arkworks_reference() {
   let mut rng = ChaCha20Rng::from_seed([66_u8; 32]);
 
   let g1_point = loop {
@@ -1207,45 +1187,226 @@ fn miller_loop_longer_deterministic_schedule_matches_arkworks_reference() {
     }
   };
 
-  let addend = loop {
+  let expected = ark_bn254_miller_loop_accumulate(base_point, g1_point);
+
+  assert_satisfied(&MillerLoopCircuit::new(
+    (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
+    ark_to_assigned_g2_coords(base_point),
+    &ark_to_midnight_fq12(&expected),
+  ));
+}
+
+#[test]
+fn final_exponentiation_matches_arkworks_on_generator_miller_output() {
+  let g1_point = ArkG1Affine::generator();
+  let g2_point = ArkG2Affine::generator();
+  let miller_output = ark_bn254_miller_loop_accumulate(g2_point, g1_point);
+  let expected = ark_bn254_final_exponentiation(miller_output);
+
+  assert_satisfied(&FinalExponentiationCircuit::new(
+    &ark_to_midnight_fq12(&miller_output),
+    &ark_to_midnight_fq12(&expected),
+  ));
+}
+
+#[test]
+fn final_exponentiation_matches_arkworks_on_deterministic_random_miller_outputs() {
+  let mut rng = ChaCha20Rng::from_seed([67_u8; 32]);
+
+  for _ in 0..3 {
+    let g1_point = loop {
+      let candidate = ArkG1Projective::rand(&mut rng).into_affine();
+      if !candidate.is_zero() {
+        break candidate;
+      }
+    };
+
+    let g2_point = loop {
+      let candidate = ArkG2Projective::rand(&mut rng).into_affine();
+      if !candidate.is_zero() {
+        break candidate;
+      }
+    };
+
+    let miller_output = ark_bn254_miller_loop_accumulate(g2_point, g1_point);
+    let expected = ark_bn254_final_exponentiation(miller_output);
+
+    assert_satisfied(&FinalExponentiationCircuit::new(
+      &ark_to_midnight_fq12(&miller_output),
+      &ark_to_midnight_fq12(&expected),
+    ));
+  }
+}
+
+#[test]
+fn miller_loop_then_final_exponentiation_matches_arkworks_pairing_on_generator() {
+  let g1_point = ArkG1Affine::generator();
+  let g2_point = ArkG2Affine::generator();
+  let expected = ark_bn254_pairing(g1_point, g2_point);
+
+  assert_satisfied(&PairingFinalExponentiationCircuit::new(
+    (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
+    ark_to_assigned_g2_coords(g2_point),
+    &ark_to_midnight_fq12(&expected),
+  ));
+}
+
+#[test]
+fn miller_loop_then_final_exponentiation_matches_arkworks_pairing() {
+  let mut rng = ChaCha20Rng::from_seed([68_u8; 32]);
+
+  for _ in 0..2 {
+    let g1_point = loop {
+      let candidate = ArkG1Projective::rand(&mut rng).into_affine();
+      if !candidate.is_zero() {
+        break candidate;
+      }
+    };
+
+    let g2_point = loop {
+      let candidate = ArkG2Projective::rand(&mut rng).into_affine();
+      if !candidate.is_zero() {
+        break candidate;
+      }
+    };
+
+    let expected = ark_bn254_pairing(g1_point, g2_point);
+
+    assert_satisfied(&PairingFinalExponentiationCircuit::new(
+      (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
+      ark_to_assigned_g2_coords(g2_point),
+      &ark_to_midnight_fq12(&expected),
+    ));
+  }
+}
+
+fn pairing_terms_to_constants(
+  terms: &[(ArkG1Affine, ArkG2Affine)],
+) -> Vec<((ForeignField, ForeignField), ((ForeignField, ForeignField), (ForeignField, ForeignField)))>
+{
+  terms
+    .iter()
+    .map(|(g1, g2)| {
+      ((ark_to_midnight_fq(g1.x), ark_to_midnight_fq(g1.y)), ark_to_assigned_g2_coords(*g2))
+    })
+    .collect()
+}
+
+#[test]
+fn multi_miller_loop_matches_product_of_individual_miller_outputs() {
+  let g1 = ArkG1Affine::generator();
+  let g2 = ArkG2Affine::generator();
+  let two_g1 = (ArkG1Projective::generator() + ArkG1Projective::generator()).into_affine();
+  let terms = [(g1, g2), (two_g1, g2)];
+  let expected =
+    ark_bn254_miller_loop_accumulate(g2, g1) * ark_bn254_miller_loop_accumulate(g2, two_g1);
+  let actual = ark_bn254_multi_miller_loop_product(&terms);
+
+  assert_eq!(actual, expected);
+}
+
+#[test]
+fn pairing_check_one_term_matches_arkworks_negative_case() {
+  let terms = [(ArkG1Affine::generator(), ArkG2Affine::generator())];
+  assert!(!ark_bn254_pairing_check(&terms));
+
+  let terms = pairing_terms_to_constants(&terms);
+  assert_satisfied(&PairingCheckCircuit::new(&terms, false));
+}
+
+#[test]
+fn pairing_check_two_term_inverse_cancellation_matches_arkworks() {
+  let g2 = ArkG2Affine::generator();
+  let g1 = ArkG1Affine::generator();
+  let neg_g1 = (-ArkG1Projective::generator()).into_affine();
+  let terms = [(g1, g2), (neg_g1, g2)];
+  assert!(ark_bn254_pairing_check(&terms));
+  assert_eq!(ark_bn254_pairing_product(&terms), ArkFq12::ONE);
+
+  let terms = pairing_terms_to_constants(&terms);
+  assert_satisfied(&PairingCheckCircuit::new(&terms, true));
+}
+
+#[test]
+fn pairing_check_two_term_negative_matches_arkworks() {
+  let g2 = ArkG2Affine::generator();
+  let g1 = ArkG1Affine::generator();
+  let two_g1 = (ArkG1Projective::generator() + ArkG1Projective::generator()).into_affine();
+  let terms = [(g1, g2), (two_g1, g2)];
+  assert!(!ark_bn254_pairing_check(&terms));
+
+  let terms = pairing_terms_to_constants(&terms);
+  assert_satisfied(&PairingCheckCircuit::new(&terms, false));
+}
+
+#[test]
+fn pairing_check_three_term_cancellation_matches_arkworks() {
+  let mut rng = ChaCha20Rng::from_seed([69_u8; 32]);
+  let q = loop {
     let candidate = ArkG2Projective::rand(&mut rng).into_affine();
     if !candidate.is_zero() {
       break candidate;
     }
   };
+  let p1 = loop {
+    let candidate = ArkG1Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+  let p2 = loop {
+    let candidate = ArkG1Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+  let p3 = (-(p1.into_group() + p2.into_group())).into_affine();
+  let terms = [(p1, q), (p2, q), (p3, q)];
+  assert!(ark_bn254_pairing_check(&terms));
+  assert_eq!(ark_bn254_pairing_product(&terms), ArkFq12::ONE);
 
-  let (state_1, line_1) = ark_double_with_line(ark_miller_point_from_affine(base_point));
-  let current_1 = ark_miller_point_to_affine(state_1);
-  assert_ne!(addend, current_1);
-  assert_ne!(addend, -current_1);
+  let terms = pairing_terms_to_constants(&terms);
+  assert_satisfied(&PairingCheckCircuit::new(&terms, true));
+}
 
-  let (state_2, line_2) = ark_mixed_add_with_line(state_1, addend);
-  let (state_3, line_3) = ark_double_with_line(state_2);
-  let current_3 = ark_miller_point_to_affine(state_3);
-  assert_ne!(addend, current_3);
-  assert_ne!(addend, -current_3);
+#[test]
+fn pairing_check_three_term_negative_matches_arkworks() {
+  let mut rng = ChaCha20Rng::from_seed([70_u8; 32]);
+  let q1 = loop {
+    let candidate = ArkG2Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+  let q2 = loop {
+    let candidate = ArkG2Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+  let p1 = loop {
+    let candidate = ArkG1Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+  let p2 = loop {
+    let candidate = ArkG1Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+  let p3 = loop {
+    let candidate = ArkG1Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+  let terms = [(p1, q1), (p2, q1), (p3, q2)];
+  assert!(!ark_bn254_pairing_check(&terms));
 
-  let (_, line_4) = ark_mixed_add_with_line(state_3, addend);
-  let expected = ark_miller_loop_accumulate(
-    &[
-      ArkMillerStep::Double(line_1),
-      ArkMillerStep::Add(line_2),
-      ArkMillerStep::Double(line_3),
-      ArkMillerStep::Add(line_4),
-    ],
-    g1_point,
-  );
-
-  assert_satisfied(&MillerLoopCircuit::new(
-    (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
-    vec![
-      MillerStepConstant::Double(ark_to_line_coeffs_constant(line_1)),
-      MillerStepConstant::Add(ark_to_line_coeffs_constant(line_2)),
-      MillerStepConstant::Double(ark_to_line_coeffs_constant(line_3)),
-      MillerStepConstant::Add(ark_to_line_coeffs_constant(line_4)),
-    ],
-    &ark_to_midnight_fq12(&expected),
-  ));
+  let terms = pairing_terms_to_constants(&terms);
+  assert_satisfied(&PairingCheckCircuit::new(&terms, false));
 }
 
 #[test]
@@ -1310,6 +1471,8 @@ fn g2_layout_metrics_are_real_and_nonzero() {
   let accumulator_mul_by_line_sparse_metrics =
     miller_accumulator_mul_by_line_sparse_layout_metrics();
   let miller_loop_metrics = miller_loop_layout_metrics();
+  let final_exponentiation_metrics = final_exponentiation_layout_metrics();
+  let pairing_check_metrics = pairing_check_layout_metrics();
 
   assert!(on_curve_metrics.rows > 0);
   assert!(neg_metrics.rows > 0);
@@ -1322,6 +1485,8 @@ fn g2_layout_metrics_are_real_and_nonzero() {
   assert!(accumulator_mul_by_line_metrics.rows > 0);
   assert!(accumulator_mul_by_line_sparse_metrics.rows > 0);
   assert!(miller_loop_metrics.rows > 0);
+  assert!(final_exponentiation_metrics.rows > 0);
+  assert!(pairing_check_metrics.rows > 0);
   assert!(on_curve_metrics.column_queries > 0);
   assert!(neg_metrics.column_queries > 0);
   assert!(from_affine_metrics.column_queries > 0);
@@ -1333,5 +1498,7 @@ fn g2_layout_metrics_are_real_and_nonzero() {
   assert!(accumulator_mul_by_line_metrics.column_queries > 0);
   assert!(accumulator_mul_by_line_sparse_metrics.column_queries > 0);
   assert!(miller_loop_metrics.column_queries > 0);
+  assert!(final_exponentiation_metrics.column_queries > 0);
+  assert!(pairing_check_metrics.column_queries > 0);
   assert!(accumulator_mul_by_line_sparse_metrics.rows < accumulator_mul_by_line_metrics.rows);
 }

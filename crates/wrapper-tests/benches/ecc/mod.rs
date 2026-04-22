@@ -4,13 +4,14 @@ use criterion::{BenchmarkId, Criterion};
 use midnight_proofs::dev::MockProver;
 use midnight_proofs::plonk::Circuit;
 use wrapper_circuits::{
-  G1AddCircuit, G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
-  G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit,
-  MillerAccumulatorMulByLineCircuit, MillerAccumulatorMulByLineSparseCircuit,
-  MillerAccumulatorSquareCircuit, MillerLoopCircuit, NativeField, g1_add_k,
-  g2_double_with_line_k, g2_mixed_add_with_line_k, g2_neg_k, g2_on_curve_k, g2_proj_add_k,
-  g2_proj_double_k, g2_proj_from_affine_k, miller_accumulator_mul_by_line_k,
-  miller_accumulator_mul_by_line_sparse_k, miller_accumulator_square_k, miller_loop_k,
+  FinalExponentiationCircuit, G1AddCircuit, G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit,
+  G2NegCircuit, G2OnCurveCircuit, G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit,
+  G2ProjectiveFromAffineCircuit, MillerAccumulatorMulByLineCircuit,
+  MillerAccumulatorMulByLineSparseCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
+  NativeField, PairingCheckCircuit, final_exponentiation_k, g1_add_k, g2_double_with_line_k,
+  g2_mixed_add_with_line_k, g2_neg_k, g2_on_curve_k, g2_proj_add_k, g2_proj_double_k,
+  g2_proj_from_affine_k, miller_accumulator_mul_by_line_k, miller_accumulator_mul_by_line_sparse_k,
+  miller_accumulator_square_k, miller_loop_k, pairing_check_k,
 };
 
 fn verify_sample_circuit<CircuitT>(circuit: &CircuitT, k: u32, build_error: &str)
@@ -115,6 +116,22 @@ fn run_miller_loop_circuit() {
   );
 }
 
+fn run_final_exponentiation_circuit() {
+  verify_sample_circuit(
+    &FinalExponentiationCircuit::sample(),
+    final_exponentiation_k(),
+    "final exponentiation circuit should build",
+  );
+}
+
+fn run_pairing_check_circuit() {
+  verify_sample_circuit(
+    &PairingCheckCircuit::sample(),
+    pairing_check_k(),
+    "pairing check circuit should build",
+  );
+}
+
 /// Benchmarks the current Midnight-backed BN254 G1 addition circuit.
 pub fn bench_g1_add(criterion: &mut Criterion) {
   bench_verified_sample(criterion, "bench_g1_add", run_g1_add_circuit);
@@ -189,4 +206,14 @@ pub fn bench_miller_accumulator_mul_by_line_sparse(criterion: &mut Criterion) {
 /// Benchmarks the current narrow Midnight-backed BN254 Miller-loop circuit.
 pub fn bench_miller_loop_narrow(criterion: &mut Criterion) {
   bench_verified_sample(criterion, "bench_miller_loop_narrow", run_miller_loop_circuit);
+}
+
+/// Benchmarks the current narrow Midnight-backed BN254 final exponentiation circuit.
+pub fn bench_final_exponentiation(criterion: &mut Criterion) {
+  bench_verified_sample(criterion, "bench_final_exponentiation", run_final_exponentiation_circuit);
+}
+
+/// Benchmarks the current narrow Midnight-backed BN254 pairing-check circuit.
+pub fn bench_pairing_check(criterion: &mut Criterion) {
+  bench_verified_sample(criterion, "bench_pairing_check", run_pairing_check_circuit);
 }

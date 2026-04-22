@@ -9,11 +9,12 @@ use midnight_circuits::{
     native::{native_chip::NativeChip, native_gadget::NativeGadget},
   },
   instructions::{
-    ArithInstructions, AssertionInstructions, AssignmentInstructions, EccInstructions,
+    ArithInstructions, AssertionInstructions, AssignmentInstructions, BinaryInstructions,
+    EccInstructions, EqualityInstructions,
   },
   midnight_proofs::{
     circuit::{Layouter, Value},
-    plonk::{ConstraintSystem, Error},
+    plonk::{Column, ConstraintSystem, Error, Instance},
   },
   testing_utils::FromScratch,
 };
@@ -27,6 +28,8 @@ pub type ForeignField = Fq;
 pub type ForeignCurve = G1;
 /// Assigned BN254 foreign-field element backed by Midnight's `FieldChip`.
 pub type AssignedFp = AssignedField<NativeField, ForeignField, MultiEmulationParams>;
+/// Assigned native boolean bit backed by Midnight's native chip.
+pub type AssignedBool = midnight_circuits::types::AssignedBit<NativeField>;
 /// Assigned BN254 G1 point backed by Midnight's `ForeignEccChip`.
 pub type AssignedG1 = AssignedForeignPoint<NativeField, ForeignCurve, MultiEmulationParams>;
 type NativeBridge =
@@ -35,11 +38,15 @@ type NativeBridge =
 /// Midnight chip for BN254 foreign-field arithmetic.
 pub type MidnightFieldChip =
   FieldChip<NativeField, ForeignField, MultiEmulationParams, NativeBridge>;
+/// Midnight native gadget used for boolean operations in narrow pairing checks.
+pub type MidnightBoolChip = NativeBridge;
 /// Midnight chip for BN254 foreign G1 arithmetic.
 pub type MidnightEccChip =
   ForeignEccChip<NativeField, ForeignCurve, MultiEmulationParams, NativeBridge, NativeBridge>;
 /// Public wrapper over the Midnight BN254 foreign-field chip.
 pub type Bn254FpChip = Bn254FieldChip;
+/// Public wrapper over the Midnight native boolean gadget used by pairing checks.
+pub type Bn254BitChip = Bn254BoolChip;
 /// Public wrapper over the Midnight BN254 G1 chip.
 pub type Bn254EccChip = Bn254G1Chip;
 
@@ -53,7 +60,16 @@ impl Bn254FieldConfig {
   pub fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self {
     let instance_columns = [meta.instance_column(), meta.instance_column()];
 
-    Self(MidnightFieldChip::configure_from_scratch(meta, &instance_columns))
+    Self::configure_with_instances(meta, &instance_columns)
+  }
+
+  /// Configures the foreign-field chip using caller-provided instance columns.
+  #[must_use]
+  pub fn configure_with_instances(
+    meta: &mut ConstraintSystem<NativeField>,
+    instance_columns: &[Column<Instance>; 2],
+  ) -> Self {
+    Self(MidnightFieldChip::configure_from_scratch(meta, instance_columns))
   }
 }
 
@@ -67,7 +83,39 @@ impl Bn254G1Config {
   pub fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self {
     let instance_columns = [meta.instance_column(), meta.instance_column()];
 
-    Self(MidnightEccChip::configure_from_scratch(meta, &instance_columns))
+    Self::configure_with_instances(meta, &instance_columns)
+  }
+
+  /// Configures the foreign-ECC chip using caller-provided instance columns.
+  #[must_use]
+  pub fn configure_with_instances(
+    meta: &mut ConstraintSystem<NativeField>,
+    instance_columns: &[Column<Instance>; 2],
+  ) -> Self {
+    Self(MidnightEccChip::configure_from_scratch(meta, instance_columns))
+  }
+}
+
+/// Shared configuration for the Midnight-backed native boolean gadget.
+#[derive(Clone, Debug)]
+pub struct Bn254BoolConfig(pub(crate) <MidnightBoolChip as FromScratch<NativeField>>::Config);
+
+impl Bn254BoolConfig {
+  /// Configures the native boolean gadget on a fresh constraint system.
+  #[must_use]
+  pub fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self {
+    let instance_columns = [meta.instance_column(), meta.instance_column()];
+
+    Self::configure_with_instances(meta, &instance_columns)
+  }
+
+  /// Configures the native boolean gadget using caller-provided instance columns.
+  #[must_use]
+  pub fn configure_with_instances(
+    meta: &mut ConstraintSystem<NativeField>,
+    instance_columns: &[Column<Instance>; 2],
+  ) -> Self {
+    Self(MidnightBoolChip::configure_from_scratch(meta, instance_columns))
   }
 }
 
@@ -164,6 +212,54 @@ impl Bn254FieldChip {
     right: &AssignedFp,
   ) -> Result<(), Error> {
     self.field_chip.assert_equal(layouter, left, right)
+  }
+
+  /// Returns a native boolean indicating whether an assigned BN254 value equals a fixed constant.
+  pub fn is_equal_to_fixed(
+    &self,
+    layouter: &mut impl Layouter<NativeField>,
+    value: &AssignedFp,
+    expected: ForeignField,
+  ) -> Result<AssignedBool, Error> {
+    self.field_chip.is_equal_to_fixed(layouter, value, expected)
+  }
+}
+
+/// Thin adapter over Midnight's native boolean gadget for pairing checks.
+#[derive(Clone, Debug)]
+pub struct Bn254BoolChip {
+  native_gadget: MidnightBoolChip,
+}
+
+impl Bn254BoolChip {
+  /// Instantiates the native boolean gadget from an existing configuration.
+  #[must_use]
+  pub fn new(config: &Bn254BoolConfig) -> Self {
+    Self { native_gadget: MidnightBoolChip::new_from_scratch(&config.0) }
+  }
+
+  /// Loads any required tables into the layouter.
+  pub fn load(&self, layouter: &mut impl Layouter<NativeField>) -> Result<(), Error> {
+    self.native_gadget.load_from_scratch(layouter)
+  }
+
+  /// Conjoins a list of native booleans.
+  pub fn and(
+    &self,
+    layouter: &mut impl Layouter<NativeField>,
+    bits: &[AssignedBool],
+  ) -> Result<AssignedBool, Error> {
+    self.native_gadget.and(layouter, bits)
+  }
+
+  /// Asserts that a native boolean equals a fixed host-side boolean.
+  pub fn assert_equal_to_fixed(
+    &self,
+    layouter: &mut impl Layouter<NativeField>,
+    value: &AssignedBool,
+    expected: bool,
+  ) -> Result<(), Error> {
+    self.native_gadget.assert_equal_to_fixed(layouter, value, expected)
   }
 }
 

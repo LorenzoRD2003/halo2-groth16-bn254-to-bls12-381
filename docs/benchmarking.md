@@ -79,6 +79,8 @@ Current benchmark entry points are:
 - `bench_miller_accumulator_mul_by_line`
 - `bench_miller_accumulator_mul_by_line_sparse`
 - `bench_miller_loop_narrow`
+- `bench_final_exponentiation`
+- `bench_pairing_check`
 
 ## Metrics That Will Matter Later
 
@@ -92,4 +94,4 @@ Additional metrics may be added later if circuit shape, witness generation, or b
 
 ## Warning
 
-Current benchmarks exercise small Midnight-backed BN254 primitive circuits. The Miller-loop benchmarks only cover the current narrow accumulation slice over extracted lines. `bench_miller_accumulator_mul_by_line` is retained as the generic baseline path, while `bench_miller_accumulator_mul_by_line_sparse` measures the optimized sparse-specialized line-consumption path used by the public accumulator API. These do not measure subgroup checks, scalar multiplication, full pairings, final exponentiation, Groth16 verification, or a production wrapper circuit.
+Current benchmarks exercise small Midnight-backed BN254 primitive circuits. The Miller-loop benchmarks cover the current narrow accumulation slice over extracted lines, `bench_final_exponentiation` covers the current narrow final-exponentiation slice on top of an Fp12 Miller output, and `bench_pairing_check` covers the narrow multi-pairing product-check slice with one shared final exponentiation. `bench_miller_accumulator_mul_by_line` is retained as the generic baseline path, while `bench_miller_accumulator_mul_by_line_sparse` measures the optimized sparse-specialized line-consumption path used by the public accumulator API. These do not measure subgroup checks, scalar multiplication, a broad verifier-facing pairing API, Groth16 verification, or a production wrapper circuit.

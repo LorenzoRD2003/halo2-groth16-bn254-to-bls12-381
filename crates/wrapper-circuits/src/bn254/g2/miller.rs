@@ -1,4 +1,4 @@
-use ff::Field;
+use ff::{Field, PrimeField};
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
@@ -7,12 +7,15 @@ use midnight_circuits::midnight_proofs::{
 use super::{
   AssignedFp, AssignedFp2, AssignedFp6, AssignedFp12, AssignedG2Affine, Bn254FieldChip,
   Bn254FieldConfig, ForeignField, Fp2Value, G2AffineConstant, G2AffineValue, G2LineCoeffsConstant,
-  G2LineCoeffsValue, G2MillerPointConstant, NativeField, fp12_mul_constant, fp12_one_constant,
-  fp12_square_constant, g1_generator_constant, g2_affine_from_miller_point_constant,
-  g2_curve_coeff_b, g2_generator, g2_line_evaluation_constant, g2_miller_double_with_line_constant,
+  G2LineCoeffsValue, G2MillerPointConstant, NativeField, bn254_final_exponentiation_constant,
+  fp12_mul_constant, fp12_one_constant, fp12_square_constant, g1_generator_constant,
+  g2_affine_from_miller_point_constant, g2_curve_coeff_b, g2_generator,
+  g2_line_evaluation_constant, g2_miller_double_with_line_constant,
   g2_miller_mixed_add_with_line_constant, g2_miller_point_from_affine_constant,
 };
 use super::{Fp12Constant, Fp12Value};
+use crate::bn254::host::{Fp2Constant, fp2_mul_constant, fp2_neg_constant};
+use crate::bn254::{AssignedBool, Bn254BoolChip, Bn254BoolConfig};
 
 type MillerAccumulatorFixed = (
   ((ForeignField, ForeignField), (ForeignField, ForeignField), (ForeignField, ForeignField)),
@@ -435,6 +438,189 @@ impl MillerStep {
   }
 }
 
+/// Host-side addend source for the fixed BN254 optimal-ate Miller schedule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bn254MillerAddend {
+  /// Add the original affine `Q`.
+  Base,
+  /// Add `-Q` for a `-1` loop-count digit.
+  NegBase,
+  /// Add the first Frobenius image `q1 = [p]Q`.
+  FrobeniusQ1,
+  /// Add the second Frobenius-tail point used by arkworks after negating its `y` coordinate.
+  FrobeniusQ2NegY,
+}
+
+/// One host-side step in the fixed BN254 optimal-ate Miller traversal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bn254MillerScheduleStep {
+  /// Square the accumulator, then consume the doubling line.
+  Double,
+  /// Consume the mixed-add line for the selected fixed addend.
+  Add(Bn254MillerAddend),
+}
+
+/// Host-side fixed BN254 Miller schedule derived from the standard optimal-ate loop count.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bn254MillerSchedule {
+  /// Expanded deterministic traversal order.
+  pub steps: Vec<Bn254MillerScheduleStep>,
+}
+
+impl Bn254MillerSchedule {
+  /// Returns the fixed BN254 optimal-ate traversal used by arkworks prepared-G2 generation.
+  #[must_use]
+  pub fn bn254() -> Self {
+    let mut steps = Vec::with_capacity(2 * bn254_ate_loop_count().len());
+
+    for digit in bn254_ate_loop_count().iter().rev().skip(1) {
+      steps.push(Bn254MillerScheduleStep::Double);
+
+      match digit {
+        1 => steps.push(Bn254MillerScheduleStep::Add(Bn254MillerAddend::Base)),
+        -1 => steps.push(Bn254MillerScheduleStep::Add(Bn254MillerAddend::NegBase)),
+        0 => {}
+        _ => unreachable!("BN254 optimal-ate loop digits are ternary in {{-1, 0, 1}}"),
+      }
+    }
+
+    steps.push(Bn254MillerScheduleStep::Add(Bn254MillerAddend::FrobeniusQ1));
+    steps.push(Bn254MillerScheduleStep::Add(Bn254MillerAddend::FrobeniusQ2NegY));
+
+    Self { steps }
+  }
+}
+
+/// Returns the fixed BN254 optimal-ate Miller loop digits as used by arkworks.
+#[must_use]
+pub fn bn254_ate_loop_count() -> &'static [i8] {
+  &[
+    0, 0, 0, 1, 0, 1, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, -1, 0, 0, 0, 1, 0, -1, 0, 0, 0, 0,
+    -1, 0, 0, 1, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 1, 0, -1, 0, 0, 0, -1, 0, -1, 0,
+    0, 0, 1, 0, 1, 1,
+  ]
+}
+
+fn fp2_frobenius_map_constant(value: Fp2Constant) -> Fp2Constant {
+  (value.0, -value.1)
+}
+
+fn assign_fp2_constant(
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+  value: Fp2Constant,
+) -> Result<AssignedFp2, Error> {
+  AssignedFp2::assign(chip, layouter, Value::known(value.0), Value::known(value.1))
+}
+
+fn fp2_frobenius_map(
+  value: &AssignedFp2,
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+) -> Result<AssignedFp2, Error> {
+  Ok(AssignedFp2::new(value.c0.clone(), chip.neg(layouter, &value.c1)?))
+}
+
+fn g2_mul_by_char(
+  point: &AssignedG2Affine,
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+) -> Result<AssignedG2Affine, Error> {
+  let twist_mul_by_q_x = assign_fp2_constant(
+    chip,
+    layouter,
+    (
+      ForeignField::from_str_vartime(
+        "21575463638280843010398324269430826099269044274347216827212613867836435027261",
+      )
+      .expect("hard-coded BN254 twist mul-by-q x.c0 should parse"),
+      ForeignField::from_str_vartime(
+        "10307601595873709700152284273816112264069230130616436755625194854815875713954",
+      )
+      .expect("hard-coded BN254 twist mul-by-q x.c1 should parse"),
+    ),
+  )?;
+  let twist_mul_by_q_y = assign_fp2_constant(
+    chip,
+    layouter,
+    (
+      ForeignField::from_str_vartime(
+        "2821565182194536844548159561693502659359617185244120367078079554186484126554",
+      )
+      .expect("hard-coded BN254 twist mul-by-q y.c0 should parse"),
+      ForeignField::from_str_vartime(
+        "3505843767911556378687030309984248845540243509899259641013678093033130930403",
+      )
+      .expect("hard-coded BN254 twist mul-by-q y.c1 should parse"),
+    ),
+  )?;
+
+  let x = fp2_frobenius_map(&point.x, chip, layouter)?.mul(chip, layouter, &twist_mul_by_q_x)?;
+  let y = fp2_frobenius_map(&point.y, chip, layouter)?.mul(chip, layouter, &twist_mul_by_q_y)?;
+  Ok(AssignedG2Affine::new(x, y))
+}
+
+fn g2_mul_by_char_constant(point: G2AffineConstant) -> G2AffineConstant {
+  let frobenius_x = fp2_frobenius_map_constant(point.0);
+  let frobenius_y = fp2_frobenius_map_constant(point.1);
+  let twist_mul_by_q_x = (
+    ForeignField::from_str_vartime(
+      "21575463638280843010398324269430826099269044274347216827212613867836435027261",
+    )
+    .expect("hard-coded BN254 twist mul-by-q x.c0 should parse"),
+    ForeignField::from_str_vartime(
+      "10307601595873709700152284273816112264069230130616436755625194854815875713954",
+    )
+    .expect("hard-coded BN254 twist mul-by-q x.c1 should parse"),
+  );
+  let twist_mul_by_q_y = (
+    ForeignField::from_str_vartime(
+      "2821565182194536844548159561693502659359617185244120367078079554186484126554",
+    )
+    .expect("hard-coded BN254 twist mul-by-q y.c0 should parse"),
+    ForeignField::from_str_vartime(
+      "3505843767911556378687030309984248845540243509899259641013678093033130930403",
+    )
+    .expect("hard-coded BN254 twist mul-by-q y.c1 should parse"),
+  );
+
+  (fp2_mul_constant(frobenius_x, twist_mul_by_q_x), fp2_mul_constant(frobenius_y, twist_mul_by_q_y))
+}
+
+fn bn254_prepared_miller_steps_constant(point: G2AffineConstant) -> Vec<MillerStepConstant> {
+  let schedule = Bn254MillerSchedule::bn254();
+  let neg_point = (point.0, fp2_neg_constant(point.1));
+  let q1 = g2_mul_by_char_constant(point);
+  let mut q2 = g2_mul_by_char_constant(q1);
+  q2.1 = fp2_neg_constant(q2.1);
+
+  let mut current = g2_miller_point_from_affine_constant(point);
+  let mut prepared = Vec::with_capacity(schedule.steps.len());
+
+  for step in schedule.steps {
+    match step {
+      Bn254MillerScheduleStep::Double => {
+        let (next_point, line) = g2_miller_double_with_line_constant(current);
+        current = next_point;
+        prepared.push(MillerStepConstant::Double(line));
+      }
+      Bn254MillerScheduleStep::Add(addend) => {
+        let selected_addend = match addend {
+          Bn254MillerAddend::Base => point,
+          Bn254MillerAddend::NegBase => neg_point,
+          Bn254MillerAddend::FrobeniusQ1 => q1,
+          Bn254MillerAddend::FrobeniusQ2NegY => q2,
+        };
+        let (next_point, line) = g2_miller_mixed_add_with_line_constant(current, selected_addend);
+        current = next_point;
+        prepared.push(MillerStepConstant::Add(line));
+      }
+    }
+  }
+
+  prepared
+}
+
 /// Prepared Miller schedule with an explicit fixed host-side traversal order.
 #[derive(Clone, Debug, Default)]
 pub struct PreparedG2Miller {
@@ -478,6 +664,150 @@ pub fn miller_loop(
   }
 
   Ok(accumulator.f)
+}
+
+fn miller_loop_from_g2_affine(
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+  g1: &AssignedG1Point,
+  g2: &AssignedG2Affine,
+) -> Result<AssignedFp12, Error> {
+  let neg_g2 = g2.neg(chip, layouter)?;
+  let q1 = g2_mul_by_char(g2, chip, layouter)?;
+  let mut q2_neg_y = g2_mul_by_char(&q1, chip, layouter)?;
+  q2_neg_y = AssignedG2Affine::new(q2_neg_y.x, q2_neg_y.y.neg(chip, layouter)?);
+
+  let mut current = AssignedG2MillerPoint::from_affine(g2, chip, layouter)?;
+  let mut accumulator = AssignedMillerAccumulator::one(chip, layouter)?;
+
+  for step in &Bn254MillerSchedule::bn254().steps {
+    match step {
+      Bn254MillerScheduleStep::Double => {
+        accumulator.square(chip, layouter)?;
+        let (next, line) = current.double_with_line(chip, layouter)?;
+        current = next;
+        accumulator.mul_by_line(chip, layouter, &line, g1)?;
+      }
+      Bn254MillerScheduleStep::Add(addend) => {
+        let selected = match addend {
+          Bn254MillerAddend::Base => g2,
+          Bn254MillerAddend::NegBase => &neg_g2,
+          Bn254MillerAddend::FrobeniusQ1 => &q1,
+          Bn254MillerAddend::FrobeniusQ2NegY => &q2_neg_y,
+        };
+        let (next, line) = current.mixed_add_with_line(chip, layouter, selected)?;
+        current = next;
+        accumulator.mul_by_line(chip, layouter, &line, g1)?;
+      }
+    }
+  }
+
+  Ok(accumulator.f)
+}
+
+/// Computes the product of the real BN254 Miller-loop outputs for a list of terms.
+///
+/// This remains intentionally narrow and verifier-shaped: it reuses the fixed
+/// real BN254 schedule for each term, multiplies the Miller outputs together,
+/// and leaves the single shared final exponentiation to higher-level product
+/// checks.
+pub fn multi_miller_loop(
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+  terms: &[(&AssignedG1Point, &AssignedG2Affine)],
+) -> Result<AssignedFp12, Error> {
+  let mut total = AssignedFp12::one(chip, layouter)?;
+
+  for (g1, g2) in terms {
+    let miller = miller_loop_from_g2_affine(chip, layouter, g1, g2)?;
+    total = total.mul(chip, layouter, &miller)?;
+  }
+
+  Ok(total)
+}
+
+fn exp_by_neg_x(
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+  value: &AssignedFp12,
+) -> Result<AssignedFp12, Error> {
+  let exp = value.pow_constant_exp(chip, layouter, &[4965661367192848881])?;
+  exp.unitary_inverse(chip, layouter)
+}
+
+/// Runs the BN254 final exponentiation on a nonzero Miller-loop output.
+///
+/// This implements the standard easy-part / hard-part decomposition used by
+/// arkworks for BN curves. The current slice is intentionally narrow: it
+/// expects a nonzero Miller-loop output and does not widen into a full public
+/// pairing API.
+///
+/// # Errors
+///
+/// Returns an error if any underlying Fp12 operation fails.
+pub fn final_exponentiation(
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+  value: &AssignedFp12,
+) -> Result<AssignedFp12, Error> {
+  let f1 = value.unitary_inverse(chip, layouter)?;
+  let f2 = value.inv(chip, layouter)?;
+  let mut r = f1.mul(chip, layouter, &f2)?;
+  let f2 = r.clone();
+  r = r.frobenius_map(chip, layouter, 2)?;
+  r = r.mul(chip, layouter, &f2)?;
+
+  let y0 = exp_by_neg_x(chip, layouter, &r)?;
+  let y1 = y0.square(chip, layouter)?;
+  let y2 = y1.square(chip, layouter)?;
+  let mut y3 = y2.mul(chip, layouter, &y1)?;
+  let y4 = exp_by_neg_x(chip, layouter, &y3)?;
+  let y5 = y4.square(chip, layouter)?;
+  let mut y6 = exp_by_neg_x(chip, layouter, &y5)?;
+  y3 = y3.unitary_inverse(chip, layouter)?;
+  y6 = y6.unitary_inverse(chip, layouter)?;
+  let y7 = y6.mul(chip, layouter, &y4)?;
+  let mut y8 = y7.mul(chip, layouter, &y3)?;
+  let y9 = y8.mul(chip, layouter, &y1)?;
+  let y10 = y8.mul(chip, layouter, &y4)?;
+  let y11 = y10.mul(chip, layouter, &r)?;
+  let mut y12 = y9.frobenius_map(chip, layouter, 1)?;
+  y12 = y12.mul(chip, layouter, &y11)?;
+  y8 = y8.frobenius_map(chip, layouter, 2)?;
+  let y14 = y8.mul(chip, layouter, &y12)?;
+  let r_inv = r.unitary_inverse(chip, layouter)?;
+  let mut y15 = r_inv.mul(chip, layouter, &y9)?;
+  y15 = y15.frobenius_map(chip, layouter, 3)?;
+  y15.mul(chip, layouter, &y14)
+}
+
+/// Checks whether a narrow BN254 multi-pairing product equals the target-group identity.
+///
+/// This computes each real Miller loop, multiplies the Miller outputs together,
+/// applies exactly one final exponentiation to the total product, and returns a
+/// native constrained boolean for the equality-to-one check.
+pub fn pairing_check(
+  chip: &Bn254FieldChip,
+  bool_chip: &Bn254BoolChip,
+  layouter: &mut impl Layouter<NativeField>,
+  terms: &[(&AssignedG1Point, &AssignedG2Affine)],
+) -> Result<AssignedBool, Error> {
+  let total_miller = multi_miller_loop(chip, layouter, terms)?;
+  let gt = final_exponentiation(chip, layouter, &total_miller)?;
+  let c0_0 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c0, ForeignField::ONE)?;
+  let c0_1 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c1, ForeignField::ZERO)?;
+  let c0_2 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c0, ForeignField::ZERO)?;
+  let c0_3 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c1, ForeignField::ZERO)?;
+  let c0_4 = chip.is_equal_to_fixed(layouter, &gt.c0.c2.c0, ForeignField::ZERO)?;
+  let c0_5 = chip.is_equal_to_fixed(layouter, &gt.c0.c2.c1, ForeignField::ZERO)?;
+  let c1_0 = chip.is_equal_to_fixed(layouter, &gt.c1.c0.c0, ForeignField::ZERO)?;
+  let c1_1 = chip.is_equal_to_fixed(layouter, &gt.c1.c0.c1, ForeignField::ZERO)?;
+  let c1_2 = chip.is_equal_to_fixed(layouter, &gt.c1.c1.c0, ForeignField::ZERO)?;
+  let c1_3 = chip.is_equal_to_fixed(layouter, &gt.c1.c1.c1, ForeignField::ZERO)?;
+  let c1_4 = chip.is_equal_to_fixed(layouter, &gt.c1.c2.c0, ForeignField::ZERO)?;
+  let c1_5 = chip.is_equal_to_fixed(layouter, &gt.c1.c2.c1, ForeignField::ZERO)?;
+
+  bool_chip.and(layouter, &[c0_0, c0_1, c0_2, c0_3, c0_4, c0_5, c1_0, c1_1, c1_2, c1_3, c1_4, c1_5])
 }
 
 /// Miller-step G2 state in homogeneous projective coordinates `(X : Y : Z)`.
@@ -1162,19 +1492,20 @@ impl MillerStepValue {
 #[derive(Clone, Debug)]
 pub struct MillerLoopCircuit {
   g1: (Value<ForeignField>, Value<ForeignField>),
+  g2: G2AffineConstant,
   steps: Vec<MillerStepValue>,
   expected: Fp12Value,
 }
 
 impl MillerLoopCircuit {
-  /// Builds a circuit from a prepared Miller schedule and expected Fp12 output.
+  /// Builds a circuit for the real fixed BN254 optimal-ate Miller schedule.
   #[must_use]
   pub fn new(
     g1: (ForeignField, ForeignField),
-    steps: Vec<MillerStepConstant>,
+    g2: G2AffineConstant,
     expected: &Fp12Constant,
   ) -> Self {
-    let steps = steps
+    let steps = bn254_prepared_miller_steps_constant(g2)
       .into_iter()
       .map(|step| match step {
         MillerStepConstant::Double(line) => MillerStepValue::Double((
@@ -1192,6 +1523,7 @@ impl MillerLoopCircuit {
 
     Self {
       g1: (Value::known(g1.0), Value::known(g1.1)),
+      g2,
       steps,
       expected: (
         (
@@ -1213,31 +1545,37 @@ impl MillerLoopCircuit {
   pub fn sample() -> Self {
     let g1 = g1_generator_constant();
     let generator = g2_generator();
-    let (doubled_state, double_line) =
-      g2_miller_double_with_line_constant(g2_miller_point_from_affine_constant(generator));
-    let (_, add_line) = g2_miller_mixed_add_with_line_constant(doubled_state, generator);
-    let expected = fp12_mul_constant(
-      &fp12_mul_constant(
-        &fp12_square_constant(&fp12_one_constant()),
-        &g2_line_evaluation_constant(double_line, g1),
-      ),
-      &g2_line_evaluation_constant(add_line, g1),
+    let expected = bn254_prepared_miller_steps_constant(generator).into_iter().fold(
+      fp12_one_constant(),
+      |accumulator, step| match step {
+        MillerStepConstant::Double(line) => fp12_mul_constant(
+          &fp12_square_constant(&accumulator),
+          &g2_line_evaluation_constant(line, g1),
+        ),
+        MillerStepConstant::Add(line) => {
+          fp12_mul_constant(&accumulator, &g2_line_evaluation_constant(line, g1))
+        }
+      },
     );
 
     Self {
       g1: (Value::known(g1.0), Value::known(g1.1)),
-      steps: vec![
-        MillerStepValue::Double((
-          (Value::known(double_line.0.0), Value::known(double_line.0.1)),
-          (Value::known(double_line.1.0), Value::known(double_line.1.1)),
-          (Value::known(double_line.2.0), Value::known(double_line.2.1)),
-        )),
-        MillerStepValue::Add((
-          (Value::known(add_line.0.0), Value::known(add_line.0.1)),
-          (Value::known(add_line.1.0), Value::known(add_line.1.1)),
-          (Value::known(add_line.2.0), Value::known(add_line.2.1)),
-        )),
-      ],
+      g2: generator,
+      steps: bn254_prepared_miller_steps_constant(generator)
+        .into_iter()
+        .map(|step| match step {
+          MillerStepConstant::Double(line) => MillerStepValue::Double((
+            (Value::known(line.0.0), Value::known(line.0.1)),
+            (Value::known(line.1.0), Value::known(line.1.1)),
+            (Value::known(line.2.0), Value::known(line.2.1)),
+          )),
+          MillerStepConstant::Add(line) => MillerStepValue::Add((
+            (Value::known(line.0.0), Value::known(line.0.1)),
+            (Value::known(line.1.0), Value::known(line.1.1)),
+            (Value::known(line.2.0), Value::known(line.2.1)),
+          )),
+        })
+        .collect(),
       expected: (
         (
           (Value::known(expected.0.0.0), Value::known(expected.0.0.1)),
@@ -1268,6 +1606,7 @@ impl Circuit<NativeField> for MillerLoopCircuit {
   fn without_witnesses(&self) -> Self {
     Self {
       g1: (Value::unknown(), Value::unknown()),
+      g2: self.g2,
       steps: self.steps.iter().map(MillerStepValue::without_witnesses).collect(),
       expected: (
         (
@@ -1311,6 +1650,354 @@ impl Circuit<NativeField> for MillerLoopCircuit {
 
     let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
     let actual = miller_loop(&chip, &mut layouter, &point, &PreparedG2Miller::new(prepared))?;
+    actual.assert_equal(&chip, &mut layouter, &expected)?;
+    chip.load(&mut layouter)
+  }
+}
+
+/// Small circuit that exercises BN254 final exponentiation on a fixed Fp12 input.
+#[derive(Clone, Debug)]
+pub struct FinalExponentiationCircuit {
+  input: Fp12Value,
+  expected: Fp12Value,
+}
+
+impl FinalExponentiationCircuit {
+  /// Builds a final-exponentiation circuit from a fixed Fp12 input and expected output.
+  #[must_use]
+  pub fn new(input: &Fp12Constant, expected: &Fp12Constant) -> Self {
+    Self {
+      input: (
+        (
+          (Value::known(input.0.0.0), Value::known(input.0.0.1)),
+          (Value::known(input.0.1.0), Value::known(input.0.1.1)),
+          (Value::known(input.0.2.0), Value::known(input.0.2.1)),
+        ),
+        (
+          (Value::known(input.1.0.0), Value::known(input.1.0.1)),
+          (Value::known(input.1.1.0), Value::known(input.1.1.1)),
+          (Value::known(input.1.2.0), Value::known(input.1.2.1)),
+        ),
+      ),
+      expected: (
+        (
+          (Value::known(expected.0.0.0), Value::known(expected.0.0.1)),
+          (Value::known(expected.0.1.0), Value::known(expected.0.1.1)),
+          (Value::known(expected.0.2.0), Value::known(expected.0.2.1)),
+        ),
+        (
+          (Value::known(expected.1.0.0), Value::known(expected.1.0.1)),
+          (Value::known(expected.1.1.0), Value::known(expected.1.1.1)),
+          (Value::known(expected.1.2.0), Value::known(expected.1.2.1)),
+        ),
+      ),
+    }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and benches.
+  #[must_use]
+  pub fn sample() -> Self {
+    let g1 = g1_generator_constant();
+    let g2 = g2_generator();
+    let miller_input = bn254_prepared_miller_steps_constant(g2).into_iter().fold(
+      fp12_one_constant(),
+      |accumulator, step| match step {
+        MillerStepConstant::Double(line) => fp12_mul_constant(
+          &fp12_square_constant(&accumulator),
+          &g2_line_evaluation_constant(line, g1),
+        ),
+        MillerStepConstant::Add(line) => {
+          fp12_mul_constant(&accumulator, &g2_line_evaluation_constant(line, g1))
+        }
+      },
+    );
+    let expected = bn254_final_exponentiation_constant(&miller_input);
+    Self::new(&miller_input, &expected)
+  }
+}
+
+impl Default for FinalExponentiationCircuit {
+  fn default() -> Self {
+    Self::sample()
+  }
+}
+
+impl Circuit<NativeField> for FinalExponentiationCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self {
+      input: (
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+      ),
+      expected: (
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+      ),
+    }
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    mut layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    let chip = Bn254FieldChip::new(&config);
+    let input = AssignedFp12::assign(&chip, &mut layouter, self.input.0, self.input.1)?;
+    let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
+    let actual = final_exponentiation(&chip, &mut layouter, &input)?;
+    actual.assert_equal(&chip, &mut layouter, &expected)?;
+    chip.load(&mut layouter)
+  }
+}
+
+/// Small circuit that exercises Miller loop plus final exponentiation end-to-end.
+#[derive(Clone, Debug)]
+pub struct PairingFinalExponentiationCircuit {
+  g1: (Value<ForeignField>, Value<ForeignField>),
+  g2: G2AffineConstant,
+  expected: Fp12Value,
+}
+
+impl PairingFinalExponentiationCircuit {
+  /// Builds an end-to-end Miller-plus-final-exp circuit from affine inputs and expected GT output.
+  #[must_use]
+  pub fn new(
+    g1: (ForeignField, ForeignField),
+    g2: G2AffineConstant,
+    expected: &Fp12Constant,
+  ) -> Self {
+    Self {
+      g1: (Value::known(g1.0), Value::known(g1.1)),
+      g2,
+      expected: (
+        (
+          (Value::known(expected.0.0.0), Value::known(expected.0.0.1)),
+          (Value::known(expected.0.1.0), Value::known(expected.0.1.1)),
+          (Value::known(expected.0.2.0), Value::known(expected.0.2.1)),
+        ),
+        (
+          (Value::known(expected.1.0.0), Value::known(expected.1.0.1)),
+          (Value::known(expected.1.1.0), Value::known(expected.1.1.1)),
+          (Value::known(expected.1.2.0), Value::known(expected.1.2.1)),
+        ),
+      ),
+    }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and benches.
+  #[must_use]
+  pub fn sample() -> Self {
+    let g1 = g1_generator_constant();
+    let g2 = g2_generator();
+    let miller = bn254_prepared_miller_steps_constant(g2).into_iter().fold(
+      fp12_one_constant(),
+      |accumulator, step| match step {
+        MillerStepConstant::Double(line) => fp12_mul_constant(
+          &fp12_square_constant(&accumulator),
+          &g2_line_evaluation_constant(line, g1),
+        ),
+        MillerStepConstant::Add(line) => {
+          fp12_mul_constant(&accumulator, &g2_line_evaluation_constant(line, g1))
+        }
+      },
+    );
+    let expected = bn254_final_exponentiation_constant(&miller);
+    Self::new(g1, g2, &expected)
+  }
+}
+
+type PairingTermValue = ((Value<ForeignField>, Value<ForeignField>), G2AffineValue);
+
+/// Small circuit that exercises the narrow BN254 multi-pairing product check.
+#[derive(Clone, Debug)]
+pub struct PairingCheckCircuit {
+  terms: Vec<PairingTermValue>,
+  expected: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct PairingCheckConfig {
+  field: Bn254FieldConfig,
+  bools: Bn254BoolConfig,
+}
+
+impl PairingCheckCircuit {
+  /// Builds a pairing-product-check circuit from fixed affine terms and an expected boolean result.
+  #[must_use]
+  pub fn new(terms: &[((ForeignField, ForeignField), G2AffineConstant)], expected: bool) -> Self {
+    Self {
+      terms: terms
+        .iter()
+        .map(|term| {
+          (
+            (Value::known((term.0).0), Value::known((term.0).1)),
+            (
+              (Value::known(((term.1).0).0), Value::known(((term.1).0).1)),
+              (Value::known(((term.1).1).0), Value::known(((term.1).1).1)),
+            ),
+          )
+        })
+        .collect(),
+      expected,
+    }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and benches.
+  #[must_use]
+  pub fn sample() -> Self {
+    let g1 = g1_generator_constant();
+    let neg_g1 = (g1.0, -g1.1);
+    let g2 = g2_generator();
+    Self::new(&[(g1, g2), (neg_g1, g2)], true)
+  }
+}
+
+impl Default for PairingCheckCircuit {
+  fn default() -> Self {
+    Self::sample()
+  }
+}
+
+impl Circuit<NativeField> for PairingCheckCircuit {
+  type Config = PairingCheckConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self {
+      terms: self
+        .terms
+        .iter()
+        .map(|_| {
+          (
+            (Value::unknown(), Value::unknown()),
+            ((Value::unknown(), Value::unknown()), (Value::unknown(), Value::unknown())),
+          )
+        })
+        .collect(),
+      expected: self.expected,
+    }
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    let instance_columns = [meta.instance_column(), meta.instance_column()];
+    PairingCheckConfig {
+      field: Bn254FieldConfig::configure_with_instances(meta, &instance_columns),
+      bools: Bn254BoolConfig::configure_with_instances(meta, &instance_columns),
+    }
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    mut layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    let chip = Bn254FieldChip::new(&config.field);
+    let bool_chip = Bn254BoolChip::new(&config.bools);
+    let mut assigned_terms = Vec::with_capacity(self.terms.len());
+
+    for (g1, g2) in &self.terms {
+      let assigned_g1 = AssignedG1Point::assign(&chip, &mut layouter, g1.0, g1.1)?;
+      let assigned_g2 = AssignedG2Affine::assign(&chip, &mut layouter, g2.0, g2.1)?;
+      assigned_terms.push((assigned_g1, assigned_g2));
+    }
+
+    let borrowed_terms: Vec<_> = assigned_terms.iter().map(|term| (&term.0, &term.1)).collect();
+    let result = pairing_check(&chip, &bool_chip, &mut layouter, &borrowed_terms)?;
+    bool_chip.assert_equal_to_fixed(&mut layouter, &result, self.expected)?;
+    chip.load(&mut layouter)?;
+    bool_chip.load(&mut layouter)
+  }
+}
+
+impl Default for PairingFinalExponentiationCircuit {
+  fn default() -> Self {
+    Self::sample()
+  }
+}
+
+impl Circuit<NativeField> for PairingFinalExponentiationCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self {
+      g1: (Value::unknown(), Value::unknown()),
+      g2: self.g2,
+      expected: (
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+      ),
+    }
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    mut layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    let chip = Bn254FieldChip::new(&config);
+    let point = AssignedG1Point::assign(&chip, &mut layouter, self.g1.0, self.g1.1)?;
+    let mut prepared = Vec::with_capacity(bn254_prepared_miller_steps_constant(self.g2).len());
+
+    for step in bn254_prepared_miller_steps_constant(self.g2) {
+      let line = match step {
+        MillerStepConstant::Double(line) | MillerStepConstant::Add(line) => {
+          AssignedG2LineCoeffs::assign(
+            &chip,
+            &mut layouter,
+            (Value::known(line.0.0), Value::known(line.0.1)),
+            (Value::known(line.1.0), Value::known(line.1.1)),
+            (Value::known(line.2.0), Value::known(line.2.1)),
+          )?
+        }
+      };
+      prepared.push(match step {
+        MillerStepConstant::Double(_) => MillerStep::Double { line },
+        MillerStepConstant::Add(_) => MillerStep::Add { line },
+      });
+    }
+
+    let miller = miller_loop(&chip, &mut layouter, &point, &PreparedG2Miller::new(prepared))?;
+    let actual = final_exponentiation(&chip, &mut layouter, &miller)?;
+    let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
     actual.assert_equal(&chip, &mut layouter, &expected)?;
     chip.load(&mut layouter)
   }

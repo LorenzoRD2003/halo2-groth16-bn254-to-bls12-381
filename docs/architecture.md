@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, and Week 2 / Week 3 now includes a first Fp2 slice, minimal Fp6 and Fp12 slices, a minimal G2 affine slice, a narrow Jacobian G2 projective slice, and a Miller-path G2 line-extraction slice. It still does not implement subgroup checks, scalar multiplication, a full Miller loop, pairings, verifier logic, or a production wrapper circuit.
+This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, Week 2 / Week 3 added the first Fp2/Fp6/Fp12 and narrow G2 slices, and Week 4 now reaches the pairing core through the real Miller loop, final exponentiation, and a narrow pairing-product check. It still does not implement subgroup checks, scalar multiplication, broad verifier-facing pairing APIs, verifier logic, or a production wrapper circuit.
 
 ## Intended Data Flow
 
@@ -195,17 +195,21 @@ Current properties:
 - sparse line evaluation into Fp12 remains an internal accumulator detail rather than an `AssignedFp12`-level public helper
 - the public `mul_by_line(...)` accumulator path now uses an internal sparse-specialized D-twist multiplication path instead of paying a near-full generic `Fp12` multiply
 - the previous generic line-consumption path remains available only as an explicit baseline circuit/metric so optimization progress stays measurable
-- a narrow accumulator-driven Miller loop now exists over a fixed prepared-step schedule
-- the loop driver keeps step scheduling explicit and deterministic through a dedicated prepared-step representation rather than witness-driven branching
+- a narrow accumulator-driven Miller loop now exists over the real fixed BN254 optimal-ate prepared-step schedule
+- the loop driver keeps step scheduling explicit and deterministic through a dedicated host-side BN254 schedule representation rather than witness-driven branching
+- the implemented loop shape now matches arkworks BN254 prepared-G2 traversal, including the fixed Frobenius tail
+- a narrow final exponentiation now exists on top of that Miller output using the standard BN easy-part / hard-part decomposition aligned with arkworks
+- a narrow multi-pairing product check now exists: compute each real Miller loop, multiply the Miller outputs together, apply exactly one final exponentiation, and compare the total product against the target-group identity
 - deterministic arkworks-backed reference tests cover point updates, extracted coefficients, sparse Fp12 embedding, and unsupported edge cases
-- real layout metrics for `g2_double_with_line`, `g2_mixed_add_with_line`, `miller accumulator square`, `miller accumulator mul_by_line` (generic baseline), `miller accumulator mul_by_line sparse` (optimized path), and the current narrow `miller loop` sanity circuit
+- real layout metrics for `g2_double_with_line`, `g2_mixed_add_with_line`, `miller accumulator square`, `miller accumulator mul_by_line` (generic baseline), `miller accumulator mul_by_line sparse` (optimized path), the narrow `miller loop` sanity circuit, the narrow `final exponentiation` sanity circuit, and the narrow `pairing check` sanity circuit
 
 Current limitations:
 
 - the Miller-path state is intentionally non-identity only in this slice
 - `mixed_add_with_line` is intentionally unsupported for exceptional cases such as `P = Q` and `P = -Q`
-- the current loop slice is still only accumulation over already-extracted lines, not a full pairing API
-- no final exponentiation or full pairing pipeline exists yet
+- the current pairing slice now covers single-pair Miller accumulation, final exponentiation, and a narrow multi-pairing product check for supported non-exceptional inputs
+- this is still not a broad public full-pairing or multi-pairing API beyond the narrow product-check boundary
+- no Groth16 verification path or wrapper verifier circuit exists yet
 
 ## Current Architectural Contracts
 

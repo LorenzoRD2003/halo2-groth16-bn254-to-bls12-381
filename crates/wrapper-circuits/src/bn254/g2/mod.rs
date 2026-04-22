@@ -6,11 +6,12 @@ use super::{
   ForeignField, NativeField,
   host::{
     Fp2Constant, Fp2Value, G2AffineConstant, G2LineCoeffsConstant, G2MillerPointConstant,
-    G2ProjectiveConstant, fp2_neg_constant, fp12_mul_constant, fp12_one_constant,
-    fp12_square_constant, g1_generator_constant, g2_affine_from_miller_point_constant,
-    g2_curve_coeff_b_constant, g2_line_evaluation_constant, g2_miller_double_with_line_constant,
-    g2_miller_mixed_add_with_line_constant, g2_miller_point_from_affine_constant,
-    g2_projective_add_constant, g2_projective_double_constant, g2_projective_from_affine_constant,
+    G2ProjectiveConstant, bn254_final_exponentiation_constant, fp2_neg_constant, fp12_mul_constant,
+    fp12_one_constant, fp12_square_constant, g1_generator_constant,
+    g2_affine_from_miller_point_constant, g2_curve_coeff_b_constant, g2_line_evaluation_constant,
+    g2_miller_double_with_line_constant, g2_miller_mixed_add_with_line_constant,
+    g2_miller_point_from_affine_constant, g2_projective_add_constant,
+    g2_projective_double_constant, g2_projective_from_affine_constant,
     g2_projective_identity_constant,
   },
 };
@@ -26,9 +27,12 @@ pub use jacobian::{
 };
 pub use miller::{
   AssignedG1Point, AssignedG2LineCoeffs, AssignedG2MillerPoint, AssignedMillerAccumulator,
+  Bn254MillerAddend, Bn254MillerSchedule, Bn254MillerScheduleStep, FinalExponentiationCircuit,
   G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, MillerAccumulatorMulByLineCircuit,
   MillerAccumulatorMulByLineSparseCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
-  MillerStep, MillerStepConstant, PreparedG2Miller, miller_loop,
+  MillerStep, MillerStepConstant, PairingCheckCircuit, PairingFinalExponentiationCircuit,
+  PreparedG2Miller, bn254_ate_loop_count, final_exponentiation, miller_loop, multi_miller_loop,
+  pairing_check,
 };
 
 type G2AffineValue = (Fp2Value, Fp2Value);

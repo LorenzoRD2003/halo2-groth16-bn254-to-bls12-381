@@ -4,11 +4,11 @@
 
 This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based wrapper that may eventually verify Groth16 BN254 proofs inside an outer Halo2 proof system.
 
-The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations, the narrow Week 2 slices, the Week 3 extension-field slice, and the first Miller-oriented G2 line-extraction slice, but it is still far from a Groth16 wrapper verifier.
+The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations, the narrow Week 2 slices, the Week 3 extension-field slice, and the first Week 4 pairing-core slice through real optimal-ate Miller traversal, final exponentiation, and a narrow multi-pairing product check, but it is still far from a Groth16 wrapper verifier.
 
 ## Current Phase and Scope Boundaries
 
-Current phase: Stage 1 / Week 3 narrow primitive expansion.
+Current phase: Stage 1 / Week 4 pairing-core correctness.
 
 Implemented in scope today:
 
@@ -38,6 +38,10 @@ Implemented in scope today:
 - Miller-ready sparse line coefficients via `AssignedG2LineCoeffs = (ell_0, ell_w, ell_vw)`
 - `AssignedMillerAccumulator` is now the public consumption boundary for line coefficients, with `mul_by_line(...)`
 - sparse line evaluation into `Fp12` is now an internal accumulator detail rather than a public `AssignedG2LineCoeffs` API
+- real BN254 optimal-ate Miller traversal shape backed by a fixed deterministic prepared schedule
+- narrow BN254 final exponentiation over Miller-loop output, aligned with arkworks on supported non-exceptional single-pair inputs
+- narrow multi-pairing product check that multiplies Miller outputs first, applies exactly one shared final exponentiation, and compares the result against the target-group identity
+- narrow end-to-end pairing-core correctness against arkworks on supported non-exceptional 1-term, 2-term, and 3-term products
 - Real layout and row visibility through the Halo2/Midnight cost model
 - Deterministic arkworks-backed tests for `Fp`, `Fp2`, `Fp6`, `Fp12`, G1, and the current narrow G2 affine / Jacobian / Miller-step behavior
 - Criterion sanity benchmarks for the currently implemented primitive circuits
@@ -48,9 +52,7 @@ Out of scope right now:
 
 - G2 subgroup checks
 - scalar multiplication on G2
-- pairings
-- Miller loop
-- final exponentiation
+- broad public full-pairing or multi-pairing APIs beyond the narrow pairing-check boundary
 - Groth16 verifier logic
 - MSM as a public supported layer
 - wrapper verifier circuit composition
@@ -177,6 +179,8 @@ When touching the current BN254 primitive code:
 - keep G1 work limited to the currently supported primitive surface unless the roadmap explicitly expands it
 - keep G2 work limited to the currently supported affine plus narrow Jacobian projective surface unless the roadmap explicitly expands it
 - keep Miller-path G2 work aligned with the homogeneous prepared-step formulas used by arkworks BN prepared-G2 generation
+- keep final exponentiation work aligned with the standard BN easy-part / hard-part decomposition used by arkworks unless a measured circuit-oriented rewrite clearly improves the current slice
+- keep pairing-check work verifier-shaped: accumulate Miller outputs first, apply exactly one final exponentiation to the total product, and avoid per-term final exponentiation
 - when a public method contains a full algebraic step, prefer extracting the formula into a well-named internal helper such as `double_step_jacobian`, `double_step_hom_projective`, or `mixed_add_step_hom_projective`
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
@@ -199,6 +203,8 @@ Concrete BN254 conventions already in use:
 - that sparse embedding maps directly into Fp12 slots `(c0, c3, c4)` for the later `mul_by_034`-style Miller accumulator path
 - the public boundary for that consumption is `AssignedMillerAccumulator::mul_by_line(...)`, not a direct public helper on `AssignedFp12`
 - Miller-path `double_with_line` and `mixed_add_with_line` follow the homogeneous-projective BN prepared-G2 formulas used by arkworks / Midnight, not the Jacobian formulas used by `AssignedG2Projective`
+- final exponentiation follows the standard BN254 easy-part / hard-part split used by arkworks over the Miller-loop output
+- the narrow pairing-check path computes each real Miller loop, multiplies the Miller outputs in `Fp12`, applies exactly one final exponentiation, and checks equality with the `Fp12` multiplicative identity
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
   `Fq2(19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)`
@@ -227,7 +233,9 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `miller accumulator square`: 3176 rows / 58 queries, `k=12`
 - `miller accumulator mul_by_line`: 4710 rows / 58 queries, `k=13`
 - `miller accumulator mul_by_line sparse`: 2790 rows / 58 queries, `k=12`
-- `miller loop narrow`: 8976 rows / 58 queries, `k=14`
+- `miller loop narrow`: 503854 rows / 58 queries, `k=19`
+- `final exponentiation`: 1215080 rows / 58 queries, `k=21`
+- `pairing check`: measured via `wrapper-cli doctor` when needed; expect it to reflect the real shared-final-exponentiation product-check circuit rather than per-term final exponentiation
 
 Interpretation guidance:
 
@@ -235,6 +243,9 @@ Interpretation guidance:
 - `fp12 mul` and `fp12 square` are measurements of the actual sanity circuits over the implemented tower, not optimized pairing-ready kernels
 - `g2 double_with_line` and `g2 mixed_add_with_line` are measurements of the actual Miller-step sanity circuits, not a full Miller loop
 - `miller accumulator mul_by_line` is the generic baseline path, while `miller accumulator mul_by_line sparse` is the optimized public accumulator path for the current BN254 D-twist `(ell_0, ell_w, ell_vw)` layout
+- `miller loop narrow` now measures the real fixed single-pair BN254 optimal-ate Miller traversal, not the earlier synthetic schedule
+- `final exponentiation` measures the narrow single-pair BN254 final-exponentiation sanity circuit over a Miller-loop output, not a verifier-facing full pairing API
+- `pairing check` should always be described as the narrow verifier-shaped product-check slice with one shared final exponentiation, not as a full pairing engine or Groth16 verifier
 - as of the current repo state, local accumulator-square rewrites that only swap formulas inside the existing Fp12 tower did not beat the generic `miller accumulator square` cost; future square optimization likely needs a more structural/cross-step design rather than a small algebraic rewrite, so do not keep partial `square_optimized` experiments in the tree unless they measurably win in `wrapper-cli doctor`
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
 
@@ -349,7 +360,7 @@ When refactoring `wrapper-circuits/src/bn254/`:
 
 - Do not collapse crates for convenience.
 - Do not place Halo2-specific concerns in `wrapper-core` without strong justification.
-- Do not implement pairings, Miller loop, final exponentiation, or Groth16 verifier logic unless the task explicitly asks for that stage.
+- Do not implement broad verifier-facing full pairings, multi-pairings beyond the narrow product-check slice, or Groth16 verifier logic unless the task explicitly asks for that stage.
 - Do not jump from minimal G2 affine support to G2 arithmetic or subgroup logic unless the task explicitly asks for it.
 - Do not write placeholder code that pretends proofs are verified.
 - Do not add a second BN254 primitive implementation path that competes with the Midnight-backed one without a documented reason.

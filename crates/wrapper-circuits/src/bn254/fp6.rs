@@ -7,8 +7,8 @@ use super::{
   AssignedCircuitValue, AssignedFieldExt, AssignedFp2, Bn254FieldChip, Bn254FieldConfig,
   ForeignField, NativeField,
   host::{
-    Fp2Value, Fp6Constant, Fp6Value, fp6_add_constant, fp6_mul_constant, fp6_nonresidue_constant,
-    fp6_square_constant,
+    Fp2Constant, Fp2Value, Fp6Constant, Fp6Value, fp6_add_constant, fp6_mul_constant,
+    fp6_nonresidue_constant, fp6_square_constant,
   },
   synthesize_binary_value_circuit, synthesize_unary_value_circuit,
 };
@@ -115,6 +115,11 @@ impl AssignedFp6 {
       self.c1.mul(chip, layouter, scalar)?,
       self.c2.mul(chip, layouter, scalar)?,
     ))
+  }
+
+  pub(crate) fn value(&self) -> Value<Fp6Constant> {
+    Value::from_iter([self.c0.value(), self.c1.value(), self.c2.value()])
+      .map(|coords: Vec<Fp2Constant>| (coords[0], coords[1], coords[2]))
   }
 
   /// Multiplies this Fp6 value by a sparse `Fp6(c0, c1, 0)`.

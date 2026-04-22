@@ -32,7 +32,9 @@ Goals:
 - land minimal BN254 G1 addition and on-curve enforcement
 - land minimal BN254 G2 affine representation, negation, and on-curve enforcement
 - land Miller-path BN254 G2 `double_with_line` / `mixed_add_with_line` extraction with a clear sparse Fp12-facing boundary
-- land narrow Miller-loop accumulation over extracted BN254 G2 line coefficients with a fixed prepared-step driver
+- land narrow Miller-loop accumulation over extracted BN254 G2 line coefficients with the real fixed BN254 optimal-ate prepared-step driver
+- land narrow final exponentiation over that Miller-loop output, still without widening into a verifier-facing full pairing API
+- land a narrow verifier-shaped pairing-product check that multiplies Miller outputs first and applies exactly one shared final exponentiation
 - land sparse-specialized BN254 Miller accumulator line consumption for the current D-twist `(ell_0, ell_w, ell_vw)` layout
 - measure real layout/row cost for the Week 1 primitives
 - keep host/reference BN254 tower arithmetic centralized rather than duplicated across modules
@@ -42,9 +44,8 @@ Goals:
 
 Still excluded unless explicitly planned:
 
-- pairings
-- full pairing pipeline beyond the current narrow Miller accumulation slice
-- final exponentiation
+- broad public pairings
+- full multi-pairing / verifier-facing pipeline beyond the current narrow pairing-check slice
 - G2 subgroup checks
 - scalar multiplication
 - Groth16 verifier logic

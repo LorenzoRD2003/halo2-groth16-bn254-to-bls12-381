@@ -155,7 +155,7 @@ fn run_bench_info() {
     print_bench_group(layer);
   }
   println!(
-    "Warning: current benchmarks use small Midnight-backed sanity circuits. The Miller-loop entries cover only the current narrow accumulation slice over extracted lines, not full pairings or verifier logic."
+    "Warning: current benchmarks use small Midnight-backed sanity circuits. The Miller-loop, final-exponentiation, and pairing-check entries cover only the current narrow pairing-core slice, not a broad verifier-facing pairing API or verifier logic."
   );
 }
 
@@ -194,14 +194,12 @@ fn run_validate_config(path: &PathBuf) -> Result<()> {
 fn run_about() {
   info!("printing project overview");
   println!("Project: Halo2 wrapper workspace");
-  println!(
-    "Phase: stage 1 / week 3 (fp2 + fp6 + fp12 + narrow g2 affine/projective + line extraction)"
-  );
+  println!("Phase: stage 1 / week 4 (real Miller loop + final exponentiation + pairing check)");
   println!("Purpose: stage a serious multi-crate codebase for Halo2 wrapper research.");
   println!(
-    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2/fp6/fp12 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg, Jacobian projective from_affine/add/double/neg, Miller-path G2 double_with_line and mixed_add_with_line, CLI, and sanity-check benches."
+    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2/fp6/fp12 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg, Jacobian projective from_affine/add/double/neg, real optimal-ate Miller-path G2 prep/loop, narrow final exponentiation, narrow multi-pairing product check, CLI, and sanity-check benches."
   );
   println!(
-    "Not implemented: G2 subgroup checks or scalar multiplication, full Miller loop, final exponentiation, pairings, Groth16 verification, and wrapper verifier circuits."
+    "Not implemented: G2 subgroup checks or scalar multiplication, broad verifier-facing pairing APIs beyond the narrow product-check path, Groth16 verification, and wrapper verifier circuits."
   );
 }

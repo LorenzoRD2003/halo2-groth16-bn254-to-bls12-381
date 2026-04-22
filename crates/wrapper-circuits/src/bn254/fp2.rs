@@ -3,6 +3,7 @@ use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
 };
+use midnight_circuits::types::InnerValue;
 
 use super::{
   AssignedCircuitValue, AssignedFieldExt, AssignedFp, Bn254FieldChip, Bn254FieldConfig,
@@ -157,6 +158,11 @@ impl AssignedFp2 {
     scalar: &AssignedFp,
   ) -> Result<Self, Error> {
     Ok(Self::new(chip.mul(layouter, &self.c0, scalar)?, chip.mul(layouter, &self.c1, scalar)?))
+  }
+
+  pub(crate) fn value(&self) -> Value<Fp2Constant> {
+    Value::from_iter([self.c0.value(), self.c1.value()])
+      .map(|coords: Vec<ForeignField>| (coords[0], coords[1]))
   }
 
   /// Asserts coordinate-wise equality against another assigned Fp2 value.

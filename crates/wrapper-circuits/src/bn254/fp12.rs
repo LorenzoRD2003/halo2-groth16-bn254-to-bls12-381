@@ -7,8 +7,8 @@ use super::{
   AssignedCircuitValue, AssignedFieldExt, AssignedFp6, Bn254FieldChip, Bn254FieldConfig,
   ForeignField, NativeField,
   host::{
-    Fp6Constant, Fp6Value, Fp12Constant, Fp12Value, fp12_add_constant, fp12_mul_constant,
-    fp12_nonresidue_constant, fp12_square_constant,
+    Fp6Constant, Fp6Value, Fp12Constant, Fp12Value, fp12_add_constant, fp12_frobenius_map_constant,
+    fp12_inv_constant, fp12_mul_constant, fp12_nonresidue_constant, fp12_square_constant,
   },
   synthesize_binary_value_circuit, synthesize_unary_value_circuit,
 };
@@ -41,6 +41,27 @@ pub struct AssignedFp12 {
   pub c0: AssignedFp6,
   /// `w` coefficient in Fp6.
   pub c1: AssignedFp6,
+}
+
+fn fp2_value_witness(
+  value: Value<(ForeignField, ForeignField)>,
+) -> (Value<ForeignField>, Value<ForeignField>) {
+  (value.clone().map(|coords| coords.0), value.map(|coords| coords.1))
+}
+
+fn fp6_value_witness(value: Value<Fp6Constant>) -> Fp6Value {
+  (
+    fp2_value_witness(value.clone().map(|coords| coords.0)),
+    fp2_value_witness(value.clone().map(|coords| coords.1)),
+    fp2_value_witness(value.map(|coords| coords.2)),
+  )
+}
+
+fn fp12_value_witness(value: Value<Fp12Constant>) -> Fp12Value {
+  (
+    fp6_value_witness(value.clone().map(|coords| coords.0)),
+    fp6_value_witness(value.map(|coords| coords.1)),
+  )
 }
 
 impl AssignedFp12 {
@@ -173,6 +194,75 @@ impl AssignedFp12 {
     let two_ab = ab.add(chip, layouter, &ab)?;
 
     Ok(Self::new(a_sq.add(chip, layouter, &b_sq_nr)?, two_ab))
+  }
+
+  pub(crate) fn value(&self) -> Value<Fp12Constant> {
+    Value::from_iter([self.c0.value(), self.c1.value()])
+      .map(|coords: Vec<Fp6Constant>| (coords[0], coords[1]))
+  }
+
+  pub(crate) fn conjugate(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(self.c0.clone(), self.c1.neg(chip, layouter)?))
+  }
+
+  pub(crate) fn unitary_inverse(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+  ) -> Result<Self, Error> {
+    self.conjugate(chip, layouter)
+  }
+
+  pub(crate) fn inv(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+  ) -> Result<Self, Error> {
+    let inverse = self.value().map(|value| fp12_inv_constant(&value));
+    let inverse_witness = fp12_value_witness(inverse);
+    let assigned = Self::assign(chip, layouter, inverse_witness.0, inverse_witness.1)?;
+    let check = self.mul(chip, layouter, &assigned)?;
+    AssignedFp12::one(chip, layouter)?.assert_equal(chip, layouter, &check)?;
+    Ok(assigned)
+  }
+
+  pub(crate) fn frobenius_map(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    power: usize,
+  ) -> Result<Self, Error> {
+    let assigned_witness =
+      fp12_value_witness(self.value().map(|value| fp12_frobenius_map_constant(&value, power)));
+    Self::assign(chip, layouter, assigned_witness.0, assigned_witness.1)
+  }
+
+  pub(crate) fn pow_constant_exp(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    exp: &[u64],
+  ) -> Result<Self, Error> {
+    let mut result = AssignedFp12::one(chip, layouter)?;
+    let mut seen_one = false;
+
+    for limb in exp.iter().rev() {
+      for bit in (0..64).rev() {
+        if seen_one {
+          result = result.square(chip, layouter)?;
+        }
+        if ((*limb >> bit) & 1) == 1 {
+          seen_one = true;
+          result = result.mul(chip, layouter, self)?;
+        }
+      }
+    }
+
+    Ok(result)
   }
 
   /// Asserts coordinate-wise equality against another assigned Fp12 value.

@@ -1,8 +1,11 @@
 use ark_bn254::{
-  Fq as ArkFq, Fq2 as ArkFq2, Fq6 as ArkFq6, Fq12 as ArkFq12, G1Affine as ArkG1Affine,
-  G2Affine as ArkG2Affine, g2,
+  Bn254 as ArkBn254, Config as ArkBn254Config, Fq as ArkFq, Fq2 as ArkFq2, Fq6 as ArkFq6,
+  Fq12 as ArkFq12, G1Affine as ArkG1Affine, G2Affine as ArkG2Affine, g2,
 };
-use ark_ec::{AdditiveGroup, AffineRepr, models::short_weierstrass::SWCurveConfig};
+use ark_ec::{
+  AdditiveGroup, AffineRepr, models::bn::G2Prepared as ArkPreparedG2,
+  models::short_weierstrass::SWCurveConfig, pairing::Pairing,
+};
 use ark_ff::{BigInteger, Field as ArkField, PrimeField};
 use ff::PrimeField as HaloPrimeField;
 use halo2curves::group::Group;
@@ -206,7 +209,56 @@ pub(crate) fn ark_miller_loop_accumulate(steps: &[ArkMillerStep], g1: ArkG1Affin
   accumulator
 }
 
-pub(crate) fn ark_generator_double_line_fixture() -> (ArkG2Affine, ArkG1Affine, ArkG2MillerPoint, ArkG2LineCoeffs, ArkFq12) {
+pub(crate) fn ark_bn254_prepared_miller_steps(g2: ArkG2Affine) -> Vec<ArkMillerStep> {
+  let prepared: ArkPreparedG2<ArkBn254Config> = g2.into();
+  let schedule = Bn254MillerSchedule::bn254();
+
+  assert_eq!(prepared.ell_coeffs.len(), schedule.steps.len());
+
+  schedule
+    .steps
+    .iter()
+    .zip(prepared.ell_coeffs)
+    .map(|(step, coeff)| {
+      let line = ArkG2LineCoeffs { constant: coeff.0, x_scale: coeff.1, vw: coeff.2 };
+      match step {
+        Bn254MillerScheduleStep::Double => ArkMillerStep::Double(line),
+        Bn254MillerScheduleStep::Add(_) => ArkMillerStep::Add(line),
+      }
+    })
+    .collect()
+}
+
+pub(crate) fn ark_bn254_miller_loop_accumulate(g2: ArkG2Affine, g1: ArkG1Affine) -> ArkFq12 {
+  ark_miller_loop_accumulate(&ark_bn254_prepared_miller_steps(g2), g1)
+}
+
+pub(crate) fn ark_bn254_final_exponentiation(value: ArkFq12) -> ArkFq12 {
+  ArkBn254::final_exponentiation(ark_ec::pairing::MillerLoopOutput(value))
+    .expect("nonzero BN254 Miller output should admit final exponentiation")
+    .0
+}
+
+pub(crate) fn ark_bn254_pairing(g1: ArkG1Affine, g2: ArkG2Affine) -> ArkFq12 {
+  ArkBn254::pairing(g1, g2).0
+}
+
+pub(crate) fn ark_bn254_multi_miller_loop_product(terms: &[(ArkG1Affine, ArkG2Affine)]) -> ArkFq12 {
+  terms.iter().fold(ArkFq12::ONE, |accumulator, (g1, g2)| {
+    accumulator * ark_bn254_miller_loop_accumulate(*g2, *g1)
+  })
+}
+
+pub(crate) fn ark_bn254_pairing_product(terms: &[(ArkG1Affine, ArkG2Affine)]) -> ArkFq12 {
+  ark_bn254_final_exponentiation(ark_bn254_multi_miller_loop_product(terms))
+}
+
+pub(crate) fn ark_bn254_pairing_check(terms: &[(ArkG1Affine, ArkG2Affine)]) -> bool {
+  ark_bn254_pairing_product(terms) == ArkFq12::ONE
+}
+
+pub(crate) fn ark_generator_double_line_fixture()
+-> (ArkG2Affine, ArkG1Affine, ArkG2MillerPoint, ArkG2LineCoeffs, ArkFq12) {
   let g2 = ArkG2Affine::generator();
   let g1 = ArkG1Affine::generator();
   let (next_state, line) = ark_double_with_line(ark_miller_point_from_affine(g2));
@@ -215,14 +267,8 @@ pub(crate) fn ark_generator_double_line_fixture() -> (ArkG2Affine, ArkG1Affine, 
   (g2, g1, next_state, line, value)
 }
 
-pub(crate) fn ark_generator_double_add_fixture() -> (
-  ArkG2Affine,
-  ArkG1Affine,
-  ArkG2MillerPoint,
-  ArkG2LineCoeffs,
-  ArkG2LineCoeffs,
-  ArkFq12,
-) {
+pub(crate) fn ark_generator_double_add_fixture()
+-> (ArkG2Affine, ArkG1Affine, ArkG2MillerPoint, ArkG2LineCoeffs, ArkG2LineCoeffs, ArkFq12) {
   let g2 = ArkG2Affine::generator();
   let g1 = ArkG1Affine::generator();
   let (doubled_state, double_line) = ark_double_with_line(ark_miller_point_from_affine(g2));
