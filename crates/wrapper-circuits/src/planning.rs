@@ -12,12 +12,13 @@ use crate::{
   g1_add_layout_metrics, g2_double_with_line_layout_metrics, g2_mixed_add_with_line_layout_metrics,
   g2_neg_layout_metrics, g2_on_curve_layout_metrics, g2_proj_add_layout_metrics,
   g2_proj_double_layout_metrics, g2_proj_from_affine_layout_metrics,
-  miller_accumulator_mul_by_line_layout_metrics, miller_accumulator_square_layout_metrics,
+  miller_accumulator_mul_by_line_layout_metrics,
+  miller_accumulator_mul_by_line_sparse_layout_metrics, miller_accumulator_square_layout_metrics,
   miller_loop_layout_metrics,
 };
 
 /// Number of currently measured primitive circuits.
-pub const PRIMITIVE_COUNT: usize = 22;
+pub const PRIMITIVE_COUNT: usize = 23;
 
 /// High-level layer for a measured primitive cost entry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -258,6 +259,15 @@ const PRIMITIVE_DEFINITIONS: [PrimitiveDefinition; PRIMITIVE_COUNT] = [
     bench_name: "bench_miller_accumulator_mul_by_line",
     show_lookups: false,
     measure_layout: miller_accumulator_mul_by_line_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "miller_accumulator_mul_by_line_sparse",
+    label: "miller accumulator mul_by_line sparse",
+    layer: PrimitiveCostLayer::MillerLoop,
+    bench_module: "ecc",
+    bench_name: "bench_miller_accumulator_mul_by_line_sparse",
+    show_lookups: false,
+    measure_layout: miller_accumulator_mul_by_line_sparse_layout_metrics,
   },
   PrimitiveDefinition {
     key: "miller_loop",

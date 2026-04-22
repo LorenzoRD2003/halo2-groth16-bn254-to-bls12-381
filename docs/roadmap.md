@@ -33,6 +33,7 @@ Goals:
 - land minimal BN254 G2 affine representation, negation, and on-curve enforcement
 - land Miller-path BN254 G2 `double_with_line` / `mixed_add_with_line` extraction with a clear sparse Fp12-facing boundary
 - land narrow Miller-loop accumulation over extracted BN254 G2 line coefficients with a fixed prepared-step driver
+- land sparse-specialized BN254 Miller accumulator line consumption for the current D-twist `(ell_0, ell_w, ell_vw)` layout
 - measure real layout/row cost for the Week 1 primitives
 - keep host/reference BN254 tower arithmetic centralized rather than duplicated across modules
 - keep measured primitive metadata centralized so CLI reporting and benchmark-info stay in sync

@@ -27,8 +27,8 @@ pub use jacobian::{
 pub use miller::{
   AssignedG1Point, AssignedG2LineCoeffs, AssignedG2MillerPoint, AssignedMillerAccumulator,
   G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, MillerAccumulatorMulByLineCircuit,
-  MillerAccumulatorSquareCircuit, MillerLoopCircuit, MillerStep, MillerStepConstant,
-  PreparedG2Miller, miller_loop,
+  MillerAccumulatorMulByLineSparseCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
+  MillerStep, MillerStepConstant, PreparedG2Miller, miller_loop,
 };
 
 type G2AffineValue = (Fp2Value, Fp2Value);

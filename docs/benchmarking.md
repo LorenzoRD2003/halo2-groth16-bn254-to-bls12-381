@@ -6,7 +6,7 @@ Current status:
 
 - benchmark structure exists
 - benchmark commands work
-- the current primitive layer includes small Midnight-backed circuits for field add, field mul, fp2 add, fp2 mul, fp2 square, fp6 add, fp6 mul, fp6 square, fp12 add, fp12 mul, fp12 square, G1 add, G2 on-curve, G2 neg, G2 projective from-affine embedding, G2 projective doubling, G2 projective addition, G2 doubling-with-line, G2 mixed-add-with-line, Miller-accumulator square, Miller-accumulator mul-by-line, and a narrow Miller-loop slice
+- the current primitive layer includes small Midnight-backed circuits for field add, field mul, fp2 add, fp2 mul, fp2 square, fp6 add, fp6 mul, fp6 square, fp12 add, fp12 mul, fp12 square, G1 add, G2 on-curve, G2 neg, G2 projective from-affine embedding, G2 projective doubling, G2 projective addition, G2 doubling-with-line, G2 mixed-add-with-line, Miller-accumulator square, Miller-accumulator mul-by-line, Miller-accumulator sparse mul-by-line, and a narrow Miller-loop slice
 - benchmark coverage is still intentionally narrow
 
 No current benchmark should be interpreted as a production cryptographic performance claim.
@@ -77,6 +77,7 @@ Current benchmark entry points are:
 - `bench_g2_mixed_add_with_line`
 - `bench_miller_accumulator_square`
 - `bench_miller_accumulator_mul_by_line`
+- `bench_miller_accumulator_mul_by_line_sparse`
 - `bench_miller_loop_narrow`
 
 ## Metrics That Will Matter Later
@@ -91,4 +92,4 @@ Additional metrics may be added later if circuit shape, witness generation, or b
 
 ## Warning
 
-Current benchmarks exercise small Midnight-backed BN254 primitive circuits. The Miller-loop benchmarks only cover the current narrow accumulation slice over extracted lines. They do not measure subgroup checks, scalar multiplication, full pairings, final exponentiation, Groth16 verification, or a production wrapper circuit.
+Current benchmarks exercise small Midnight-backed BN254 primitive circuits. The Miller-loop benchmarks only cover the current narrow accumulation slice over extracted lines. `bench_miller_accumulator_mul_by_line` is retained as the generic baseline path, while `bench_miller_accumulator_mul_by_line_sparse` measures the optimized sparse-specialized line-consumption path used by the public accumulator API. These do not measure subgroup checks, scalar multiplication, full pairings, final exponentiation, Groth16 verification, or a production wrapper circuit.

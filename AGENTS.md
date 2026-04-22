@@ -224,12 +224,18 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `g2 proj add`: 4582 rows / 58 queries, `k=13`
 - `g2 double_with_line`: 2768 rows / 58 queries, `k=12`
 - `g2 mixed_add_with_line`: 3374 rows / 58 queries, `k=12`
+- `miller accumulator square`: 3176 rows / 58 queries, `k=12`
+- `miller accumulator mul_by_line`: 4710 rows / 58 queries, `k=13`
+- `miller accumulator mul_by_line sparse`: 2790 rows / 58 queries, `k=12`
+- `miller loop narrow`: 8976 rows / 58 queries, `k=14`
 
 Interpretation guidance:
 
 - `g2 neg` is not a measure of a raw sign flip alone; the current benchmark circuit includes assignment, on-curve checks, negation, and equality against the expected output
 - `fp12 mul` and `fp12 square` are measurements of the actual sanity circuits over the implemented tower, not optimized pairing-ready kernels
 - `g2 double_with_line` and `g2 mixed_add_with_line` are measurements of the actual Miller-step sanity circuits, not a full Miller loop
+- `miller accumulator mul_by_line` is the generic baseline path, while `miller accumulator mul_by_line sparse` is the optimized public accumulator path for the current BN254 D-twist `(ell_0, ell_w, ell_vw)` layout
+- as of the current repo state, local accumulator-square rewrites that only swap formulas inside the existing Fp12 tower did not beat the generic `miller accumulator square` cost; future square optimization likely needs a more structural/cross-step design rather than a small algebraic rewrite, so do not keep partial `square_optimized` experiments in the tree unless they measurably win in `wrapper-cli doctor`
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
 
 ## Coding Standards
@@ -268,6 +274,8 @@ Current test expectations for the primitive layer:
 - minimal G2 tests should include valid affine points, negative on-curve cases, negation validity, and equality behavior
 - narrow G2 projective tests should stay explicit about the supported domain: `from_affine`, `neg`, `double`, incomplete `add`, and reserved identity encoding
 - Miller-path G2 tests should cover `double_with_line`, `mixed_add_with_line`, sparse `Fp12` embedding, and explicitly unsupported exceptional cases such as `P = Q`
+- for the current narrow Miller slice, keep a few stable fixed fixtures alongside deterministic randomized checks: generator-based `double_with_line`, generator-based `double + add`, baseline-vs-sparse `mul_by_line` cross-checks, and at least one longer deterministic prepared schedule
+- explicitly keep unsupported Miller mixed-add cases documented by tests for both `P = Q` and `P = -Q`; do not silently widen support claims just because randomized tests pass
 - if a test needs a host-side reference formula, put the logic in `test_support.rs` and keep `tests.rs` focused on cases/assertions
 - if a test-local helper becomes shared across multiple test groups, move it into `test_support.rs` in the same refactor rather than leaving partial duplicates behind
 
@@ -300,6 +308,16 @@ Current benchmark entry points include:
 - `bench_g2_proj_add`
 - `bench_g2_double_with_line`
 - `bench_g2_mixed_add_with_line`
+- `bench_miller_accumulator_square`
+- `bench_miller_accumulator_mul_by_line`
+- `bench_miller_accumulator_mul_by_line_sparse`
+- `bench_miller_loop_narrow`
+
+Benchmark/metrics integration rules that have already bitten this repo:
+
+- `wrapper-cli bench-info` is derived from the canonical primitive registry in `crates/wrapper-circuits/src/planning.rs`; if a new primitive is missing from `bench-info`, fix the registry/layer wiring before touching docs text
+- when adding a new measured primitive, keep `crates/wrapper-tests/benches/...`, `crates/wrapper-tests/benches/primitives.rs`, `crates/wrapper-circuits/src/planning.rs`, `wrapper-cli bench-info`, and `docs/benchmarking.md` in sync in the same turn
+- use explicit honest names for Miller work such as `*_narrow`, `*_sparse`, or `*_baseline` when the slice is not a full pairing pipeline
 
 ## Documentation Standards
 

@@ -32,6 +32,7 @@ criterion_group!(
   ecc::bench_g2_mixed_add_with_line,
   ecc::bench_miller_accumulator_square,
   ecc::bench_miller_accumulator_mul_by_line,
+  ecc::bench_miller_accumulator_mul_by_line_sparse,
   ecc::bench_miller_loop_narrow
 );
 criterion_main!(primitive_benches);

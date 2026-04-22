@@ -206,6 +206,35 @@ pub(crate) fn ark_miller_loop_accumulate(steps: &[ArkMillerStep], g1: ArkG1Affin
   accumulator
 }
 
+pub(crate) fn ark_generator_double_line_fixture() -> (ArkG2Affine, ArkG1Affine, ArkG2MillerPoint, ArkG2LineCoeffs, ArkFq12) {
+  let g2 = ArkG2Affine::generator();
+  let g1 = ArkG1Affine::generator();
+  let (next_state, line) = ark_double_with_line(ark_miller_point_from_affine(g2));
+  let value = ark_line_evaluation(line, g1);
+
+  (g2, g1, next_state, line, value)
+}
+
+pub(crate) fn ark_generator_double_add_fixture() -> (
+  ArkG2Affine,
+  ArkG1Affine,
+  ArkG2MillerPoint,
+  ArkG2LineCoeffs,
+  ArkG2LineCoeffs,
+  ArkFq12,
+) {
+  let g2 = ArkG2Affine::generator();
+  let g1 = ArkG1Affine::generator();
+  let (doubled_state, double_line) = ark_double_with_line(ark_miller_point_from_affine(g2));
+  let (_, add_line) = ark_mixed_add_with_line(doubled_state, g2);
+  let value = ark_miller_loop_accumulate(
+    &[ArkMillerStep::Double(double_line), ArkMillerStep::Add(add_line)],
+    g1,
+  );
+
+  (g2, g1, doubled_state, double_line, add_line, value)
+}
+
 pub(crate) fn assert_satisfied<CircuitT: Circuit<NativeField>>(circuit: &CircuitT) {
   let k = measure_layout(circuit).k;
   let prover = MockProver::run(k, circuit, vec![vec![], vec![]]).expect("mock prover should run");

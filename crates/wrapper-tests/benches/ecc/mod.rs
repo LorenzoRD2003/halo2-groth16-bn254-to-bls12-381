@@ -6,10 +6,11 @@ use midnight_proofs::plonk::Circuit;
 use wrapper_circuits::{
   G1AddCircuit, G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
   G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit,
-  MillerAccumulatorMulByLineCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
-  NativeField, g1_add_k, g2_double_with_line_k, g2_mixed_add_with_line_k, g2_neg_k, g2_on_curve_k,
-  g2_proj_add_k, g2_proj_double_k, g2_proj_from_affine_k, miller_accumulator_mul_by_line_k,
-  miller_accumulator_square_k, miller_loop_k,
+  MillerAccumulatorMulByLineCircuit, MillerAccumulatorMulByLineSparseCircuit,
+  MillerAccumulatorSquareCircuit, MillerLoopCircuit, NativeField, g1_add_k,
+  g2_double_with_line_k, g2_mixed_add_with_line_k, g2_neg_k, g2_on_curve_k, g2_proj_add_k,
+  g2_proj_double_k, g2_proj_from_affine_k, miller_accumulator_mul_by_line_k,
+  miller_accumulator_mul_by_line_sparse_k, miller_accumulator_square_k, miller_loop_k,
 };
 
 fn verify_sample_circuit<CircuitT>(circuit: &CircuitT, k: u32, build_error: &str)
@@ -98,6 +99,14 @@ fn run_miller_accumulator_mul_by_line_circuit() {
   );
 }
 
+fn run_miller_accumulator_mul_by_line_sparse_circuit() {
+  verify_sample_circuit(
+    &MillerAccumulatorMulByLineSparseCircuit::sample(),
+    miller_accumulator_mul_by_line_sparse_k(),
+    "miller accumulator mul_by_line sparse circuit should build",
+  );
+}
+
 fn run_miller_loop_circuit() {
   verify_sample_circuit(
     &MillerLoopCircuit::sample(),
@@ -165,6 +174,15 @@ pub fn bench_miller_accumulator_mul_by_line(criterion: &mut Criterion) {
     criterion,
     "bench_miller_accumulator_mul_by_line",
     run_miller_accumulator_mul_by_line_circuit,
+  );
+}
+
+/// Benchmarks the current optimized Midnight-backed BN254 Miller-accumulator sparse mul-by-line circuit.
+pub fn bench_miller_accumulator_mul_by_line_sparse(criterion: &mut Criterion) {
+  bench_verified_sample(
+    criterion,
+    "bench_miller_accumulator_mul_by_line_sparse",
+    run_miller_accumulator_mul_by_line_sparse_circuit,
   );
 }
 

@@ -7,8 +7,8 @@ use super::{
   Fp12AddCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit, FpMulCircuit, G1AddCircuit,
   G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
   G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit,
-  MillerAccumulatorMulByLineCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
-  NativeField,
+  MillerAccumulatorMulByLineCircuit, MillerAccumulatorMulByLineSparseCircuit,
+  MillerAccumulatorSquareCircuit, MillerLoopCircuit, NativeField,
 };
 
 /// Models a circuit and returns real layout metrics.
@@ -143,6 +143,12 @@ pub fn miller_accumulator_mul_by_line_layout_metrics() -> LayoutMetrics {
   measure_layout(&MillerAccumulatorMulByLineCircuit::sample())
 }
 
+/// Real layout metrics for the current optimized BN254 Miller-accumulator sparse mul-by-line circuit.
+#[must_use]
+pub fn miller_accumulator_mul_by_line_sparse_layout_metrics() -> LayoutMetrics {
+  measure_layout(&MillerAccumulatorMulByLineSparseCircuit::sample())
+}
+
 /// Real layout metrics for the current narrow BN254 Miller-loop circuit.
 #[must_use]
 pub fn miller_loop_layout_metrics() -> LayoutMetrics {
@@ -273,6 +279,12 @@ pub fn miller_accumulator_square_k() -> u32 {
 #[must_use]
 pub fn miller_accumulator_mul_by_line_k() -> u32 {
   miller_accumulator_mul_by_line_layout_metrics().k
+}
+
+/// Returns the smallest power-of-two domain reported by the cost model.
+#[must_use]
+pub fn miller_accumulator_mul_by_line_sparse_k() -> u32 {
+  miller_accumulator_mul_by_line_sparse_layout_metrics().k
 }
 
 /// Returns the smallest power-of-two domain reported by the cost model.

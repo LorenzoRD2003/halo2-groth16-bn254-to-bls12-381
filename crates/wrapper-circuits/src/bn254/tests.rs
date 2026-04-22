@@ -15,14 +15,17 @@ use rand_chacha::ChaCha20Rng;
 
 use super::test_support::{
   ArkMillerStep, Fp12ConstantValue, G2AssignedValue, G2ConstantValue, ark_double_with_line,
-  ark_line_evaluation, ark_miller_loop_accumulate, ark_miller_point_from_affine,
-  ark_miller_point_to_affine, ark_mixed_add_with_line, ark_one_fq6, ark_to_assigned_g2_coords,
-  ark_to_line_coeffs_constant, ark_to_midnight_fq, ark_to_midnight_fq2, ark_to_midnight_fq6,
-  ark_to_midnight_fq12, ark_to_midnight_g1, ark_to_miller_point_constant, ark_zero_fq6,
-  assert_satisfied, prover_result,
+  ark_generator_double_add_fixture, ark_generator_double_line_fixture, ark_line_evaluation,
+  ark_miller_loop_accumulate, ark_miller_point_from_affine, ark_miller_point_to_affine,
+  ark_mixed_add_with_line, ark_one_fq6, ark_to_assigned_g2_coords, ark_to_line_coeffs_constant,
+  ark_to_midnight_fq, ark_to_midnight_fq2, ark_to_midnight_fq6, ark_to_midnight_fq12,
+  ark_to_midnight_g1, ark_to_miller_point_constant, ark_zero_fq6, assert_satisfied,
+  prover_result,
 };
 use super::*;
-use crate::bn254::g2::MillerAccumulatorMulByLineCircuit;
+use crate::bn254::g2::{
+  MillerAccumulatorMulByLineCircuit, MillerAccumulatorMulByLineSparseCircuit,
+};
 
 #[derive(Clone, Debug)]
 struct G2EqualityCircuit {
@@ -892,6 +895,18 @@ fn g2_double_with_line_matches_arkworks_reference() {
 }
 
 #[test]
+fn g2_double_with_line_matches_fixed_generator_fixture() {
+  let (g2_point, _, next_state, line, _) = ark_generator_double_line_fixture();
+  let expected_point = ark_miller_point_to_affine(next_state);
+
+  assert_satisfied(&G2DoubleWithLineCircuit::new(
+    ark_to_assigned_g2_coords(g2_point),
+    ark_to_assigned_g2_coords(expected_point),
+    ark_to_line_coeffs_constant(line),
+  ));
+}
+
+#[test]
 fn g2_mixed_add_with_line_matches_arkworks_reference() {
   let mut rng = ChaCha20Rng::from_seed([58_u8; 32]);
 
@@ -922,13 +937,24 @@ fn g2_mixed_add_with_line_matches_arkworks_reference() {
 }
 
 #[test]
-fn g2_line_coeff_evaluation_matches_sparse_fp12_embedding() {
-  let g2_point = ArkG2Affine::generator();
-  let g1_point = ArkG1Affine::generator();
-  let (_, line) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
-  let expected = ark_line_evaluation(line, g1_point);
+fn g2_mixed_add_with_line_matches_fixed_generator_fixture() {
+  let (g2_point, _, doubled_state, _, add_line, _) = ark_generator_double_add_fixture();
+  let (next_state, _) = ark_mixed_add_with_line(doubled_state, g2_point);
+  let expected_point = ark_miller_point_to_affine(next_state);
 
-  assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(
+  assert_satisfied(&G2MixedAddWithLineCircuit::new(
+    ark_to_miller_point_constant(doubled_state),
+    ark_to_assigned_g2_coords(g2_point),
+    ark_to_assigned_g2_coords(expected_point),
+    ark_to_line_coeffs_constant(add_line),
+  ));
+}
+
+#[test]
+fn g2_line_coeff_evaluation_matches_sparse_fp12_embedding() {
+  let (_, g1_point, _, line, expected) = ark_generator_double_line_fixture();
+
+  assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(
     ark_to_line_coeffs_constant(line),
     ark_to_midnight_fq(g1_point.x),
     ark_to_midnight_fq(g1_point.y),
@@ -954,6 +980,18 @@ fn miller_accumulator_square_matches_arkworks_reference() {
     ));
   }
 }
+
+#[test]
+fn miller_accumulator_square_matches_fixed_generator_line_fixture() {
+  let (_, _, _, _, value) = ark_generator_double_line_fixture();
+  let expected = value.square();
+
+  assert_satisfied(&MillerAccumulatorSquareCircuit::new(
+    &ark_to_midnight_fq12(&value),
+    &ark_to_midnight_fq12(&expected),
+  ));
+}
+
 
 #[test]
 fn miller_accumulator_mul_by_evaluated_line_matches_arkworks_reference() {
@@ -986,12 +1024,47 @@ fn miller_accumulator_mul_by_line_matches_arkworks_reference() {
     let (_, line) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
     let expected = ark_line_evaluation(line, g1_point);
 
-    assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(
+    assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(
       ark_to_line_coeffs_constant(line),
       ark_to_midnight_fq(g1_point.x),
       ark_to_midnight_fq(g1_point.y),
       &ark_to_midnight_fq12(&expected),
     ));
+  }
+}
+
+#[test]
+fn miller_accumulator_mul_by_line_baseline_and_sparse_match_fixed_fixture() {
+  let (_, g1_point, _, line, expected) = ark_generator_double_line_fixture();
+  let line = ark_to_line_coeffs_constant(line);
+  let g1_x = ark_to_midnight_fq(g1_point.x);
+  let g1_y = ark_to_midnight_fq(g1_point.y);
+  let expected = ark_to_midnight_fq12(&expected);
+
+  assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(line, g1_x, g1_y, &expected));
+  assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(line, g1_x, g1_y, &expected));
+}
+
+#[test]
+fn miller_accumulator_mul_by_line_baseline_and_sparse_match_randomized_fixtures() {
+  let mut rng = ChaCha20Rng::from_seed([65_u8; 32]);
+
+  for _ in 0..4 {
+    let g2_point = ArkG2Projective::rand(&mut rng).into_affine();
+    let g1_point = ArkG1Projective::rand(&mut rng).into_affine();
+    if g2_point.is_zero() || g1_point.is_zero() {
+      continue;
+    }
+
+    let (_, line) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
+    let expected = ark_line_evaluation(line, g1_point);
+    let line = ark_to_line_coeffs_constant(line);
+    let g1_x = ark_to_midnight_fq(g1_point.x);
+    let g1_y = ark_to_midnight_fq(g1_point.y);
+    let expected = ark_to_midnight_fq12(&expected);
+
+    assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(line, g1_x, g1_y, &expected));
+    assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(line, g1_x, g1_y, &expected));
   }
 }
 
@@ -1039,7 +1112,7 @@ fn mixed_add_with_line_then_accumulate_matches_arkworks_reference() {
     let (_, line) = ark_mixed_add_with_line(doubled_state, addend);
     let expected = ark_line_evaluation(line, g1_point);
 
-    assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(
+    assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(
       ark_to_line_coeffs_constant(line),
       ark_to_midnight_fq(g1_point.x),
       ark_to_midnight_fq(g1_point.y),
@@ -1049,11 +1122,23 @@ fn mixed_add_with_line_then_accumulate_matches_arkworks_reference() {
 }
 
 #[test]
-fn miller_loop_single_double_matches_arkworks_reference() {
+fn miller_accumulator_sparse_and_generic_mul_by_line_paths_match_same_reference() {
   let g2_point = ArkG2Affine::generator();
   let g1_point = ArkG1Affine::generator();
   let (_, line) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
-  let expected = ark_miller_loop_accumulate(&[ArkMillerStep::Double(line)], g1_point);
+  let expected = ark_line_evaluation(line, g1_point);
+  let expected = ark_to_midnight_fq12(&expected);
+  let line = ark_to_line_coeffs_constant(line);
+  let g1_x = ark_to_midnight_fq(g1_point.x);
+  let g1_y = ark_to_midnight_fq(g1_point.y);
+
+  assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(line, g1_x, g1_y, &expected));
+  assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(line, g1_x, g1_y, &expected));
+}
+
+#[test]
+fn miller_loop_single_double_matches_arkworks_reference() {
+  let (_, g1_point, _, line, expected) = ark_generator_double_line_fixture();
 
   assert_satisfied(&MillerLoopCircuit::new(
     (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
@@ -1064,14 +1149,8 @@ fn miller_loop_single_double_matches_arkworks_reference() {
 
 #[test]
 fn miller_loop_double_then_add_matches_arkworks_reference() {
-  let g2_point = ArkG2Affine::generator();
-  let g1_point = ArkG1Affine::generator();
-  let (doubled_state, double_line) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
-  let (_, add_line) = ark_mixed_add_with_line(doubled_state, g2_point);
-  let expected = ark_miller_loop_accumulate(
-    &[ArkMillerStep::Double(double_line), ArkMillerStep::Add(add_line)],
-    g1_point,
-  );
+  let (_g2_point, g1_point, _, double_line, add_line, expected) =
+    ark_generator_double_add_fixture();
 
   assert_satisfied(&MillerLoopCircuit::new(
     (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
@@ -1111,6 +1190,65 @@ fn miller_loop_multiple_steps_match_arkworks_reference() {
 }
 
 #[test]
+fn miller_loop_longer_deterministic_schedule_matches_arkworks_reference() {
+  let mut rng = ChaCha20Rng::from_seed([66_u8; 32]);
+
+  let g1_point = loop {
+    let candidate = ArkG1Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+
+  let base_point = loop {
+    let candidate = ArkG2Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+
+  let addend = loop {
+    let candidate = ArkG2Projective::rand(&mut rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  };
+
+  let (state_1, line_1) = ark_double_with_line(ark_miller_point_from_affine(base_point));
+  let current_1 = ark_miller_point_to_affine(state_1);
+  assert_ne!(addend, current_1);
+  assert_ne!(addend, -current_1);
+
+  let (state_2, line_2) = ark_mixed_add_with_line(state_1, addend);
+  let (state_3, line_3) = ark_double_with_line(state_2);
+  let current_3 = ark_miller_point_to_affine(state_3);
+  assert_ne!(addend, current_3);
+  assert_ne!(addend, -current_3);
+
+  let (_, line_4) = ark_mixed_add_with_line(state_3, addend);
+  let expected = ark_miller_loop_accumulate(
+    &[
+      ArkMillerStep::Double(line_1),
+      ArkMillerStep::Add(line_2),
+      ArkMillerStep::Double(line_3),
+      ArkMillerStep::Add(line_4),
+    ],
+    g1_point,
+  );
+
+  assert_satisfied(&MillerLoopCircuit::new(
+    (ark_to_midnight_fq(g1_point.x), ark_to_midnight_fq(g1_point.y)),
+    vec![
+      MillerStepConstant::Double(ark_to_line_coeffs_constant(line_1)),
+      MillerStepConstant::Add(ark_to_line_coeffs_constant(line_2)),
+      MillerStepConstant::Double(ark_to_line_coeffs_constant(line_3)),
+      MillerStepConstant::Add(ark_to_line_coeffs_constant(line_4)),
+    ],
+    &ark_to_midnight_fq12(&expected),
+  ));
+}
+
+#[test]
 fn g2_mixed_add_with_line_same_point_is_not_supported_in_this_slice() {
   let point = ArkG2Affine::generator();
   let current_state = ark_miller_point_from_affine(point);
@@ -1121,6 +1259,21 @@ fn g2_mixed_add_with_line_same_point_is_not_supported_in_this_slice() {
     ark_to_miller_point_constant(current_state),
     ark_to_assigned_g2_coords(point),
     ark_to_assigned_g2_coords(honest_double),
+    ark_to_line_coeffs_constant(honest_line),
+  )));
+}
+
+#[test]
+fn g2_mixed_add_with_line_inverse_point_is_not_supported_in_this_slice() {
+  let point = ArkG2Affine::generator();
+  let current_state = ark_miller_point_from_affine(point);
+  let unsupported_addend = -point;
+  let (_, honest_line) = ark_double_with_line(current_state);
+
+  assert!(!prover_result(&G2MixedAddWithLineCircuit::new(
+    ark_to_miller_point_constant(current_state),
+    ark_to_assigned_g2_coords(unsupported_addend),
+    ark_to_assigned_g2_coords(point),
     ark_to_line_coeffs_constant(honest_line),
   )));
 }
@@ -1154,6 +1307,8 @@ fn g2_layout_metrics_are_real_and_nonzero() {
   let mixed_add_with_line_metrics = g2_mixed_add_with_line_layout_metrics();
   let accumulator_square_metrics = miller_accumulator_square_layout_metrics();
   let accumulator_mul_by_line_metrics = miller_accumulator_mul_by_line_layout_metrics();
+  let accumulator_mul_by_line_sparse_metrics =
+    miller_accumulator_mul_by_line_sparse_layout_metrics();
   let miller_loop_metrics = miller_loop_layout_metrics();
 
   assert!(on_curve_metrics.rows > 0);
@@ -1165,6 +1320,7 @@ fn g2_layout_metrics_are_real_and_nonzero() {
   assert!(mixed_add_with_line_metrics.rows > 0);
   assert!(accumulator_square_metrics.rows > 0);
   assert!(accumulator_mul_by_line_metrics.rows > 0);
+  assert!(accumulator_mul_by_line_sparse_metrics.rows > 0);
   assert!(miller_loop_metrics.rows > 0);
   assert!(on_curve_metrics.column_queries > 0);
   assert!(neg_metrics.column_queries > 0);
@@ -1175,5 +1331,7 @@ fn g2_layout_metrics_are_real_and_nonzero() {
   assert!(mixed_add_with_line_metrics.column_queries > 0);
   assert!(accumulator_square_metrics.column_queries > 0);
   assert!(accumulator_mul_by_line_metrics.column_queries > 0);
+  assert!(accumulator_mul_by_line_sparse_metrics.column_queries > 0);
   assert!(miller_loop_metrics.column_queries > 0);
+  assert!(accumulator_mul_by_line_sparse_metrics.rows < accumulator_mul_by_line_metrics.rows);
 }

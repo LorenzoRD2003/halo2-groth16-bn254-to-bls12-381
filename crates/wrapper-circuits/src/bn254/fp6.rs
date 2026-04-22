@@ -104,6 +104,44 @@ impl AssignedFp6 {
     Ok(AssignedFp2::new(c0, c1))
   }
 
+  pub(crate) fn scale_by_fp2(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    scalar: &AssignedFp2,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      self.c0.mul(chip, layouter, scalar)?,
+      self.c1.mul(chip, layouter, scalar)?,
+      self.c2.mul(chip, layouter, scalar)?,
+    ))
+  }
+
+  /// Multiplies this Fp6 value by a sparse `Fp6(c0, c1, 0)`.
+  ///
+  /// This is the exact cubic-tower specialization used by later `mul_by_034`
+  /// style Fp12 products. Keeping it crate-private avoids broadening the
+  /// extension-field public API with pairing-specific helpers.
+  pub(crate) fn mul_by_01(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    c0: &AssignedFp2,
+    c1: &AssignedFp2,
+  ) -> Result<Self, Error> {
+    let z0_x0 = self.c0.mul(chip, layouter, c0)?;
+    let z1_x1 = self.c1.mul(chip, layouter, c1)?;
+    let z2_x1 = self.c2.mul(chip, layouter, c1)?;
+    let z2_x1_nr = Self::mul_by_nonresidue_fp2(&z2_x1, chip, layouter)?;
+    let out_c0 = z0_x0.add(chip, layouter, &z2_x1_nr)?;
+    let z0_x1 = self.c0.mul(chip, layouter, c1)?;
+    let z1_x0 = self.c1.mul(chip, layouter, c0)?;
+    let out_c1 = z0_x1.add(chip, layouter, &z1_x0)?;
+    let out_c2 = self.c2.mul(chip, layouter, c0)?.add(chip, layouter, &z1_x1)?;
+
+    Ok(Self::new(out_c0, out_c1, out_c2))
+  }
+
   /// Multiplies an Fp6 value by the arkworks BN254 quadratic-over-cubic nonresidue `v`.
   ///
   /// The Fp12 tower is `Fp12 = Fp6[w] / (w^2 - v)`, so multiplication by `v`

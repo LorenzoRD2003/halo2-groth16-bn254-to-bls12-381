@@ -26,9 +26,9 @@ pub use g2::{
   AssignedG2Projective, AssignedMillerAccumulator, G2DoubleWithLineCircuit,
   G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit, G2ProjectiveAddCircuit,
   G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit, G2ProjectiveIdentityCircuit,
-  G2ProjectiveNegCircuit, MillerAccumulatorMulByLineCircuit, MillerAccumulatorSquareCircuit,
-  MillerLoopCircuit, MillerStep, MillerStepConstant, PreparedG2Miller, g2_curve_coeff_b,
-  miller_loop,
+  G2ProjectiveNegCircuit, MillerAccumulatorMulByLineCircuit,
+  MillerAccumulatorMulByLineSparseCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
+  MillerStep, MillerStepConstant, PreparedG2Miller, g2_curve_coeff_b, miller_loop,
 };
 pub use metrics::{
   fp_add_k, fp_add_layout_metrics, fp_mul_k, fp_mul_layout_metrics, fp2_add_k,
@@ -41,7 +41,8 @@ pub use metrics::{
   g2_on_curve_k, g2_on_curve_layout_metrics, g2_proj_add_k, g2_proj_add_layout_metrics,
   g2_proj_double_k, g2_proj_double_layout_metrics, g2_proj_from_affine_k,
   g2_proj_from_affine_layout_metrics, miller_accumulator_mul_by_line_k,
-  miller_accumulator_mul_by_line_layout_metrics, miller_accumulator_square_k,
+  miller_accumulator_mul_by_line_layout_metrics, miller_accumulator_mul_by_line_sparse_k,
+  miller_accumulator_mul_by_line_sparse_layout_metrics, miller_accumulator_square_k,
   miller_accumulator_square_layout_metrics, miller_loop_k, miller_loop_layout_metrics,
 };
 pub(crate) use traits::{
