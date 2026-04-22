@@ -32,6 +32,7 @@ Goals:
 - land minimal BN254 G1 addition and on-curve enforcement
 - land minimal BN254 G2 affine representation, negation, and on-curve enforcement
 - land Miller-path BN254 G2 `double_with_line` / `mixed_add_with_line` extraction with a clear sparse Fp12-facing boundary
+- land narrow Miller-loop accumulation over extracted BN254 G2 line coefficients with a fixed prepared-step driver
 - measure real layout/row cost for the Week 1 primitives
 - keep host/reference BN254 tower arithmetic centralized rather than duplicated across modules
 - keep measured primitive metadata centralized so CLI reporting and benchmark-info stay in sync
@@ -41,7 +42,7 @@ Goals:
 Still excluded unless explicitly planned:
 
 - pairings
-- full Miller loop
+- full pairing pipeline beyond the current narrow Miller accumulation slice
 - final exponentiation
 - G2 subgroup checks
 - scalar multiplication

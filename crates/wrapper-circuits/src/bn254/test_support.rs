@@ -38,6 +38,12 @@ pub(crate) struct ArkG2LineCoeffs {
   pub(crate) vw: ArkFq2,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ArkMillerStep {
+  Double(ArkG2LineCoeffs),
+  Add(ArkG2LineCoeffs),
+}
+
 pub(crate) fn ark_to_midnight_fq(value: ArkFq) -> ForeignField {
   let bytes = value.into_bigint().to_bytes_le();
   let mut repr = <ForeignField as HaloPrimeField>::Repr::default();
@@ -181,6 +187,23 @@ pub(crate) fn ark_line_evaluation(line: ArkG2LineCoeffs, g1: ArkG1Affine) -> Ark
     ArkFq6::new(ark_scale_fq2(line.constant, g1.y), ark_zero_fq2(), ark_zero_fq2()),
     ArkFq6::new(ark_scale_fq2(line.x_scale, g1.x), line.vw, ark_zero_fq2()),
   )
+}
+
+pub(crate) fn ark_miller_loop_accumulate(steps: &[ArkMillerStep], g1: ArkG1Affine) -> ArkFq12 {
+  let mut accumulator = ArkFq12::new(ark_one_fq6(), ark_zero_fq6());
+
+  for step in steps {
+    if matches!(step, ArkMillerStep::Double(_)) {
+      accumulator = accumulator.square();
+    }
+
+    let line = match step {
+      ArkMillerStep::Double(line) | ArkMillerStep::Add(line) => *line,
+    };
+    accumulator *= ark_line_evaluation(line, g1);
+  }
+
+  accumulator
 }
 
 pub(crate) fn assert_satisfied<CircuitT: Circuit<NativeField>>(circuit: &CircuitT) {

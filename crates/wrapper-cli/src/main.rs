@@ -123,6 +123,7 @@ fn print_primitive_costs(primitive_costs: &PrimitiveCostTable) {
   print_cost_group(PrimitiveCostLayer::Field, entries);
   print_cost_group(PrimitiveCostLayer::Curve, entries);
   print_cost_group(PrimitiveCostLayer::MillerPrep, entries);
+  print_cost_group(PrimitiveCostLayer::MillerLoop, entries);
 }
 
 fn print_cost_group(layer: PrimitiveCostLayer, entries: &[PrimitiveCostEntry]) {
@@ -145,13 +146,16 @@ fn run_bench_info() {
     println!("  - crates/wrapper-tests/benches/{module}/");
   }
   println!("Current benchmark entry points:");
-  for layer in
-    [PrimitiveCostLayer::Field, PrimitiveCostLayer::Curve, PrimitiveCostLayer::MillerPrep]
-  {
+  for layer in [
+    PrimitiveCostLayer::Field,
+    PrimitiveCostLayer::Curve,
+    PrimitiveCostLayer::MillerPrep,
+    PrimitiveCostLayer::MillerLoop,
+  ] {
     print_bench_group(layer);
   }
   println!(
-    "Warning: current benchmarks use small Midnight-backed sanity circuits and do not cover subgroup checks, pairings, or verifier logic."
+    "Warning: current benchmarks use small Midnight-backed sanity circuits. The Miller-loop entries cover only the current narrow accumulation slice over extracted lines, not full pairings or verifier logic."
   );
 }
 

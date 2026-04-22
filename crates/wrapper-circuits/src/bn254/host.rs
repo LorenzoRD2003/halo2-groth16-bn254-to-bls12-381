@@ -14,6 +14,21 @@ pub(crate) type G2ProjectiveConstant = (Fp2Constant, Fp2Constant, Fp2Constant);
 pub(crate) type G2MillerPointConstant = (Fp2Constant, Fp2Constant, Fp2Constant);
 pub(crate) type G2LineCoeffsConstant = (Fp2Constant, Fp2Constant, Fp2Constant);
 
+pub(crate) fn fp12_one_constant() -> Fp12Constant {
+  (
+    (
+      (ForeignField::ONE, ForeignField::ZERO),
+      (ForeignField::ZERO, ForeignField::ZERO),
+      (ForeignField::ZERO, ForeignField::ZERO),
+    ),
+    (
+      (ForeignField::ZERO, ForeignField::ZERO),
+      (ForeignField::ZERO, ForeignField::ZERO),
+      (ForeignField::ZERO, ForeignField::ZERO),
+    ),
+  )
+}
+
 pub(crate) fn fp2_add_constant(left: Fp2Constant, right: Fp2Constant) -> Fp2Constant {
   (left.0 + right.0, left.1 + right.1)
 }
@@ -154,6 +169,24 @@ pub(crate) fn fp12_nonresidue_constant() -> Fp6Constant {
     (ForeignField::ZERO, ForeignField::ZERO),
     (ForeignField::ONE, ForeignField::ZERO),
     (ForeignField::ZERO, ForeignField::ZERO),
+  )
+}
+
+pub(crate) fn g1_generator_constant() -> (ForeignField, ForeignField) {
+  (ForeignField::ONE, ForeignField::from(2_u64))
+}
+
+pub(crate) fn g2_line_evaluation_constant(
+  line: G2LineCoeffsConstant,
+  g1: (ForeignField, ForeignField),
+) -> Fp12Constant {
+  (
+    (
+      (line.0.0 * g1.1, line.0.1 * g1.1),
+      (ForeignField::ZERO, ForeignField::ZERO),
+      (ForeignField::ZERO, ForeignField::ZERO),
+    ),
+    ((line.1.0 * g1.0, line.1.1 * g1.0), line.2, (ForeignField::ZERO, ForeignField::ZERO)),
   )
 }
 

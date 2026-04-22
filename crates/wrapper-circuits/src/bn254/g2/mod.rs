@@ -1,14 +1,14 @@
 use ff::PrimeField;
 
-#[cfg(test)]
 use super::host::{Fp12Constant, Fp12Value};
 use super::{
   AssignedFp, AssignedFp2, AssignedFp6, AssignedFp12, Bn254FieldChip, Bn254FieldConfig,
   ForeignField, NativeField,
   host::{
     Fp2Constant, Fp2Value, G2AffineConstant, G2LineCoeffsConstant, G2MillerPointConstant,
-    G2ProjectiveConstant, fp2_neg_constant, g2_affine_from_miller_point_constant,
-    g2_curve_coeff_b_constant, g2_miller_double_with_line_constant,
+    G2ProjectiveConstant, fp2_neg_constant, fp12_mul_constant, fp12_one_constant,
+    fp12_square_constant, g1_generator_constant, g2_affine_from_miller_point_constant,
+    g2_curve_coeff_b_constant, g2_line_evaluation_constant, g2_miller_double_with_line_constant,
     g2_miller_mixed_add_with_line_constant, g2_miller_point_from_affine_constant,
     g2_projective_add_constant, g2_projective_double_constant, g2_projective_from_affine_constant,
     g2_projective_identity_constant,
@@ -25,15 +25,13 @@ pub use jacobian::{
   G2ProjectiveFromAffineCircuit, G2ProjectiveIdentityCircuit, G2ProjectiveNegCircuit,
 };
 pub use miller::{
-  AssignedG2LineCoeffs, AssignedG2MillerPoint, AssignedMillerAccumulator, G2DoubleWithLineCircuit,
-  G2MixedAddWithLineCircuit,
+  AssignedG1Point, AssignedG2LineCoeffs, AssignedG2MillerPoint, AssignedMillerAccumulator,
+  G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, MillerAccumulatorMulByLineCircuit,
+  MillerAccumulatorSquareCircuit, MillerLoopCircuit, MillerStep, MillerStepConstant,
+  PreparedG2Miller, miller_loop,
 };
 
-#[cfg(test)]
-pub(crate) use miller::G2MulByLineCircuit;
-
 type G2AffineValue = (Fp2Value, Fp2Value);
-#[cfg(test)]
 type G2LineCoeffsValue = (Fp2Value, Fp2Value, Fp2Value);
 
 /// Returns the BN254 G2 twist coefficient `b = 3 / (u + 9)` in `Fq2(c0, c1)`.

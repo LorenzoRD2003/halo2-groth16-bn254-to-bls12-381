@@ -7,17 +7,58 @@ use midnight_circuits::midnight_proofs::{
 use super::{
   AssignedFp, AssignedFp2, AssignedFp6, AssignedFp12, AssignedG2Affine, Bn254FieldChip,
   Bn254FieldConfig, ForeignField, Fp2Value, G2AffineConstant, G2AffineValue, G2LineCoeffsConstant,
-  G2MillerPointConstant, NativeField, g2_affine_from_miller_point_constant, g2_curve_coeff_b,
-  g2_generator, g2_miller_double_with_line_constant, g2_miller_mixed_add_with_line_constant,
-  g2_miller_point_from_affine_constant,
+  G2LineCoeffsValue, G2MillerPointConstant, NativeField, fp12_mul_constant, fp12_one_constant,
+  fp12_square_constant, g1_generator_constant, g2_affine_from_miller_point_constant,
+  g2_curve_coeff_b, g2_generator, g2_line_evaluation_constant, g2_miller_double_with_line_constant,
+  g2_miller_mixed_add_with_line_constant, g2_miller_point_from_affine_constant,
 };
-#[cfg(test)]
-use super::{Fp12Constant, Fp12Value, G2LineCoeffsValue};
+use super::{Fp12Constant, Fp12Value};
 
 type MillerAccumulatorFixed = (
   ((ForeignField, ForeignField), (ForeignField, ForeignField), (ForeignField, ForeignField)),
   ((ForeignField, ForeignField), (ForeignField, ForeignField), (ForeignField, ForeignField)),
 );
+
+/// Narrow affine G1 evaluation point for Miller-line consumption.
+///
+/// The current Miller slice needs affine G1 coordinates for sparse line
+/// evaluation, while the broader repository still exposes opaque Midnight G1
+/// points through `AssignedG1`. This dedicated coordinate pair keeps the
+/// accumulation boundary small and explicit until a wider pairing-ready G1
+/// surface is planned.
+#[derive(Clone, Debug)]
+pub struct AssignedG1Point {
+  /// Affine x-coordinate.
+  pub x: AssignedFp,
+  /// Affine y-coordinate.
+  pub y: AssignedFp,
+}
+
+impl AssignedG1Point {
+  /// Builds a G1 evaluation point from assigned affine coordinates.
+  #[must_use]
+  pub fn new(x: AssignedFp, y: AssignedFp) -> Self {
+    Self { x, y }
+  }
+
+  /// Assigns a G1 evaluation point from affine coordinates.
+  ///
+  /// This helper intentionally does not widen the repo's current G1 API. The
+  /// caller is expected to supply coordinates from a valid affine BN254 G1
+  /// point, typically sourced from existing host/reference helpers.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if either underlying coordinate assignment fails.
+  pub fn assign(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    x: Value<ForeignField>,
+    y: Value<ForeignField>,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(chip.assign(layouter, x)?, chip.assign(layouter, y)?))
+  }
+}
 
 /// Sparse BN254 line coefficients already shaped for the later D-twist Miller loop.
 ///
@@ -101,23 +142,32 @@ impl AssignedG2LineCoeffs {
     self.ell_w.assert_equal_to_fixed(chip, layouter, expected.1.0, expected.1.1)?;
     self.ell_vw.assert_equal_to_fixed(chip, layouter, expected.2.0, expected.2.1)
   }
-}
 
-fn evaluate_sparse_line_at_g1(
-  line: &AssignedG2LineCoeffs,
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-  g1_x: &AssignedFp,
-  g1_y: &AssignedFp,
-) -> Result<AssignedFp12, Error> {
-  let slot_c0 = line.ell_0.scale_by_fp(chip, layouter, g1_y)?;
-  let slot_c3 = line.ell_w.scale_by_fp(chip, layouter, g1_x)?;
-  let zero_fp2 = AssignedFp2::zero(chip, layouter)?;
+  /// Evaluates this sparse BN254 D-twist line at an affine G1 point.
+  ///
+  /// The sparse embedding stays owned by the Miller layer rather than becoming
+  /// a broad `AssignedFp12` helper. This keeps later `mul_by_034`-style
+  /// specialization localized to the accumulator boundary.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any underlying Fp/Fp2 assignment or multiplication
+  /// fails.
+  pub fn evaluate_at_g1(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    point: &AssignedG1Point,
+  ) -> Result<AssignedFp12, Error> {
+    let slot_c0 = self.ell_0.scale_by_fp(chip, layouter, &point.y)?;
+    let slot_c3 = self.ell_w.scale_by_fp(chip, layouter, &point.x)?;
+    let zero_fp2 = AssignedFp2::zero(chip, layouter)?;
 
-  Ok(AssignedFp12::new(
-    AssignedFp6::new(slot_c0, zero_fp2.clone(), zero_fp2.clone()),
-    AssignedFp6::new(slot_c3, line.ell_vw.clone(), zero_fp2),
-  ))
+    Ok(AssignedFp12::new(
+      AssignedFp6::new(slot_c0, zero_fp2.clone(), zero_fp2.clone()),
+      AssignedFp6::new(slot_c3, self.ell_vw.clone(), zero_fp2),
+    ))
+  }
 }
 
 fn double_step_hom_projective(
@@ -225,14 +275,15 @@ fn mixed_add_step_hom_projective(
 /// materialize a generic Fp12 value directly.
 #[derive(Clone, Debug)]
 pub struct AssignedMillerAccumulator {
-  value: AssignedFp12,
+  /// Current Miller accumulator value.
+  pub f: AssignedFp12,
 }
 
 impl AssignedMillerAccumulator {
   /// Builds an accumulator from an assigned Fp12 value.
   #[must_use]
-  pub fn new(value: AssignedFp12) -> Self {
-    Self { value }
+  pub fn new(f: AssignedFp12) -> Self {
+    Self { f }
   }
 
   /// Initializes the Miller accumulator to multiplicative identity.
@@ -247,23 +298,62 @@ impl AssignedMillerAccumulator {
     Ok(Self::new(AssignedFp12::one(chip, layouter)?))
   }
 
-  /// Multiplies the accumulator by the sparse evaluation of a G2 line at a G1 affine point.
+  /// Squares the current accumulator value.
   ///
-  /// This is the intended public boundary between line extraction and later Miller-loop work.
+  /// Constraint cost is concentrated in the underlying Fp12 square. The Miller
+  /// layer keeps the sequencing logic here so future loop optimizations do not
+  /// leak into the general Fp12 API.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the underlying Fp12 square fails.
+  pub fn square(
+    &mut self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    self.f = self.f.square(chip, layouter)?;
+    Ok(())
+  }
+
+  /// Multiplies the accumulator by an already-evaluated Fp12 line value.
+  ///
+  /// This is where a future `mul_by_034`-style sparse specialization should
+  /// plug in. The first narrow slice keeps the public boundary stable while
+  /// honestly using a full Fp12 multiply internally.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the underlying Fp12 multiplication fails.
+  pub fn mul_by_evaluated_line(
+    &mut self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    value: &AssignedFp12,
+  ) -> Result<(), Error> {
+    self.f = self.f.mul(chip, layouter, value)?;
+    Ok(())
+  }
+
+  /// Multiplies the accumulator by the sparse evaluation of a G2 line at a G1
+  /// affine point.
+  ///
+  /// Sparse line evaluation stays inside the accumulator boundary so later
+  /// sparse-specialized multiplication can replace the generic Fp12 multiply
+  /// without changing the public API.
   ///
   /// # Errors
   ///
   /// Returns an error if the sparse line evaluation or Fp12 multiplication fails.
   pub fn mul_by_line(
-    &self,
+    &mut self,
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
     line: &AssignedG2LineCoeffs,
-    g1_x: &AssignedFp,
-    g1_y: &AssignedFp,
-  ) -> Result<Self, Error> {
-    let line_value = evaluate_sparse_line_at_g1(line, chip, layouter, g1_x, g1_y)?;
-    Ok(Self::new(self.value.mul(chip, layouter, &line_value)?))
+    point: &AssignedG1Point,
+  ) -> Result<(), Error> {
+    let line_value = line.evaluate_at_g1(chip, layouter, point)?;
+    self.mul_by_evaluated_line(chip, layouter, &line_value)
   }
 
   /// Asserts equality against a fixed Fp12 constant.
@@ -277,8 +367,80 @@ impl AssignedMillerAccumulator {
     layouter: &mut impl Layouter<NativeField>,
     expected: MillerAccumulatorFixed,
   ) -> Result<(), Error> {
-    self.value.assert_equal_to_fixed(chip, layouter, expected)
+    self.f.assert_equal_to_fixed(chip, layouter, expected)
   }
+}
+
+/// One fixed Miller-loop schedule step.
+#[derive(Clone, Debug)]
+pub enum MillerStep {
+  /// Doubling line. The driver squares before consuming this line.
+  Double {
+    /// Extracted sparse line coefficients for this doubling step.
+    line: AssignedG2LineCoeffs,
+  },
+  /// Mixed-add line. The driver consumes it without an extra square.
+  Add {
+    /// Extracted sparse line coefficients for this mixed-add step.
+    line: AssignedG2LineCoeffs,
+  },
+}
+
+impl MillerStep {
+  fn line(&self) -> &AssignedG2LineCoeffs {
+    match self {
+      Self::Double { line } | Self::Add { line } => line,
+    }
+  }
+
+  fn requires_square(&self) -> bool {
+    matches!(self, Self::Double { .. })
+  }
+}
+
+/// Prepared Miller schedule with an explicit fixed host-side traversal order.
+#[derive(Clone, Debug, Default)]
+pub struct PreparedG2Miller {
+  /// Expanded Miller traversal steps.
+  pub steps: Vec<MillerStep>,
+}
+
+impl PreparedG2Miller {
+  /// Builds a prepared Miller schedule from explicit steps.
+  #[must_use]
+  pub fn new(steps: Vec<MillerStep>) -> Self {
+    Self { steps }
+  }
+}
+
+/// Runs the narrow Miller accumulation slice over a fixed prepared schedule.
+///
+/// This is intentionally only the accumulation over extracted line
+/// coefficients. It does not implement final exponentiation or claim to be a
+/// full pairing API.
+///
+/// Host-side schedule branching is explicit and deterministic: witness values
+/// never decide whether a square or add occurs.
+///
+/// # Errors
+///
+/// Returns an error if any underlying accumulator step fails.
+pub fn miller_loop(
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+  point: &AssignedG1Point,
+  prepared: &PreparedG2Miller,
+) -> Result<AssignedFp12, Error> {
+  let mut accumulator = AssignedMillerAccumulator::one(chip, layouter)?;
+
+  for step in &prepared.steps {
+    if step.requires_square() {
+      accumulator.square(chip, layouter)?;
+    }
+    accumulator.mul_by_line(chip, layouter, step.line(), point)?;
+  }
+
+  Ok(accumulator.f)
 }
 
 /// Miller-step G2 state in homogeneous projective coordinates `(X : Y : Z)`.
@@ -601,34 +763,30 @@ impl Circuit<NativeField> for G2MixedAddWithLineCircuit {
   }
 }
 
-/// Small circuit that exercises Miller-accumulator multiplication by one sparse G2 line.
-#[cfg(test)]
+/// Small circuit that exercises a Miller-accumulator square.
 #[derive(Clone, Debug)]
-pub struct G2MulByLineCircuit {
-  line: G2LineCoeffsValue,
-  g1_x: Value<ForeignField>,
-  g1_y: Value<ForeignField>,
+pub struct MillerAccumulatorSquareCircuit {
+  input: Fp12Value,
   expected: Fp12Value,
 }
 
-#[cfg(test)]
-impl G2MulByLineCircuit {
-  /// Builds a new Miller-accumulator line-multiplication circuit with a known Fp12 output.
+impl MillerAccumulatorSquareCircuit {
+  /// Builds a square circuit from an input and expected Fp12 output.
   #[must_use]
-  pub fn new(
-    line: G2LineCoeffsConstant,
-    g1_x: ForeignField,
-    g1_y: ForeignField,
-    expected: &Fp12Constant,
-  ) -> Self {
+  pub fn new(input: &Fp12Constant, expected: &Fp12Constant) -> Self {
     Self {
-      line: (
-        (Value::known(line.0.0), Value::known(line.0.1)),
-        (Value::known(line.1.0), Value::known(line.1.1)),
-        (Value::known(line.2.0), Value::known(line.2.1)),
+      input: (
+        (
+          (Value::known(input.0.0.0), Value::known(input.0.0.1)),
+          (Value::known(input.0.1.0), Value::known(input.0.1.1)),
+          (Value::known(input.0.2.0), Value::known(input.0.2.1)),
+        ),
+        (
+          (Value::known(input.1.0.0), Value::known(input.1.0.1)),
+          (Value::known(input.1.1.0), Value::known(input.1.1.1)),
+          (Value::known(input.1.2.0), Value::known(input.1.2.1)),
+        ),
       ),
-      g1_x: Value::known(g1_x),
-      g1_y: Value::known(g1_y),
       expected: (
         (
           (Value::known(expected.0.0.0), Value::known(expected.0.0.1)),
@@ -643,10 +801,139 @@ impl G2MulByLineCircuit {
       ),
     }
   }
+
+  /// Returns a deterministic sample circuit suitable for metrics and benches.
+  #[must_use]
+  pub fn sample() -> Self {
+    let g1 = g1_generator_constant();
+    let generator = g2_generator();
+    let (_, line) =
+      g2_miller_double_with_line_constant(g2_miller_point_from_affine_constant(generator));
+    let input = g2_line_evaluation_constant(line, g1);
+    let expected = fp12_square_constant(&input);
+
+    Self::new(&input, &expected)
+  }
 }
 
-#[cfg(test)]
-impl Circuit<NativeField> for G2MulByLineCircuit {
+impl Default for MillerAccumulatorSquareCircuit {
+  fn default() -> Self {
+    Self::sample()
+  }
+}
+
+impl Circuit<NativeField> for MillerAccumulatorSquareCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self {
+      input: (
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+      ),
+      expected: (
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+      ),
+    }
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    mut layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    let chip = Bn254FieldChip::new(&config);
+    let input = AssignedFp12::assign(&chip, &mut layouter, self.input.0, self.input.1)?;
+    let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
+    let mut accumulator = AssignedMillerAccumulator::new(input);
+    accumulator.square(&chip, &mut layouter)?;
+    accumulator.f.assert_equal(&chip, &mut layouter, &expected)?;
+    chip.load(&mut layouter)
+  }
+}
+
+/// Small circuit that exercises Miller-accumulator multiplication by one sparse G2 line.
+#[derive(Clone, Debug)]
+pub struct MillerAccumulatorMulByLineCircuit {
+  line: G2LineCoeffsValue,
+  g1: (Value<ForeignField>, Value<ForeignField>),
+  expected: Fp12Value,
+}
+
+impl MillerAccumulatorMulByLineCircuit {
+  /// Builds a new Miller-accumulator line-multiplication circuit with a known Fp12 output.
+  #[must_use]
+  pub fn new(
+    line: G2LineCoeffsConstant,
+    g1_x: ForeignField,
+    g1_y: ForeignField,
+    expected: &Fp12Constant,
+  ) -> Self {
+    Self {
+      line: (
+        (Value::known(line.0.0), Value::known(line.0.1)),
+        (Value::known(line.1.0), Value::known(line.1.1)),
+        (Value::known(line.2.0), Value::known(line.2.1)),
+      ),
+      g1: (Value::known(g1_x), Value::known(g1_y)),
+      expected: (
+        (
+          (Value::known(expected.0.0.0), Value::known(expected.0.0.1)),
+          (Value::known(expected.0.1.0), Value::known(expected.0.1.1)),
+          (Value::known(expected.0.2.0), Value::known(expected.0.2.1)),
+        ),
+        (
+          (Value::known(expected.1.0.0), Value::known(expected.1.0.1)),
+          (Value::known(expected.1.1.0), Value::known(expected.1.1.1)),
+          (Value::known(expected.1.2.0), Value::known(expected.1.2.1)),
+        ),
+      ),
+    }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and benches.
+  #[must_use]
+  pub fn sample() -> Self {
+    let g1 = g1_generator_constant();
+    let generator = g2_generator();
+    let (_, line) =
+      g2_miller_double_with_line_constant(g2_miller_point_from_affine_constant(generator));
+    let expected = g2_line_evaluation_constant(line, g1);
+
+    Self::new(line, g1.0, g1.1, &expected)
+  }
+}
+
+impl Default for MillerAccumulatorMulByLineCircuit {
+  fn default() -> Self {
+    Self::sample()
+  }
+}
+
+impl Circuit<NativeField> for MillerAccumulatorMulByLineCircuit {
   type Config = Bn254FieldConfig;
   type FloorPlanner = SimpleFloorPlanner;
   type Params = ();
@@ -658,8 +945,7 @@ impl Circuit<NativeField> for G2MulByLineCircuit {
         (Value::unknown(), Value::unknown()),
         (Value::unknown(), Value::unknown()),
       ),
-      g1_x: Value::unknown(),
-      g1_y: Value::unknown(),
+      g1: (Value::unknown(), Value::unknown()),
       expected: (
         (
           (Value::unknown(), Value::unknown()),
@@ -687,12 +973,201 @@ impl Circuit<NativeField> for G2MulByLineCircuit {
     let chip = Bn254FieldChip::new(&config);
     let line =
       AssignedG2LineCoeffs::assign(&chip, &mut layouter, self.line.0, self.line.1, self.line.2)?;
-    let g1_x = chip.assign(&mut layouter, self.g1_x)?;
-    let g1_y = chip.assign(&mut layouter, self.g1_y)?;
-    let accumulator = AssignedMillerAccumulator::one(&chip, &mut layouter)?;
-    let updated = accumulator.mul_by_line(&chip, &mut layouter, &line, &g1_x, &g1_y)?;
+    let point = AssignedG1Point::assign(&chip, &mut layouter, self.g1.0, self.g1.1)?;
+    let mut accumulator = AssignedMillerAccumulator::one(&chip, &mut layouter)?;
+    accumulator.mul_by_line(&chip, &mut layouter, &line, &point)?;
     let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
-    updated.value.assert_equal(&chip, &mut layouter, &expected)?;
+    accumulator.f.assert_equal(&chip, &mut layouter, &expected)?;
+    chip.load(&mut layouter)
+  }
+}
+
+#[derive(Clone, Debug)]
+enum MillerStepValue {
+  Double(G2LineCoeffsValue),
+  Add(G2LineCoeffsValue),
+}
+
+/// Fixed host-side Miller step constants used by sample circuits and tests.
+#[derive(Clone, Debug)]
+pub enum MillerStepConstant {
+  /// Doubling line encoded as fixed host-side coefficients.
+  Double(G2LineCoeffsConstant),
+  /// Mixed-add line encoded as fixed host-side coefficients.
+  Add(G2LineCoeffsConstant),
+}
+
+impl MillerStepValue {
+  fn without_witnesses(&self) -> Self {
+    match self {
+      Self::Double(_) => Self::Double((
+        (Value::unknown(), Value::unknown()),
+        (Value::unknown(), Value::unknown()),
+        (Value::unknown(), Value::unknown()),
+      )),
+      Self::Add(_) => Self::Add((
+        (Value::unknown(), Value::unknown()),
+        (Value::unknown(), Value::unknown()),
+        (Value::unknown(), Value::unknown()),
+      )),
+    }
+  }
+}
+
+/// Small circuit that exercises the narrow Miller-loop accumulation driver.
+#[derive(Clone, Debug)]
+pub struct MillerLoopCircuit {
+  g1: (Value<ForeignField>, Value<ForeignField>),
+  steps: Vec<MillerStepValue>,
+  expected: Fp12Value,
+}
+
+impl MillerLoopCircuit {
+  /// Builds a circuit from a prepared Miller schedule and expected Fp12 output.
+  #[must_use]
+  pub fn new(
+    g1: (ForeignField, ForeignField),
+    steps: Vec<MillerStepConstant>,
+    expected: &Fp12Constant,
+  ) -> Self {
+    let steps = steps
+      .into_iter()
+      .map(|step| match step {
+        MillerStepConstant::Double(line) => MillerStepValue::Double((
+          (Value::known(line.0.0), Value::known(line.0.1)),
+          (Value::known(line.1.0), Value::known(line.1.1)),
+          (Value::known(line.2.0), Value::known(line.2.1)),
+        )),
+        MillerStepConstant::Add(line) => MillerStepValue::Add((
+          (Value::known(line.0.0), Value::known(line.0.1)),
+          (Value::known(line.1.0), Value::known(line.1.1)),
+          (Value::known(line.2.0), Value::known(line.2.1)),
+        )),
+      })
+      .collect();
+
+    Self {
+      g1: (Value::known(g1.0), Value::known(g1.1)),
+      steps,
+      expected: (
+        (
+          (Value::known(expected.0.0.0), Value::known(expected.0.0.1)),
+          (Value::known(expected.0.1.0), Value::known(expected.0.1.1)),
+          (Value::known(expected.0.2.0), Value::known(expected.0.2.1)),
+        ),
+        (
+          (Value::known(expected.1.0.0), Value::known(expected.1.0.1)),
+          (Value::known(expected.1.1.0), Value::known(expected.1.1.1)),
+          (Value::known(expected.1.2.0), Value::known(expected.1.2.1)),
+        ),
+      ),
+    }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and benches.
+  #[must_use]
+  pub fn sample() -> Self {
+    let g1 = g1_generator_constant();
+    let generator = g2_generator();
+    let (doubled_state, double_line) =
+      g2_miller_double_with_line_constant(g2_miller_point_from_affine_constant(generator));
+    let (_, add_line) = g2_miller_mixed_add_with_line_constant(doubled_state, generator);
+    let expected = fp12_mul_constant(
+      &fp12_mul_constant(
+        &fp12_square_constant(&fp12_one_constant()),
+        &g2_line_evaluation_constant(double_line, g1),
+      ),
+      &g2_line_evaluation_constant(add_line, g1),
+    );
+
+    Self {
+      g1: (Value::known(g1.0), Value::known(g1.1)),
+      steps: vec![
+        MillerStepValue::Double((
+          (Value::known(double_line.0.0), Value::known(double_line.0.1)),
+          (Value::known(double_line.1.0), Value::known(double_line.1.1)),
+          (Value::known(double_line.2.0), Value::known(double_line.2.1)),
+        )),
+        MillerStepValue::Add((
+          (Value::known(add_line.0.0), Value::known(add_line.0.1)),
+          (Value::known(add_line.1.0), Value::known(add_line.1.1)),
+          (Value::known(add_line.2.0), Value::known(add_line.2.1)),
+        )),
+      ],
+      expected: (
+        (
+          (Value::known(expected.0.0.0), Value::known(expected.0.0.1)),
+          (Value::known(expected.0.1.0), Value::known(expected.0.1.1)),
+          (Value::known(expected.0.2.0), Value::known(expected.0.2.1)),
+        ),
+        (
+          (Value::known(expected.1.0.0), Value::known(expected.1.0.1)),
+          (Value::known(expected.1.1.0), Value::known(expected.1.1.1)),
+          (Value::known(expected.1.2.0), Value::known(expected.1.2.1)),
+        ),
+      ),
+    }
+  }
+}
+
+impl Default for MillerLoopCircuit {
+  fn default() -> Self {
+    Self::sample()
+  }
+}
+
+impl Circuit<NativeField> for MillerLoopCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self {
+      g1: (Value::unknown(), Value::unknown()),
+      steps: self.steps.iter().map(MillerStepValue::without_witnesses).collect(),
+      expected: (
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+        (
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+          (Value::unknown(), Value::unknown()),
+        ),
+      ),
+    }
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    mut layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    let chip = Bn254FieldChip::new(&config);
+    let point = AssignedG1Point::assign(&chip, &mut layouter, self.g1.0, self.g1.1)?;
+    let mut prepared = Vec::with_capacity(self.steps.len());
+
+    for step in &self.steps {
+      let line = match step {
+        MillerStepValue::Double(line) | MillerStepValue::Add(line) => {
+          AssignedG2LineCoeffs::assign(&chip, &mut layouter, line.0, line.1, line.2)?
+        }
+      };
+      prepared.push(match step {
+        MillerStepValue::Double(_) => MillerStep::Double { line },
+        MillerStepValue::Add(_) => MillerStep::Add { line },
+      });
+    }
+
+    let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
+    let actual = miller_loop(&chip, &mut layouter, &point, &PreparedG2Miller::new(prepared))?;
+    actual.assert_equal(&chip, &mut layouter, &expected)?;
     chip.load(&mut layouter)
   }
 }

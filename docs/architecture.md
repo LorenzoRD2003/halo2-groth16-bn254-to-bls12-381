@@ -193,14 +193,16 @@ Current properties:
 - `mixed_add_with_line` follows the homogeneous-projective BN prepared-G2 mixed-add step used by arkworks `G2HomProjective::add_in_place`
 - the public consumption boundary is `AssignedG2LineCoeffs -> AssignedMillerAccumulator::mul_by_line(...)`
 - sparse line evaluation into Fp12 remains an internal accumulator detail rather than an `AssignedFp12`-level public helper
+- a narrow accumulator-driven Miller loop now exists over a fixed prepared-step schedule
+- the loop driver keeps step scheduling explicit and deterministic through a dedicated prepared-step representation rather than witness-driven branching
 - deterministic arkworks-backed reference tests cover point updates, extracted coefficients, sparse Fp12 embedding, and unsupported edge cases
-- real layout metrics for `g2_double_with_line` and `g2_mixed_add_with_line`
+- real layout metrics for `g2_double_with_line`, `g2_mixed_add_with_line`, `miller accumulator square`, `miller accumulator mul_by_line`, and the current narrow `miller loop` sanity circuit
 
 Current limitations:
 
 - the Miller-path state is intentionally non-identity only in this slice
 - `mixed_add_with_line` is intentionally unsupported for exceptional cases such as `P = Q` and `P = -Q`
-- no accumulation loop over the coefficients exists yet
+- the current loop slice is still only accumulation over already-extracted lines, not a full pairing API
 - no final exponentiation or full pairing pipeline exists yet
 
 ## Current Architectural Contracts

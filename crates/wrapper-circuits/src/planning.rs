@@ -12,10 +12,12 @@ use crate::{
   g1_add_layout_metrics, g2_double_with_line_layout_metrics, g2_mixed_add_with_line_layout_metrics,
   g2_neg_layout_metrics, g2_on_curve_layout_metrics, g2_proj_add_layout_metrics,
   g2_proj_double_layout_metrics, g2_proj_from_affine_layout_metrics,
+  miller_accumulator_mul_by_line_layout_metrics, miller_accumulator_square_layout_metrics,
+  miller_loop_layout_metrics,
 };
 
 /// Number of currently measured primitive circuits.
-pub const PRIMITIVE_COUNT: usize = 19;
+pub const PRIMITIVE_COUNT: usize = 22;
 
 /// High-level layer for a measured primitive cost entry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26,6 +28,8 @@ pub enum PrimitiveCostLayer {
   Curve,
   /// Miller-preparation steps and line extraction.
   MillerPrep,
+  /// Miller accumulation and fixed-schedule loop driving.
+  MillerLoop,
 }
 
 impl fmt::Display for PrimitiveCostLayer {
@@ -34,6 +38,7 @@ impl fmt::Display for PrimitiveCostLayer {
       Self::Field => formatter.write_str("Field"),
       Self::Curve => formatter.write_str("Curve"),
       Self::MillerPrep => formatter.write_str("Miller-Prep"),
+      Self::MillerLoop => formatter.write_str("Miller-Loop"),
     }
   }
 }
@@ -235,6 +240,33 @@ const PRIMITIVE_DEFINITIONS: [PrimitiveDefinition; PRIMITIVE_COUNT] = [
     bench_name: "bench_g2_mixed_add_with_line",
     show_lookups: false,
     measure_layout: g2_mixed_add_with_line_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "miller_accumulator_square",
+    label: "miller accumulator square",
+    layer: PrimitiveCostLayer::MillerLoop,
+    bench_module: "ecc",
+    bench_name: "bench_miller_accumulator_square",
+    show_lookups: false,
+    measure_layout: miller_accumulator_square_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "miller_accumulator_mul_by_line",
+    label: "miller accumulator mul_by_line",
+    layer: PrimitiveCostLayer::MillerLoop,
+    bench_module: "ecc",
+    bench_name: "bench_miller_accumulator_mul_by_line",
+    show_lookups: false,
+    measure_layout: miller_accumulator_mul_by_line_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "miller_loop",
+    label: "miller loop narrow",
+    layer: PrimitiveCostLayer::MillerLoop,
+    bench_module: "ecc",
+    bench_name: "bench_miller_loop_narrow",
+    show_lookups: false,
+    measure_layout: miller_loop_layout_metrics,
   },
 ];
 

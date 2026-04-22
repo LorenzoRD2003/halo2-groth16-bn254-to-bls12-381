@@ -5,9 +5,11 @@ use midnight_proofs::dev::MockProver;
 use midnight_proofs::plonk::Circuit;
 use wrapper_circuits::{
   G1AddCircuit, G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
-  G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit, NativeField,
-  g1_add_k, g2_double_with_line_k, g2_mixed_add_with_line_k, g2_neg_k, g2_on_curve_k,
-  g2_proj_add_k, g2_proj_double_k, g2_proj_from_affine_k,
+  G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit,
+  MillerAccumulatorMulByLineCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
+  NativeField, g1_add_k, g2_double_with_line_k, g2_mixed_add_with_line_k, g2_neg_k, g2_on_curve_k,
+  g2_proj_add_k, g2_proj_double_k, g2_proj_from_affine_k, miller_accumulator_mul_by_line_k,
+  miller_accumulator_square_k, miller_loop_k,
 };
 
 fn verify_sample_circuit<CircuitT>(circuit: &CircuitT, k: u32, build_error: &str)
@@ -80,6 +82,30 @@ fn run_g2_mixed_add_with_line_circuit() {
   );
 }
 
+fn run_miller_accumulator_square_circuit() {
+  verify_sample_circuit(
+    &MillerAccumulatorSquareCircuit::sample(),
+    miller_accumulator_square_k(),
+    "miller accumulator square circuit should build",
+  );
+}
+
+fn run_miller_accumulator_mul_by_line_circuit() {
+  verify_sample_circuit(
+    &MillerAccumulatorMulByLineCircuit::sample(),
+    miller_accumulator_mul_by_line_k(),
+    "miller accumulator mul_by_line circuit should build",
+  );
+}
+
+fn run_miller_loop_circuit() {
+  verify_sample_circuit(
+    &MillerLoopCircuit::sample(),
+    miller_loop_k(),
+    "miller loop circuit should build",
+  );
+}
+
 /// Benchmarks the current Midnight-backed BN254 G1 addition circuit.
 pub fn bench_g1_add(criterion: &mut Criterion) {
   bench_verified_sample(criterion, "bench_g1_add", run_g1_add_circuit);
@@ -122,4 +148,27 @@ pub fn bench_g2_mixed_add_with_line(criterion: &mut Criterion) {
     "bench_g2_mixed_add_with_line",
     run_g2_mixed_add_with_line_circuit,
   );
+}
+
+/// Benchmarks the current Midnight-backed BN254 Miller-accumulator square circuit.
+pub fn bench_miller_accumulator_square(criterion: &mut Criterion) {
+  bench_verified_sample(
+    criterion,
+    "bench_miller_accumulator_square",
+    run_miller_accumulator_square_circuit,
+  );
+}
+
+/// Benchmarks the current Midnight-backed BN254 Miller-accumulator mul-by-line circuit.
+pub fn bench_miller_accumulator_mul_by_line(criterion: &mut Criterion) {
+  bench_verified_sample(
+    criterion,
+    "bench_miller_accumulator_mul_by_line",
+    run_miller_accumulator_mul_by_line_circuit,
+  );
+}
+
+/// Benchmarks the current narrow Midnight-backed BN254 Miller-loop circuit.
+pub fn bench_miller_loop_narrow(criterion: &mut Criterion) {
+  bench_verified_sample(criterion, "bench_miller_loop_narrow", run_miller_loop_circuit);
 }
