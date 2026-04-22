@@ -6,9 +6,13 @@ mod fp12;
 mod fp2;
 mod fp6;
 mod g2;
+mod host;
 mod metrics;
+mod traits;
 mod types;
 
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod tests;
 
@@ -19,9 +23,10 @@ pub use fp6::{AssignedFp6, Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit, fp6_n
 pub use fp12::{AssignedFp12, Fp12AddCircuit, Fp12MulCircuit, Fp12SquareCircuit, fp12_nonresidue};
 pub use g2::{
   AssignedG2Affine, AssignedG2LineCoeffs, AssignedG2MillerPoint, AssignedG2Projective,
-  G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
-  G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit,
-  G2ProjectiveIdentityCircuit, G2ProjectiveNegCircuit, g2_curve_coeff_b,
+  AssignedMillerAccumulator, G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit,
+  G2OnCurveCircuit, G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit,
+  G2ProjectiveFromAffineCircuit, G2ProjectiveIdentityCircuit, G2ProjectiveNegCircuit,
+  g2_curve_coeff_b,
 };
 pub use metrics::{
   fp_add_k, fp_add_layout_metrics, fp_mul_k, fp_mul_layout_metrics, fp2_add_k,
@@ -34,6 +39,10 @@ pub use metrics::{
   g2_on_curve_k, g2_on_curve_layout_metrics, g2_proj_add_k, g2_proj_add_layout_metrics,
   g2_proj_double_k, g2_proj_double_layout_metrics, g2_proj_from_affine_k,
   g2_proj_from_affine_layout_metrics,
+};
+pub(crate) use traits::{
+  AssignedCircuitValue, AssignedFieldExt, synthesize_binary_value_circuit,
+  synthesize_unary_value_circuit,
 };
 pub use types::{
   AssignedFp, AssignedG1, Bn254EccChip, Bn254FieldChip, Bn254FieldConfig, Bn254FpChip, Bn254G1Chip,

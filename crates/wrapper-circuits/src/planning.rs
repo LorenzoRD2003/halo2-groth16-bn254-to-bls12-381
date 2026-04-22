@@ -1,5 +1,7 @@
 //! Planning-oriented views for current and future circuit layout work.
 
+use std::fmt;
+
 use wrapper_core::{LayoutDescriptor, ProjectConfig};
 
 use crate::{
@@ -12,171 +14,297 @@ use crate::{
   g2_proj_double_layout_metrics, g2_proj_from_affine_layout_metrics,
 };
 
-/// Layout and cost data for the currently implemented primitive layer.
+/// Number of currently measured primitive circuits.
+pub const PRIMITIVE_COUNT: usize = 19;
+
+/// High-level layer for a measured primitive cost entry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrimitiveCostLayer {
+  /// Base and extension field arithmetic.
+  Field,
+  /// Curve arithmetic and validation.
+  Curve,
+  /// Miller-preparation steps and line extraction.
+  MillerPrep,
+}
+
+impl fmt::Display for PrimitiveCostLayer {
+  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Field => formatter.write_str("Field"),
+      Self::Curve => formatter.write_str("Curve"),
+      Self::MillerPrep => formatter.write_str("Miller-Prep"),
+    }
+  }
+}
+
+/// Canonical metadata for one measured primitive.
+#[derive(Clone, Copy, Debug)]
+pub struct PrimitiveDefinition {
+  /// Stable identifier for the primitive.
+  pub key: &'static str,
+  /// Human-facing display label.
+  pub label: &'static str,
+  /// High-level layer grouping.
+  pub layer: PrimitiveCostLayer,
+  /// Criterion bench module path segment.
+  pub bench_module: &'static str,
+  /// Criterion bench entry point name.
+  pub bench_name: &'static str,
+  /// Whether CLI output should include lookup counts for this primitive.
+  pub show_lookups: bool,
+  measure_layout: fn() -> LayoutMetrics,
+}
+
+impl PrimitiveDefinition {
+  /// Measures the primitive's current layout metrics.
+  #[must_use]
+  pub fn layout_metrics(self) -> LayoutMetrics {
+    (self.measure_layout)()
+  }
+}
+
+const PRIMITIVE_DEFINITIONS: [PrimitiveDefinition; PRIMITIVE_COUNT] = [
+  PrimitiveDefinition {
+    key: "fp_add",
+    label: "fp add",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp_add",
+    show_lookups: false,
+    measure_layout: fp_add_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp_mul",
+    label: "fp mul",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp_mul",
+    show_lookups: false,
+    measure_layout: fp_mul_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp2_add",
+    label: "fp2 add",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp2_add",
+    show_lookups: false,
+    measure_layout: fp2_add_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp2_mul",
+    label: "fp2 mul",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp2_mul",
+    show_lookups: false,
+    measure_layout: fp2_mul_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp2_square",
+    label: "fp2 square",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp2_square",
+    show_lookups: false,
+    measure_layout: fp2_square_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp6_add",
+    label: "fp6 add",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp6_add",
+    show_lookups: false,
+    measure_layout: fp6_add_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp6_mul",
+    label: "fp6 mul",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp6_mul",
+    show_lookups: false,
+    measure_layout: fp6_mul_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp6_square",
+    label: "fp6 square",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp6_square",
+    show_lookups: false,
+    measure_layout: fp6_square_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp12_add",
+    label: "fp12 add",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp12_add",
+    show_lookups: false,
+    measure_layout: fp12_add_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp12_mul",
+    label: "fp12 mul",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp12_mul",
+    show_lookups: false,
+    measure_layout: fp12_mul_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp12_square",
+    label: "fp12 square",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp12_square",
+    show_lookups: false,
+    measure_layout: fp12_square_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "g1_add",
+    label: "g1 add",
+    layer: PrimitiveCostLayer::Curve,
+    bench_module: "ecc",
+    bench_name: "bench_g1_add",
+    show_lookups: false,
+    measure_layout: g1_add_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "g2_on_curve",
+    label: "g2 on_curve",
+    layer: PrimitiveCostLayer::Curve,
+    bench_module: "ecc",
+    bench_name: "bench_g2_on_curve",
+    show_lookups: false,
+    measure_layout: g2_on_curve_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "g2_neg",
+    label: "g2 neg",
+    layer: PrimitiveCostLayer::Curve,
+    bench_module: "ecc",
+    bench_name: "bench_g2_neg",
+    show_lookups: false,
+    measure_layout: g2_neg_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "g2_proj_from_affine",
+    label: "g2 proj from_affine",
+    layer: PrimitiveCostLayer::Curve,
+    bench_module: "ecc",
+    bench_name: "bench_g2_proj_from_affine",
+    show_lookups: false,
+    measure_layout: g2_proj_from_affine_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "g2_proj_double",
+    label: "g2 proj double",
+    layer: PrimitiveCostLayer::Curve,
+    bench_module: "ecc",
+    bench_name: "bench_g2_proj_double",
+    show_lookups: false,
+    measure_layout: g2_proj_double_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "g2_proj_add",
+    label: "g2 proj add",
+    layer: PrimitiveCostLayer::Curve,
+    bench_module: "ecc",
+    bench_name: "bench_g2_proj_add",
+    show_lookups: false,
+    measure_layout: g2_proj_add_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "g2_double_with_line",
+    label: "g2 double_with_line",
+    layer: PrimitiveCostLayer::MillerPrep,
+    bench_module: "ecc",
+    bench_name: "bench_g2_double_with_line",
+    show_lookups: false,
+    measure_layout: g2_double_with_line_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "g2_mixed_add_with_line",
+    label: "g2 mixed_add_with_line",
+    layer: PrimitiveCostLayer::MillerPrep,
+    bench_module: "ecc",
+    bench_name: "bench_g2_mixed_add_with_line",
+    show_lookups: false,
+    measure_layout: g2_mixed_add_with_line_layout_metrics,
+  },
+];
+
+/// Returns the canonical primitive registry for planning, CLI, and benchmarks.
+#[must_use]
+pub fn primitive_definitions() -> &'static [PrimitiveDefinition; PRIMITIVE_COUNT] {
+  &PRIMITIVE_DEFINITIONS
+}
+
+/// A single measured primitive cost record for CLI/reporting consumers.
+#[derive(Clone, Copy, Debug)]
+pub struct PrimitiveCostEntry {
+  /// Static primitive metadata.
+  pub definition: PrimitiveDefinition,
+  /// Raw layout metrics for the measured circuit.
+  pub layout: LayoutMetrics,
+}
+
+impl PrimitiveCostEntry {
+  fn from_definition(definition: PrimitiveDefinition) -> Self {
+    Self { definition, layout: definition.layout_metrics() }
+  }
+
+  /// Cost summary derived from the measured layout.
+  #[must_use]
+  pub fn cost(&self) -> CostEstimate {
+    self.layout.cost_estimate()
+  }
+}
+
+/// Measured primitive costs for the current BN254 slice.
+#[derive(Clone, Copy, Debug)]
 pub struct PrimitiveCostTable {
-  /// Foreign-field addition layout metrics.
-  pub fp_add_layout: LayoutMetrics,
-  /// Foreign-field addition cost summary.
-  pub fp_add: CostEstimate,
-  /// Foreign-field multiplication layout metrics.
-  pub fp_mul_layout: LayoutMetrics,
-  /// Foreign-field multiplication cost summary.
-  pub fp_mul: CostEstimate,
-  /// Fp2 addition layout metrics.
-  pub fp2_add_layout: LayoutMetrics,
-  /// Fp2 addition cost summary.
-  pub fp2_add: CostEstimate,
-  /// Fp2 multiplication layout metrics.
-  pub fp2_mul_layout: LayoutMetrics,
-  /// Fp2 multiplication cost summary.
-  pub fp2_mul: CostEstimate,
-  /// Fp2 square layout metrics.
-  pub fp2_square_layout: LayoutMetrics,
-  /// Fp2 square cost summary.
-  pub fp2_square: CostEstimate,
-  /// Fp6 addition layout metrics.
-  pub fp6_add_layout: LayoutMetrics,
-  /// Fp6 addition cost summary.
-  pub fp6_add: CostEstimate,
-  /// Fp6 multiplication layout metrics.
-  pub fp6_mul_layout: LayoutMetrics,
-  /// Fp6 multiplication cost summary.
-  pub fp6_mul: CostEstimate,
-  /// Fp6 square layout metrics.
-  pub fp6_square_layout: LayoutMetrics,
-  /// Fp6 square cost summary.
-  pub fp6_square: CostEstimate,
-  /// Fp12 addition layout metrics.
-  pub fp12_add_layout: LayoutMetrics,
-  /// Fp12 addition cost summary.
-  pub fp12_add: CostEstimate,
-  /// Fp12 multiplication layout metrics.
-  pub fp12_mul_layout: LayoutMetrics,
-  /// Fp12 multiplication cost summary.
-  pub fp12_mul: CostEstimate,
-  /// Fp12 square layout metrics.
-  pub fp12_square_layout: LayoutMetrics,
-  /// Fp12 square cost summary.
-  pub fp12_square: CostEstimate,
-  /// G1 addition layout metrics.
-  pub g1_add_layout: LayoutMetrics,
-  /// G1 addition cost summary.
-  pub g1_add: CostEstimate,
-  /// G2 on-curve layout metrics.
-  pub g2_on_curve_layout: LayoutMetrics,
-  /// G2 on-curve cost summary.
-  pub g2_on_curve: CostEstimate,
-  /// G2 negation layout metrics.
-  pub g2_neg_layout: LayoutMetrics,
-  /// G2 negation cost summary.
-  pub g2_neg: CostEstimate,
-  /// G2 affine-to-projective embedding layout metrics.
-  pub g2_proj_from_affine_layout: LayoutMetrics,
-  /// G2 affine-to-projective embedding cost summary.
-  pub g2_proj_from_affine: CostEstimate,
-  /// G2 projective doubling layout metrics.
-  pub g2_proj_double_layout: LayoutMetrics,
-  /// G2 projective doubling cost summary.
-  pub g2_proj_double: CostEstimate,
-  /// G2 projective addition layout metrics.
-  pub g2_proj_add_layout: LayoutMetrics,
-  /// G2 projective addition cost summary.
-  pub g2_proj_add: CostEstimate,
-  /// G2 Miller-path doubling-with-line layout metrics.
-  pub g2_double_with_line_layout: LayoutMetrics,
-  /// G2 Miller-path doubling-with-line cost summary.
-  pub g2_double_with_line: CostEstimate,
-  /// G2 Miller-path mixed-add-with-line layout metrics.
-  pub g2_mixed_add_with_line_layout: LayoutMetrics,
-  /// G2 Miller-path mixed-add-with-line cost summary.
-  pub g2_mixed_add_with_line: CostEstimate,
+  entries: [PrimitiveCostEntry; PRIMITIVE_COUNT],
+}
+
+impl PrimitiveCostTable {
+  /// Builds the table from the canonical primitive registry.
+  #[must_use]
+  pub fn current() -> Self {
+    Self { entries: PRIMITIVE_DEFINITIONS.map(PrimitiveCostEntry::from_definition) }
+  }
+
+  /// Returns the measured primitive costs as a single canonical registry.
+  #[must_use]
+  pub fn entries(&self) -> &[PrimitiveCostEntry; PRIMITIVE_COUNT] {
+    &self.entries
+  }
 }
 
 /// Read-only planning view for CLI inspection.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CircuitPlanningView {
-  /// Project configuration associated with this view.
-  pub config: ProjectConfig,
-}
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CircuitPlanningView;
 
 impl CircuitPlanningView {
   /// Creates a planning view from project config.
   #[must_use]
-  pub fn from_config(config: ProjectConfig) -> Self {
-    Self { config }
+  pub fn from_config(_config: ProjectConfig) -> Self {
+    Self
   }
 
   /// Returns the scaffold layout tree.
   #[must_use]
   pub fn describe(&self) -> LayoutDescriptor {
-    let _ = &self.config;
     LayoutDescriptor::scaffold()
   }
 
   /// Returns measured layout metrics for the current primitive layer.
   #[must_use]
   pub fn primitive_cost_table(&self) -> PrimitiveCostTable {
-    let _ = &self.config;
-    let base_field_add_layout = fp_add_layout_metrics();
-    let base_field_mul_layout = fp_mul_layout_metrics();
-    let quadratic_field_add_layout = fp2_add_layout_metrics();
-    let quadratic_field_mul_layout = fp2_mul_layout_metrics();
-    let quadratic_field_square_layout = fp2_square_layout_metrics();
-    let cubic_field_add_layout = fp6_add_layout_metrics();
-    let cubic_field_mul_layout = fp6_mul_layout_metrics();
-    let cubic_field_square_layout = fp6_square_layout_metrics();
-    let dodecic_field_add_layout = fp12_add_layout_metrics();
-    let dodecic_field_mul_layout = fp12_mul_layout_metrics();
-    let dodecic_field_square_layout = fp12_square_layout_metrics();
-    let g1_point_add_layout = g1_add_layout_metrics();
-    let g2_affine_on_curve_layout = g2_on_curve_layout_metrics();
-    let g2_affine_neg_layout = g2_neg_layout_metrics();
-    let g2_projective_from_affine_layout = g2_proj_from_affine_layout_metrics();
-    let g2_projective_double_layout = g2_proj_double_layout_metrics();
-    let g2_projective_add_layout = g2_proj_add_layout_metrics();
-    let g2_double_with_line_layout = g2_double_with_line_layout_metrics();
-    let g2_mixed_add_with_line_layout = g2_mixed_add_with_line_layout_metrics();
-
-    PrimitiveCostTable {
-      fp_add: base_field_add_layout.cost_estimate(),
-      fp_add_layout: base_field_add_layout,
-      fp_mul: base_field_mul_layout.cost_estimate(),
-      fp_mul_layout: base_field_mul_layout,
-      fp2_add: quadratic_field_add_layout.cost_estimate(),
-      fp2_add_layout: quadratic_field_add_layout,
-      fp2_mul: quadratic_field_mul_layout.cost_estimate(),
-      fp2_mul_layout: quadratic_field_mul_layout,
-      fp2_square: quadratic_field_square_layout.cost_estimate(),
-      fp2_square_layout: quadratic_field_square_layout,
-      fp6_add: cubic_field_add_layout.cost_estimate(),
-      fp6_add_layout: cubic_field_add_layout,
-      fp6_mul: cubic_field_mul_layout.cost_estimate(),
-      fp6_mul_layout: cubic_field_mul_layout,
-      fp6_square: cubic_field_square_layout.cost_estimate(),
-      fp6_square_layout: cubic_field_square_layout,
-      fp12_add: dodecic_field_add_layout.cost_estimate(),
-      fp12_add_layout: dodecic_field_add_layout,
-      fp12_mul: dodecic_field_mul_layout.cost_estimate(),
-      fp12_mul_layout: dodecic_field_mul_layout,
-      fp12_square: dodecic_field_square_layout.cost_estimate(),
-      fp12_square_layout: dodecic_field_square_layout,
-      g1_add: g1_point_add_layout.cost_estimate(),
-      g1_add_layout: g1_point_add_layout,
-      g2_on_curve: g2_affine_on_curve_layout.cost_estimate(),
-      g2_on_curve_layout: g2_affine_on_curve_layout,
-      g2_neg: g2_affine_neg_layout.cost_estimate(),
-      g2_neg_layout: g2_affine_neg_layout,
-      g2_proj_from_affine: g2_projective_from_affine_layout.cost_estimate(),
-      g2_proj_from_affine_layout: g2_projective_from_affine_layout,
-      g2_proj_double: g2_projective_double_layout.cost_estimate(),
-      g2_proj_double_layout: g2_projective_double_layout,
-      g2_proj_add: g2_projective_add_layout.cost_estimate(),
-      g2_proj_add_layout: g2_projective_add_layout,
-      g2_double_with_line: g2_double_with_line_layout.cost_estimate(),
-      g2_double_with_line_layout,
-      g2_mixed_add_with_line: g2_mixed_add_with_line_layout.cost_estimate(),
-      g2_mixed_add_with_line_layout,
-    }
+    PrimitiveCostTable::current()
   }
 }

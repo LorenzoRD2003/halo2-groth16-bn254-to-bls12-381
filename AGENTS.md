@@ -21,6 +21,11 @@ Implemented in scope today:
 - `AssignedFp6` over three `AssignedFp2` coordinates with `new`, assignment, `zero`, `one`, `add`, `sub`, `neg`, `mul`, `square`, and equality helpers
 - Circuit-backed BN254 `fp12` support represented as `c0 + c1 * w`
 - `AssignedFp12` over two `AssignedFp6` coordinates with `new`, assignment, `zero`, `one`, `add`, `sub`, `neg`, `mul`, `square`, and equality helpers
+- Shared internal field/circuit traits in `wrapper-circuits/src/bn254/traits.rs`
+- Shared host-side constant/reference arithmetic in `wrapper-circuits/src/bn254/host.rs`
+- `AssignedFieldExt` now captures the common `zero` / `one` / `add` / `sub` / `neg` / equality surface across `AssignedFp`, `AssignedFp2`, `AssignedFp6`, and `AssignedFp12`
+- `AssignedCircuitValue` plus shared unary/binary synthesize helpers now back the small `Fp2*Circuit`, `Fp6*Circuit`, and `Fp12*Circuit` wrappers
+- Host-side reference formulas and arkworks/Midnight conversion helpers are centralized in `wrapper-circuits/src/bn254/test_support.rs`
 - Minimal BN254 G1 support backed by Midnight foreign ECC chips
 - Circuit-backed G1 addition
 - Coordinate-to-point construction with on-curve enforcement
@@ -31,10 +36,12 @@ Implemented in scope today:
 - Miller-path BN254 G2 step support in homogeneous projective coordinates over `AssignedFp2`
 - `AssignedG2MillerPoint` with non-identity `from_affine`, `double_with_line`, and `mixed_add_with_line`
 - Miller-ready sparse line coefficients via `AssignedG2LineCoeffs = (ell_0, ell_w, ell_vw)`
-- A minimal sparse `Fp12` consumption boundary that evaluates line coefficients into an `AssignedFp12` value for a later Miller accumulator
+- `AssignedMillerAccumulator` is now the public consumption boundary for line coefficients, with `mul_by_line(...)`
+- sparse line evaluation into `Fp12` is now an internal accumulator detail rather than a public `AssignedG2LineCoeffs` API
 - Real layout and row visibility through the Halo2/Midnight cost model
 - Deterministic arkworks-backed tests for `Fp`, `Fp2`, `Fp6`, `Fp12`, G1, and the current narrow G2 affine / Jacobian / Miller-step behavior
 - Criterion sanity benchmarks for the currently implemented primitive circuits
+- a canonical primitive registry in `wrapper-circuits/src/planning.rs` now drives measured primitive metadata for CLI reporting and benchmark-info output
 - a single authoritative BN254 primitive path in `wrapper-circuits/src/bn254/`
 
 Out of scope right now:
@@ -50,6 +57,25 @@ Out of scope right now:
 - production optimization of layout/cost beyond the narrow implemented sanity circuits
 
 Do not treat the current code as a full verifier foundation. It is a deliberately narrow primitive layer.
+
+## Fast Context Load
+
+When you need to build context quickly, read in this order:
+
+1. `crates/wrapper-circuits/src/bn254/mod.rs`
+2. `crates/wrapper-circuits/src/bn254/traits.rs`
+3. `crates/wrapper-circuits/src/bn254/host.rs`
+4. `crates/wrapper-circuits/src/bn254/fp2.rs`, `fp6.rs`, `fp12.rs`
+5. `crates/wrapper-circuits/src/bn254/g2/mod.rs`
+6. `crates/wrapper-circuits/src/bn254/g2/affine.rs`
+7. `crates/wrapper-circuits/src/bn254/g2/jacobian.rs`
+8. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
+9. `crates/wrapper-circuits/src/bn254/test_support.rs`
+10. `crates/wrapper-circuits/src/bn254/tests.rs`
+11. `crates/wrapper-circuits/src/bn254/metrics.rs`, `crates/wrapper-circuits/src/planning.rs`
+12. `crates/wrapper-cli/src/main.rs`
+
+This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
 
 ## Repository Map
 
@@ -75,8 +101,14 @@ Do not treat the current code as a full verifier foundation. It is a deliberatel
 `wrapper-circuits`
 
 - Own Halo2-facing code, Midnight integration, circuit planning, and primitive gadget boundaries.
-- Currently owns the BN254 `AssignedFp`, `AssignedFp2`, `AssignedFp6`, `AssignedFp12`, `AssignedG1`, `AssignedG2Affine`, narrow `AssignedG2Projective`, Miller-path `AssignedG2MillerPoint`, and `AssignedG2LineCoeffs` circuit-backed layer.
+- Currently owns the BN254 `AssignedFp`, `AssignedFp2`, `AssignedFp6`, `AssignedFp12`, `AssignedG1`, `AssignedG2Affine`, narrow `AssignedG2Projective`, Miller-path `AssignedG2MillerPoint`, `AssignedG2LineCoeffs`, and `AssignedMillerAccumulator` circuit-backed layer.
 - Keeps the active BN254 primitive implementation under `src/bn254/`, split by concern instead of one monolithic file.
+- The current `g2/` subtree is split by model:
+  `g2/affine.rs`, `g2/jacobian.rs`, `g2/miller.rs`, with `g2/mod.rs` holding shared aliases, constants, helpers, and re-exports.
+- Reuse `bn254/host.rs` before duplicating tuple-based host/reference arithmetic across `fp2.rs`, `fp6.rs`, `fp12.rs`, or `g2/mod.rs`.
+- Reuse `bn254/traits.rs` before adding more tiny wrapper-specific circuit boilerplate in `fp2.rs`, `fp6.rs`, or `fp12.rs`.
+- Reuse `bn254/test_support.rs` before adding new arkworks/Midnight conversion helpers or duplicating host-side reference formulas in `tests.rs`.
+- Prefer short public methods over formula-heavy bodies: keep APIs as orchestration layers and move algebraic steps into internal helpers with explicit names.
 - Should depend on `wrapper-core`.
 - Must not absorb artifact parsing or backend-specific concerns.
 - Keep dead compatibility shims and obsolete host-side leftovers out of the crate.
@@ -141,9 +173,11 @@ When touching the current BN254 primitive code:
 - keep `fp2` work aligned with the current representation `Fq2(c0, c1)` and `u^2 = -1`
 - keep `fp6` work aligned with the current representation `Fq6(c0, c1, c2)` and `v^3 = 9 + u`
 - keep `fp12` work aligned with the current representation `Fq12(c0, c1)` and `w^2 = v`
+- keep extension-field wrapper circuits aligned with the shared `AssignedCircuitValue` synthesize helpers unless there is a clear reason not to
 - keep G1 work limited to the currently supported primitive surface unless the roadmap explicitly expands it
 - keep G2 work limited to the currently supported affine plus narrow Jacobian projective surface unless the roadmap explicitly expands it
 - keep Miller-path G2 work aligned with the homogeneous prepared-step formulas used by arkworks BN prepared-G2 generation
+- when a public method contains a full algebraic step, prefer extracting the formula into a well-named internal helper such as `double_step_jacobian`, `double_step_hom_projective`, or `mixed_add_step_hom_projective`
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
 - keep CLI reporting aligned with the measured state of the codebase
@@ -163,6 +197,7 @@ Concrete BN254 conventions already in use:
 - evaluating those coefficients at a G1 affine point `(x_P, y_P)` yields
   `ell_0 * y_P + ell_w * x_P * w + ell_vw * v * w`
 - that sparse embedding maps directly into Fp12 slots `(c0, c3, c4)` for the later `mul_by_034`-style Miller accumulator path
+- the public boundary for that consumption is `AssignedMillerAccumulator::mul_by_line(...)`, not a direct public helper on `AssignedFp12`
 - Miller-path `double_with_line` and `mixed_add_with_line` follow the homogeneous-projective BN prepared-G2 formulas used by arkworks / Midnight, not the Jacobian formulas used by `AssignedG2Projective`
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
@@ -233,6 +268,8 @@ Current test expectations for the primitive layer:
 - minimal G2 tests should include valid affine points, negative on-curve cases, negation validity, and equality behavior
 - narrow G2 projective tests should stay explicit about the supported domain: `from_affine`, `neg`, `double`, incomplete `add`, and reserved identity encoding
 - Miller-path G2 tests should cover `double_with_line`, `mixed_add_with_line`, sparse `Fp12` embedding, and explicitly unsupported exceptional cases such as `P = Q`
+- if a test needs a host-side reference formula, put the logic in `test_support.rs` and keep `tests.rs` focused on cases/assertions
+- if a test-local helper becomes shared across multiple test groups, move it into `test_support.rs` in the same refactor rather than leaving partial duplicates behind
 
 ## Benchmarking Standards
 
@@ -276,8 +313,10 @@ Current benchmark entry points include:
 When refactoring `wrapper-circuits/src/bn254/`:
 
 - keep the public API stable through `bn254/mod.rs` re-exports when possible
-- prefer splitting by concept, for example `types.rs`, `field.rs`, `fp2.rs`, `g2.rs`, `metrics.rs`, `tests.rs`
+- prefer splitting by concept, for example `types.rs`, `field.rs`, `fp2.rs`, `g2/mod.rs`, `g2/affine.rs`, `g2/jacobian.rs`, `g2/miller.rs`, `metrics.rs`, `tests.rs`
 - if docs mention the primitive path, keep them pointed at `src/bn254/`, not the old deleted `src/bn254.rs`
+- if primitive metadata, measured labels, or bench-info output changes, update the canonical registry in `wrapper-circuits/src/planning.rs` first and derive downstream surfaces from it
+- after any structural refactor, update `AGENTS.md` in the same turn so it reflects the new module boundaries, reuse points, and context-loading order
 
 ## How to Propose a Change
 

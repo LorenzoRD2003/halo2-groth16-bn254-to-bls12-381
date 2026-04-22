@@ -8,7 +8,10 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 use wrapper_backends::BackendRegistry;
-use wrapper_circuits::{CircuitPlanningView, CostEstimate, LayoutMetrics, PrimitiveCostTable};
+use wrapper_circuits::{
+  CircuitPlanningView, LayoutMetrics, PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,
+  primitive_definitions,
+};
 use wrapper_core::{ProjectConfig, ProjectStatusReport};
 
 #[derive(Debug, Parser)]
@@ -93,14 +96,16 @@ fn print_doctor_status(report: ProjectStatusReport, registry: &BackendRegistry) 
   }
 }
 
-fn print_cost_line(name: &str, cost: CostEstimate, layout: LayoutMetrics) {
+fn print_cost_line(name: &str, layout: LayoutMetrics) {
+  let cost = layout.cost_estimate();
   println!(
     "  - {name}: {} rows / {} queries (k={}, advice={}, fixed={})",
     cost.rows, cost.constraints, layout.k, layout.advice_columns, layout.fixed_columns
   );
 }
 
-fn print_cost_line_with_lookups(name: &str, cost: CostEstimate, layout: LayoutMetrics) {
+fn print_cost_line_with_lookups(name: &str, layout: LayoutMetrics) {
+  let cost = layout.cost_estimate();
   println!(
     "  - {name}: {} rows / {} queries (k={}, advice={}, fixed={}, lookups={})",
     cost.rows,
@@ -114,41 +119,21 @@ fn print_cost_line_with_lookups(name: &str, cost: CostEstimate, layout: LayoutMe
 
 fn print_primitive_costs(primitive_costs: &PrimitiveCostTable) {
   println!("Week 1 / Week 3 primitive estimates:");
-  print_cost_line("fp add", primitive_costs.fp_add, primitive_costs.fp_add_layout);
-  print_cost_line("fp mul", primitive_costs.fp_mul, primitive_costs.fp_mul_layout);
-  print_cost_line("fp2 add", primitive_costs.fp2_add, primitive_costs.fp2_add_layout);
-  print_cost_line("fp2 mul", primitive_costs.fp2_mul, primitive_costs.fp2_mul_layout);
-  print_cost_line("fp2 square", primitive_costs.fp2_square, primitive_costs.fp2_square_layout);
-  print_cost_line("fp6 add", primitive_costs.fp6_add, primitive_costs.fp6_add_layout);
-  print_cost_line("fp6 mul", primitive_costs.fp6_mul, primitive_costs.fp6_mul_layout);
-  print_cost_line("fp6 square", primitive_costs.fp6_square, primitive_costs.fp6_square_layout);
-  print_cost_line("fp12 add", primitive_costs.fp12_add, primitive_costs.fp12_add_layout);
-  print_cost_line("fp12 mul", primitive_costs.fp12_mul, primitive_costs.fp12_mul_layout);
-  print_cost_line("fp12 square", primitive_costs.fp12_square, primitive_costs.fp12_square_layout);
-  print_cost_line_with_lookups("g1 add", primitive_costs.g1_add, primitive_costs.g1_add_layout);
-  print_cost_line("g2 on_curve", primitive_costs.g2_on_curve, primitive_costs.g2_on_curve_layout);
-  print_cost_line("g2 neg", primitive_costs.g2_neg, primitive_costs.g2_neg_layout);
-  print_cost_line(
-    "g2 proj from_affine",
-    primitive_costs.g2_proj_from_affine,
-    primitive_costs.g2_proj_from_affine_layout,
-  );
-  print_cost_line(
-    "g2 proj double",
-    primitive_costs.g2_proj_double,
-    primitive_costs.g2_proj_double_layout,
-  );
-  print_cost_line("g2 proj add", primitive_costs.g2_proj_add, primitive_costs.g2_proj_add_layout);
-  print_cost_line(
-    "g2 double_with_line",
-    primitive_costs.g2_double_with_line,
-    primitive_costs.g2_double_with_line_layout,
-  );
-  print_cost_line(
-    "g2 mixed_add_with_line",
-    primitive_costs.g2_mixed_add_with_line,
-    primitive_costs.g2_mixed_add_with_line_layout,
-  );
+  let entries = primitive_costs.entries();
+  print_cost_group(PrimitiveCostLayer::Field, entries);
+  print_cost_group(PrimitiveCostLayer::Curve, entries);
+  print_cost_group(PrimitiveCostLayer::MillerPrep, entries);
+}
+
+fn print_cost_group(layer: PrimitiveCostLayer, entries: &[PrimitiveCostEntry]) {
+  println!("  {layer}:");
+  for entry in entries.iter().filter(|entry| entry.definition.layer == layer) {
+    if entry.definition.show_lookups {
+      print_cost_line_with_lookups(entry.definition.label, entry.layout);
+    } else {
+      print_cost_line(entry.definition.label, entry.layout);
+    }
+  }
 }
 
 fn run_bench_info() {
@@ -156,31 +141,25 @@ fn run_bench_info() {
   println!("Benchmark runner: Criterion");
   println!("Command: cargo bench");
   println!("Current benchmark structure:");
-  println!("  - crates/wrapper-tests/benches/field/");
-  println!("  - crates/wrapper-tests/benches/ecc/");
+  for module in ["field", "ecc"] {
+    println!("  - crates/wrapper-tests/benches/{module}/");
+  }
   println!("Current benchmark entry points:");
-  println!("  - bench_fp_add");
-  println!("  - bench_fp_mul");
-  println!("  - bench_fp2_add");
-  println!("  - bench_fp2_mul");
-  println!("  - bench_fp2_square");
-  println!("  - bench_fp6_add");
-  println!("  - bench_fp6_mul");
-  println!("  - bench_fp6_square");
-  println!("  - bench_fp12_add");
-  println!("  - bench_fp12_mul");
-  println!("  - bench_fp12_square");
-  println!("  - bench_g1_add");
-  println!("  - bench_g2_on_curve");
-  println!("  - bench_g2_neg");
-  println!("  - bench_g2_proj_from_affine");
-  println!("  - bench_g2_proj_double");
-  println!("  - bench_g2_proj_add");
-  println!("  - bench_g2_double_with_line");
-  println!("  - bench_g2_mixed_add_with_line");
+  for layer in
+    [PrimitiveCostLayer::Field, PrimitiveCostLayer::Curve, PrimitiveCostLayer::MillerPrep]
+  {
+    print_bench_group(layer);
+  }
   println!(
     "Warning: current benchmarks use small Midnight-backed sanity circuits and do not cover subgroup checks, pairings, or verifier logic."
   );
+}
+
+fn print_bench_group(layer: PrimitiveCostLayer) {
+  println!("  {layer}:");
+  for definition in primitive_definitions().iter().filter(|definition| definition.layer == layer) {
+    println!("  - {}", definition.bench_name);
+  }
 }
 
 fn run_print_layout() {

@@ -1,15 +1,17 @@
-use ff::{Field, PrimeField};
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
 };
 
-use super::{AssignedFp2, Bn254FieldChip, Bn254FieldConfig, ForeignField, NativeField};
-
-type Fp2Value = (Value<ForeignField>, Value<ForeignField>);
-type Fp2Constant = (ForeignField, ForeignField);
-type Fp6Value = (Fp2Value, Fp2Value, Fp2Value);
-type Fp6Constant = (Fp2Constant, Fp2Constant, Fp2Constant);
+use super::{
+  AssignedCircuitValue, AssignedFieldExt, AssignedFp2, Bn254FieldChip, Bn254FieldConfig,
+  ForeignField, NativeField,
+  host::{
+    Fp2Value, Fp6Constant, Fp6Value, fp6_add_constant, fp6_mul_constant, fp6_nonresidue_constant,
+    fp6_square_constant,
+  },
+  synthesize_binary_value_circuit, synthesize_unary_value_circuit,
+};
 
 /// Returns the BN254 Fp6 cubic nonresidue `v^3 = 9 + u` used by arkworks.
 ///
@@ -20,89 +22,7 @@ type Fp6Constant = (Fp2Constant, Fp2Constant, Fp2Constant);
 /// Panics if the hard-coded arkworks BN254 Fp6 nonresidue fails to parse.
 #[must_use]
 pub fn fp6_nonresidue() -> (ForeignField, ForeignField) {
-  (
-    ForeignField::from_str_vartime("9").expect("hard-coded BN254 Fp6 nonresidue c0 should parse"),
-    ForeignField::ONE,
-  )
-}
-
-fn fp2_add_constant(left: Fp2Constant, right: Fp2Constant) -> Fp2Constant {
-  (left.0 + right.0, left.1 + right.1)
-}
-
-fn fp2_sub_constant(left: Fp2Constant, right: Fp2Constant) -> Fp2Constant {
-  (left.0 - right.0, left.1 - right.1)
-}
-
-fn fp2_mul_constant(left: Fp2Constant, right: Fp2Constant) -> Fp2Constant {
-  let ac = left.0 * right.0;
-  let bd = left.1 * right.1;
-  let ad = left.0 * right.1;
-  let bc = left.1 * right.0;
-
-  (ac - bd, ad + bc)
-}
-
-fn fp2_square_constant(value: Fp2Constant) -> Fp2Constant {
-  let a_sq = value.0.square();
-  let b_sq = value.1.square();
-  let ab = value.0 * value.1;
-
-  (a_sq - b_sq, ab + ab)
-}
-
-fn fp2_mul_by_nonresidue_constant(value: Fp2Constant) -> Fp2Constant {
-  // (c0 + c1 * u) * (9 + u) = (9*c0 - c1) + (c0 + 9*c1) * u
-  let nine_c0 = value.0 * ForeignField::from(9_u64);
-  let nine_c1 = value.1 * ForeignField::from(9_u64);
-  (nine_c0 - value.1, nine_c1 + value.0)
-}
-
-fn fp6_add_constant(left: Fp6Constant, right: Fp6Constant) -> Fp6Constant {
-  (
-    fp2_add_constant(left.0, right.0),
-    fp2_add_constant(left.1, right.1),
-    fp2_add_constant(left.2, right.2),
-  )
-}
-
-fn fp6_mul_constant(left: Fp6Constant, right: Fp6Constant) -> Fp6Constant {
-  let a_a = fp2_mul_constant(left.0, right.0);
-  let b_b = fp2_mul_constant(left.1, right.1);
-  let c_c = fp2_mul_constant(left.2, right.2);
-
-  let t1 = fp2_sub_constant(
-    fp2_mul_constant(fp2_add_constant(right.1, right.2), fp2_add_constant(left.1, left.2)),
-    fp2_add_constant(c_c, b_b),
-  );
-  let t1 = fp2_add_constant(a_a, fp2_mul_by_nonresidue_constant(t1));
-
-  let t3 = fp2_sub_constant(
-    fp2_mul_constant(fp2_add_constant(right.0, right.2), fp2_add_constant(left.0, left.2)),
-    fp2_sub_constant(fp2_add_constant(a_a, c_c), b_b),
-  );
-
-  let t2 = fp2_sub_constant(
-    fp2_mul_constant(fp2_add_constant(right.0, right.1), fp2_add_constant(left.0, left.1)),
-    fp2_add_constant(a_a, b_b),
-  );
-  let t2 = fp2_add_constant(t2, fp2_mul_by_nonresidue_constant(c_c));
-
-  (t1, t2, t3)
-}
-
-fn fp6_square_constant(value: Fp6Constant) -> Fp6Constant {
-  let s0 = fp2_square_constant(value.0);
-  let s1 = fp2_add_constant(fp2_mul_constant(value.0, value.1), fp2_mul_constant(value.0, value.1));
-  let s2 = fp2_square_constant(fp2_add_constant(fp2_sub_constant(value.0, value.1), value.2));
-  let s3 = fp2_add_constant(fp2_mul_constant(value.1, value.2), fp2_mul_constant(value.1, value.2));
-  let s4 = fp2_square_constant(value.2);
-
-  (
-    fp2_add_constant(fp2_mul_by_nonresidue_constant(s3), s0),
-    fp2_add_constant(fp2_mul_by_nonresidue_constant(s4), s1),
-    fp2_sub_constant(fp2_sub_constant(fp2_add_constant(fp2_add_constant(s1, s2), s3), s0), s4),
-  )
+  fp6_nonresidue_constant()
 }
 
 /// Assigned BN254 Fp6 element represented as `c0 + c1 * v + c2 * v^2`.
@@ -154,11 +74,7 @@ impl AssignedFp6 {
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
   ) -> Result<Self, Error> {
-    Ok(Self::new(
-      AssignedFp2::zero(chip, layouter)?,
-      AssignedFp2::zero(chip, layouter)?,
-      AssignedFp2::zero(chip, layouter)?,
-    ))
+    <Self as AssignedFieldExt>::zero(chip, layouter)
   }
 
   /// Assigns the multiplicative identity in Fp6.
@@ -170,11 +86,7 @@ impl AssignedFp6 {
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
   ) -> Result<Self, Error> {
-    Ok(Self::new(
-      AssignedFp2::one(chip, layouter)?,
-      AssignedFp2::zero(chip, layouter)?,
-      AssignedFp2::zero(chip, layouter)?,
-    ))
+    <Self as AssignedFieldExt>::one(chip, layouter)
   }
 
   fn mul_by_nonresidue_fp2(
@@ -223,11 +135,7 @@ impl AssignedFp6 {
     layouter: &mut impl Layouter<NativeField>,
     rhs: &Self,
   ) -> Result<Self, Error> {
-    Ok(Self::new(
-      self.c0.add(chip, layouter, &rhs.c0)?,
-      self.c1.add(chip, layouter, &rhs.c1)?,
-      self.c2.add(chip, layouter, &rhs.c2)?,
-    ))
+    <Self as AssignedFieldExt>::add(self, chip, layouter, rhs)
   }
 
   /// Subtracts two Fp6 values inside the circuit.
@@ -241,11 +149,7 @@ impl AssignedFp6 {
     layouter: &mut impl Layouter<NativeField>,
     rhs: &Self,
   ) -> Result<Self, Error> {
-    Ok(Self::new(
-      self.c0.sub(chip, layouter, &rhs.c0)?,
-      self.c1.sub(chip, layouter, &rhs.c1)?,
-      self.c2.sub(chip, layouter, &rhs.c2)?,
-    ))
+    <Self as AssignedFieldExt>::sub(self, chip, layouter, rhs)
   }
 
   /// Negates an Fp6 value inside the circuit.
@@ -258,11 +162,7 @@ impl AssignedFp6 {
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
   ) -> Result<Self, Error> {
-    Ok(Self::new(
-      self.c0.neg(chip, layouter)?,
-      self.c1.neg(chip, layouter)?,
-      self.c2.neg(chip, layouter)?,
-    ))
+    <Self as AssignedFieldExt>::neg(self, chip, layouter)
   }
 
   /// Multiplies two Fp6 values inside the circuit using the arkworks-compatible cubic tower.
@@ -365,9 +265,7 @@ impl AssignedFp6 {
     layouter: &mut impl Layouter<NativeField>,
     rhs: &Self,
   ) -> Result<(), Error> {
-    self.c0.assert_equal(chip, layouter, &rhs.c0)?;
-    self.c1.assert_equal(chip, layouter, &rhs.c1)?;
-    self.c2.assert_equal(chip, layouter, &rhs.c2)
+    <Self as AssignedFieldExt>::assert_equal(self, chip, layouter, rhs)
   }
 
   /// Asserts coordinate-wise equality against a fixed Fp6 constant.
@@ -381,9 +279,107 @@ impl AssignedFp6 {
     layouter: &mut impl Layouter<NativeField>,
     expected: Fp6Constant,
   ) -> Result<(), Error> {
+    <Self as AssignedFieldExt>::assert_equal_to_fixed(self, chip, layouter, expected)
+  }
+}
+
+impl AssignedFieldExt for AssignedFp6 {
+  type Fixed = Fp6Constant;
+
+  fn zero(chip: &Bn254FieldChip, layouter: &mut impl Layouter<NativeField>) -> Result<Self, Error> {
+    Ok(Self::new(
+      AssignedFp2::zero(chip, layouter)?,
+      AssignedFp2::zero(chip, layouter)?,
+      AssignedFp2::zero(chip, layouter)?,
+    ))
+  }
+
+  fn one(chip: &Bn254FieldChip, layouter: &mut impl Layouter<NativeField>) -> Result<Self, Error> {
+    Ok(Self::new(
+      AssignedFp2::one(chip, layouter)?,
+      AssignedFp2::zero(chip, layouter)?,
+      AssignedFp2::zero(chip, layouter)?,
+    ))
+  }
+
+  fn add(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    rhs: &Self,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      self.c0.add(chip, layouter, &rhs.c0)?,
+      self.c1.add(chip, layouter, &rhs.c1)?,
+      self.c2.add(chip, layouter, &rhs.c2)?,
+    ))
+  }
+
+  fn sub(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    rhs: &Self,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      self.c0.sub(chip, layouter, &rhs.c0)?,
+      self.c1.sub(chip, layouter, &rhs.c1)?,
+      self.c2.sub(chip, layouter, &rhs.c2)?,
+    ))
+  }
+
+  fn neg(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      self.c0.neg(chip, layouter)?,
+      self.c1.neg(chip, layouter)?,
+      self.c2.neg(chip, layouter)?,
+    ))
+  }
+
+  fn assert_equal(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    rhs: &Self,
+  ) -> Result<(), Error> {
+    self.c0.assert_equal(chip, layouter, &rhs.c0)?;
+    self.c1.assert_equal(chip, layouter, &rhs.c1)?;
+    self.c2.assert_equal(chip, layouter, &rhs.c2)
+  }
+
+  fn assert_equal_to_fixed(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    expected: Self::Fixed,
+  ) -> Result<(), Error> {
     self.c0.assert_equal_to_fixed(chip, layouter, expected.0.0, expected.0.1)?;
     self.c1.assert_equal_to_fixed(chip, layouter, expected.1.0, expected.1.1)?;
     self.c2.assert_equal_to_fixed(chip, layouter, expected.2.0, expected.2.1)
+  }
+}
+
+impl AssignedCircuitValue for AssignedFp6 {
+  type Witness = Fp6Value;
+
+  fn assign_witness(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    witness: Self::Witness,
+  ) -> Result<Self, Error> {
+    Self::assign(chip, layouter, witness.0, witness.1, witness.2)
+  }
+
+  fn unknown_witness(_witness: &Self::Witness) -> Self::Witness {
+    (
+      (Value::unknown(), Value::unknown()),
+      (Value::unknown(), Value::unknown()),
+      (Value::unknown(), Value::unknown()),
+    )
   }
 }
 
@@ -445,16 +441,8 @@ impl Circuit<NativeField> for Fp6AddCircuit {
 
   fn without_witnesses(&self) -> Self {
     Self {
-      left: (
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-      ),
-      right: (
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-      ),
+      left: AssignedFp6::unknown_witness(&self.left),
+      right: AssignedFp6::unknown_witness(&self.right),
       expected: self.expected,
     }
   }
@@ -466,15 +454,16 @@ impl Circuit<NativeField> for Fp6AddCircuit {
   fn synthesize(
     &self,
     config: Self::Config,
-    mut layouter: impl Layouter<NativeField>,
+    layouter: impl Layouter<NativeField>,
   ) -> Result<(), Error> {
-    let chip = Bn254FieldChip::new(&config);
-    let left = AssignedFp6::assign(&chip, &mut layouter, self.left.0, self.left.1, self.left.2)?;
-    let right =
-      AssignedFp6::assign(&chip, &mut layouter, self.right.0, self.right.1, self.right.2)?;
-    let output = left.add(&chip, &mut layouter, &right)?;
-    output.assert_equal_to_fixed(&chip, &mut layouter, self.expected)?;
-    chip.load(&mut layouter)
+    synthesize_binary_value_circuit::<AssignedFp6, _, _>(
+      &config,
+      layouter,
+      self.left,
+      self.right,
+      self.expected,
+      AssignedFp6::add,
+    )
   }
 }
 
@@ -536,16 +525,8 @@ impl Circuit<NativeField> for Fp6MulCircuit {
 
   fn without_witnesses(&self) -> Self {
     Self {
-      left: (
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-      ),
-      right: (
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-      ),
+      left: AssignedFp6::unknown_witness(&self.left),
+      right: AssignedFp6::unknown_witness(&self.right),
       expected: self.expected,
     }
   }
@@ -557,15 +538,16 @@ impl Circuit<NativeField> for Fp6MulCircuit {
   fn synthesize(
     &self,
     config: Self::Config,
-    mut layouter: impl Layouter<NativeField>,
+    layouter: impl Layouter<NativeField>,
   ) -> Result<(), Error> {
-    let chip = Bn254FieldChip::new(&config);
-    let left = AssignedFp6::assign(&chip, &mut layouter, self.left.0, self.left.1, self.left.2)?;
-    let right =
-      AssignedFp6::assign(&chip, &mut layouter, self.right.0, self.right.1, self.right.2)?;
-    let output = left.mul(&chip, &mut layouter, &right)?;
-    output.assert_equal_to_fixed(&chip, &mut layouter, self.expected)?;
-    chip.load(&mut layouter)
+    synthesize_binary_value_circuit::<AssignedFp6, _, _>(
+      &config,
+      layouter,
+      self.left,
+      self.right,
+      self.expected,
+      AssignedFp6::mul,
+    )
   }
 }
 
@@ -613,14 +595,7 @@ impl Circuit<NativeField> for Fp6SquareCircuit {
   type Params = ();
 
   fn without_witnesses(&self) -> Self {
-    Self {
-      value: (
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-        (Value::unknown(), Value::unknown()),
-      ),
-      expected: self.expected,
-    }
+    Self { value: AssignedFp6::unknown_witness(&self.value), expected: self.expected }
   }
 
   fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
@@ -630,13 +605,14 @@ impl Circuit<NativeField> for Fp6SquareCircuit {
   fn synthesize(
     &self,
     config: Self::Config,
-    mut layouter: impl Layouter<NativeField>,
+    layouter: impl Layouter<NativeField>,
   ) -> Result<(), Error> {
-    let chip = Bn254FieldChip::new(&config);
-    let value =
-      AssignedFp6::assign(&chip, &mut layouter, self.value.0, self.value.1, self.value.2)?;
-    let output = value.square(&chip, &mut layouter)?;
-    output.assert_equal_to_fixed(&chip, &mut layouter, self.expected)?;
-    chip.load(&mut layouter)
+    synthesize_unary_value_circuit::<AssignedFp6, _, _>(
+      &config,
+      layouter,
+      self.value,
+      self.expected,
+      AssignedFp6::square,
+    )
   }
 }

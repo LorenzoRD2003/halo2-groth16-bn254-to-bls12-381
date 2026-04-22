@@ -30,12 +30,15 @@ Benchmarks are grouped by future implementation area:
 
 This keeps the benchmark layout aligned with the intended cryptographic workstreams without forcing later-stage implementations to exist yet.
 
+The benchmark metadata shown by `wrapper-cli bench-info` is now derived from the canonical primitive registry in `crates/wrapper-circuits/src/planning.rs`, so bench names and measured primitive labels should be updated there first.
+
 ## Adding a New Benchmark
 
 1. Put the benchmark helper or module in the appropriate directory under `crates/wrapper-tests/benches/`.
 2. Register the benchmark function from `primitives.rs` through `criterion_group!`.
-3. Keep the benchmark logic honest and explicit about whether it measures a placeholder, parser path, layout calculation, or real cryptographic code.
-4. If the benchmark represents a new category of work, update this document and `wrapper-cli bench-info`.
+3. Add or update the canonical primitive metadata in `crates/wrapper-circuits/src/planning.rs` so `wrapper-cli bench-info` and measured primitive reporting stay aligned.
+4. Keep the benchmark logic honest and explicit about whether it measures a placeholder, parser path, layout calculation, or real cryptographic code.
+5. If the benchmark represents a new category of work, update this document as well.
 
 ## Naming Convention
 

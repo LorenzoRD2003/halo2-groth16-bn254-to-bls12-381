@@ -69,6 +69,7 @@ Current properties:
 - circuit-backed `add`, `sub`, `neg`, `mul`, and `square`
 - circuit-backed BN254 Fp2 values represented as `(c0, c1)` for `c0 + c1 * u`
 - Fp2 `add`, `sub`, `neg`, `mul`, and specialized `square` expressed through the existing `AssignedFp` layer
+- tuple-based host/reference arithmetic shared across the BN254 tower now lives in `wrapper-circuits/src/bn254/host.rs` instead of being redefined in each extension-field or G2 module
 - real row and layout measurements via `midnight_proofs::dev::cost_model`
 - arkworks-backed randomized correctness tests
 
@@ -185,11 +186,13 @@ Current properties:
 - a dedicated `AssignedG2MillerPoint` homogeneous-projective state `(X : Y : Z)` with affine model `x = X / Z`, `y = Y / Z`
 - this state is intentionally separate from `AssignedG2Projective`, which remains Jacobian for the narrow general-purpose G2 arithmetic slice
 - a dedicated `AssignedG2LineCoeffs` type with the Miller-ready sparse layout `(ell_0, ell_w, ell_vw)`
+- a dedicated `AssignedMillerAccumulator` type as the public consumption boundary for those coefficients
 - the line layout is chosen for the BN254 D-twist sparse Fp12 embedding
   `ell_0 * y_P + ell_w * x_P * w + ell_vw * v * w`
 - `double_with_line` follows the homogeneous-projective BN prepared-G2 doubling step used by arkworks `G2HomProjective::double_in_place`
 - `mixed_add_with_line` follows the homogeneous-projective BN prepared-G2 mixed-add step used by arkworks `G2HomProjective::add_in_place`
-- a minimal consumption boundary evaluates those sparse coefficients into an `AssignedFp12` value shaped for a later Miller-loop accumulator
+- the public consumption boundary is `AssignedG2LineCoeffs -> AssignedMillerAccumulator::mul_by_line(...)`
+- sparse line evaluation into Fp12 remains an internal accumulator detail rather than an `AssignedFp12`-level public helper
 - deterministic arkworks-backed reference tests cover point updates, extracted coefficients, sparse Fp12 embedding, and unsupported edge cases
 - real layout metrics for `g2_double_with_line` and `g2_mixed_add_with_line`
 
@@ -210,5 +213,6 @@ The current skeleton defines:
 - layout descriptors for future circuit inspection
 - backend registry and artifact loader interfaces
 - BN254 field, Fp2, G1, and minimal G2 affine foundations with real layout visibility
+- a canonical primitive registry in `wrapper-circuits/src/planning.rs` that drives measured primitive metadata for CLI reporting and benchmark-info output
 
 These contracts are intentionally conservative and meant to support staged development rather than predict final cryptographic APIs in detail.

@@ -128,13 +128,17 @@ What works now:
 - Circuit-backed `from_affine`, `neg`, `double`, and incomplete Jacobian-Jacobian `add`
 - Miller-path G2 state wrapped as `AssignedG2MillerPoint = (X, Y, Z)` in homogeneous projective coordinates with affine model `x = X / Z`, `y = Y / Z`
 - Miller-ready BN254 line coefficients wrapped as `AssignedG2LineCoeffs = (ell_0, ell_w, ell_vw)`
+- Miller-loop accumulator state wrapped as `AssignedMillerAccumulator`
 - Line-coefficient layout chosen for BN254 D-twist sparse `Fp12` consumption:
   `ell_0 * y_P + ell_w * x_P * w + ell_vw * v * w`
 - Circuit-backed `double_with_line` and `mixed_add_with_line` following the same homogeneous-projective prepared-G2 formulas used by arkworks / Midnight for BN prepared-G2 generation
-- A minimal boundary that evaluates those sparse line coefficients into an `AssignedFp12` value ready for later Miller-loop accumulator multiplication
+- The public consumption boundary is now `AssignedG2LineCoeffs -> AssignedMillerAccumulator::mul_by_line(...)`
+- `AssignedFp12` stays relatively clean; sparse line evaluation remains an internal detail of the accumulator for now
+- Tuple-based host/reference arithmetic for the BN254 tower is centralized in `wrapper-circuits/src/bn254/host.rs`
 - Deterministic randomized tests against arkworks reference behavior
 - Real row/layout measurements via `midnight_proofs::dev::cost_model`
 - Small Criterion benchmark hooks over the actual Week 1 sanity circuits
+- A canonical primitive registry in `wrapper-circuits/src/planning.rs` now drives measured primitive metadata for `wrapper-cli doctor` and `wrapper-cli bench-info`
 - CLI reporting that reflects measured primitive layout data
 - A single authoritative BN254 implementation path in `wrapper-circuits/src/bn254/` without leftover host-side compatibility modules
 

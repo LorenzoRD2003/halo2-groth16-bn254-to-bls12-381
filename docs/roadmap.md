@@ -33,6 +33,8 @@ Goals:
 - land minimal BN254 G2 affine representation, negation, and on-curve enforcement
 - land Miller-path BN254 G2 `double_with_line` / `mixed_add_with_line` extraction with a clear sparse Fp12-facing boundary
 - measure real layout/row cost for the Week 1 primitives
+- keep host/reference BN254 tower arithmetic centralized rather than duplicated across modules
+- keep measured primitive metadata centralized so CLI reporting and benchmark-info stay in sync
 - refine outer circuit configuration boundaries
 - define sharper interfaces for normalized proof and VK inputs
 
