@@ -13,7 +13,7 @@ categories = ["development-tools::testing", "cryptography"]
 
 [dependencies]
 wrapper-backends = { path = "../wrapper-backends" }
-wrapper-circuits = { path = "../wrapper-circuits", features = ["test-support"] }
+wrapper-circuits = { path = "../wrapper-circuits", features = ["test"] }
 wrapper-core = { path = "../wrapper-core" }
 
 [dev-dependencies]

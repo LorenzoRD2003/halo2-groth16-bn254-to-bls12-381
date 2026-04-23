@@ -20,7 +20,7 @@ ff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-wrapper-circuits = { path = "../wrapper-circuits", features = ["test-support"] }
+wrapper-circuits = { path = "../wrapper-circuits", features = ["test"] }
 wrapper-core = { path = "../wrapper-core" }
 
 [lints]

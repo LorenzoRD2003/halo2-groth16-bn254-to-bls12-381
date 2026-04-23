@@ -3,9 +3,9 @@
 use ff::{Field, PrimeField};
 use thiserror::Error;
 use wrapper_circuits::{
-  Groth16Bn254Proof, Groth16Bn254VerifyingKey, NativeField, OuterStatementInput,
-  OuterStatementSemantics, OuterWrapperCircuit, OuterWrapperCircuitInput, R1csCircuit,
-  build_outer_wrapper_canonical_r1cs, build_outer_wrapper_circuit,
+  CircuitBuildStatus, Groth16Bn254Proof, Groth16Bn254VerifyingKey, NativeField,
+  OuterStatementInput, OuterStatementSemantics, OuterWrapperCircuit, OuterWrapperCircuitInput,
+  R1csCircuit, build_outer_wrapper_canonical_r1cs, build_outer_wrapper_circuit,
 };
 use wrapper_core::{
   ExpectedWrapperArtifacts, OuterStatementContractError, ProducedOuterGroth16ArtifactBundle,
@@ -118,6 +118,71 @@ pub struct ArkworksGroth16ProofPlan {
   pub public_inputs: Vec<String>,
   /// Proving notes for the selected backend lane.
   pub notes: Vec<String>,
+}
+
+/// Setup material emitted by a backend that proves the canonical outer Halo2/Midnight circuit directly.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CanonicalOuterCircuitSetupArtifacts {
+  /// Canonical outer circuit build status used during setup.
+  pub build_status: &'static str,
+  /// Expected verification-key artifact identifier.
+  pub verification_key_artifact: String,
+  /// Ordered outer public-input count.
+  pub expected_n_public: usize,
+  /// Setup notes for the direct outer-circuit lane.
+  pub notes: Vec<String>,
+}
+
+/// Proving material emitted by a backend that proves the canonical outer Halo2/Midnight circuit directly.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CanonicalOuterCircuitProofArtifacts {
+  /// Canonical outer circuit build status used during proving.
+  pub build_status: &'static str,
+  /// Expected proof artifact identifier.
+  pub proof_artifact: String,
+  /// Expected public-input artifact identifier.
+  pub public_inputs_artifact: String,
+  /// Ordered outer public inputs as decimal strings.
+  pub public_inputs: Vec<String>,
+  /// Proving notes for the direct outer-circuit lane.
+  pub notes: Vec<String>,
+}
+
+/// Internal surface for proving the canonical outer Halo2/Midnight circuit directly.
+///
+/// This sits below `OuterGroth16Backend` and above any concrete prover /
+/// serializer integration. It exists so the real direct outer-circuit path can
+/// be implemented without forcing the package-oriented backend contract to own
+/// low-level proving details.
+pub trait CanonicalOuterCircuitProofBackend {
+  /// Stable backend identifier.
+  fn backend_id(&self) -> &'static str;
+
+  /// Plans setup over a canonical outer circuit.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the circuit is not ready for synthesis or if the
+  /// backend cannot support direct setup.
+  fn plan_canonical_setup(
+    &self,
+    circuit: &OuterWrapperCircuit,
+    verification_key_artifact: &str,
+  ) -> Result<CanonicalOuterCircuitSetupArtifacts, OuterGroth16BackendError>;
+
+  /// Plans proving over a canonical outer circuit.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the circuit is not ready for synthesis or if the
+  /// backend cannot support direct proving.
+  fn plan_canonical_proof(
+    &self,
+    circuit: &OuterWrapperCircuit,
+    proof_artifact: &str,
+    public_inputs_artifact: &str,
+    public_inputs: &[String],
+  ) -> Result<CanonicalOuterCircuitProofArtifacts, OuterGroth16BackendError>;
 }
 
 /// Errors raised while producing outer Groth16 artifacts.
@@ -263,6 +328,16 @@ pub enum OuterGroth16BackendError {
     circuit_stack: &'static str,
     /// Missing prover/serializer capability.
     prover_kind: &'static str,
+  },
+  /// Real direct proving of the canonical outer Halo2/Midnight circuit is not wired yet.
+  #[error(
+    "outer backend '{backend}' has no direct prover/serializer for the canonical outer circuit '{circuit_stack}' yet"
+  )]
+  MissingDirectOuterCircuitBackend {
+    /// Backend identifier.
+    backend: &'static str,
+    /// Canonical outer circuit stack expected by the direct backend surface.
+    circuit_stack: &'static str,
   },
   /// The selected backend requires a canonical outer R1CS lowering that does not exist yet.
   #[error(
@@ -480,7 +555,7 @@ impl OuterGroth16Backend for PlannedGroth16Bls12381Backend {
   ) -> Result<ProducedOuterGroth16VerificationKeyJson, OuterGroth16BackendError> {
     let _ = self.prepare(package)?;
     Err(OuterGroth16BackendError::UnsupportedOperation {
-      backend: self.backend_id(),
+      backend: OuterGroth16Backend::backend_id(self),
       operation: "setup",
     })
   }
@@ -492,7 +567,7 @@ impl OuterGroth16Backend for PlannedGroth16Bls12381Backend {
   ) -> Result<ProducedOuterGroth16ArtifactBundle, OuterGroth16BackendError> {
     let _ = self.prepare(package)?;
     Err(OuterGroth16BackendError::UnsupportedOperation {
-      backend: self.backend_id(),
+      backend: OuterGroth16Backend::backend_id(self),
       operation: "prove",
     })
   }
@@ -505,7 +580,7 @@ impl OuterGroth16Backend for PlannedGroth16Bls12381Backend {
   ) -> Result<bool, OuterGroth16BackendError> {
     let _ = self.prepare(package)?;
     Err(OuterGroth16BackendError::UnsupportedOperation {
-      backend: self.backend_id(),
+      backend: OuterGroth16Backend::backend_id(self),
       operation: "verify",
     })
   }
@@ -559,7 +634,7 @@ impl OuterGroth16Backend for ArkworksGroth16Bls12381Backend {
   ) -> Result<ProducedOuterGroth16VerificationKeyJson, OuterGroth16BackendError> {
     let _ = self.build_outer_canonical_r1cs(package, artifacts)?;
     Err(OuterGroth16BackendError::UnsupportedOperation {
-      backend: self.backend_id(),
+      backend: OuterGroth16Backend::backend_id(self),
       operation: "setup after canonical outer R1CS lowering",
     })
   }
@@ -571,7 +646,7 @@ impl OuterGroth16Backend for ArkworksGroth16Bls12381Backend {
   ) -> Result<ProducedOuterGroth16ArtifactBundle, OuterGroth16BackendError> {
     let _ = self.build_outer_canonical_r1cs(package, artifacts)?;
     Err(OuterGroth16BackendError::UnsupportedOperation {
-      backend: self.backend_id(),
+      backend: OuterGroth16Backend::backend_id(self),
       operation: "prove after canonical outer R1CS lowering",
     })
   }
@@ -584,7 +659,7 @@ impl OuterGroth16Backend for ArkworksGroth16Bls12381Backend {
   ) -> Result<bool, OuterGroth16BackendError> {
     let _ = self.build_outer_canonical_r1cs(package, artifacts)?;
     Err(OuterGroth16BackendError::UnsupportedOperation {
-      backend: self.backend_id(),
+      backend: OuterGroth16Backend::backend_id(self),
       operation: "verify after canonical outer R1CS lowering",
     })
   }
@@ -916,6 +991,49 @@ impl ArkworksGroth16Bls12381Backend {
     Ok(circuit)
   }
 
+  /// Plans the direct canonical outer-circuit setup lane.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the circuit is not ready for synthesis or if direct
+  /// proving of the canonical outer circuit is not wired yet.
+  pub fn plan_direct_outer_circuit_setup(
+    &self,
+    package: &WrapperExecutionPackage,
+    artifacts: OuterCircuitInputArtifacts<'_>,
+  ) -> Result<CanonicalOuterCircuitSetupArtifacts, OuterGroth16BackendError> {
+    let planned = self.prepare(package)?;
+    let circuit = self.build_outer_circuit(package, artifacts)?;
+    self.plan_canonical_setup(&circuit, &planned.verification_key_artifact)
+  }
+
+  /// Plans the direct canonical outer-circuit proving lane.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the circuit is not ready for synthesis or if direct
+  /// proving of the canonical outer circuit is not wired yet.
+  pub fn plan_direct_outer_circuit_proof(
+    &self,
+    package: &WrapperExecutionPackage,
+    artifacts: OuterCircuitInputArtifacts<'_>,
+  ) -> Result<CanonicalOuterCircuitProofArtifacts, OuterGroth16BackendError> {
+    let planned = self.prepare(package)?;
+    let circuit = self.build_outer_circuit(package, artifacts)?;
+    self.plan_canonical_proof(
+      &circuit,
+      &planned.proof_artifact,
+      &planned.public_inputs_artifact,
+      &package
+        .statement
+        .public_inputs
+        .entries
+        .iter()
+        .map(|entry| entry.value.clone())
+        .collect::<Vec<_>>(),
+    )
+  }
+
   /// Builds the canonical outer R1CS once the outer Halo2/Midnight circuit has
   /// a deterministic lowering path.
   ///
@@ -931,9 +1049,62 @@ impl ArkworksGroth16Bls12381Backend {
     let adapted = self.adapt_input(package, artifacts)?;
     build_outer_wrapper_canonical_r1cs(&adapted.to_circuit_input()).map_err(|_| {
       OuterGroth16BackendError::MissingOuterCanonicalR1csLowering {
-        backend: self.backend_id(),
+        backend: OuterGroth16Backend::backend_id(self),
         circuit_stack: "halo2/midnight outer wrapper circuit",
       }
+    })
+  }
+}
+
+impl CanonicalOuterCircuitProofBackend for ArkworksGroth16Bls12381Backend {
+  fn backend_id(&self) -> &'static str {
+    OuterGroth16Backend::backend_id(self)
+  }
+
+  fn plan_canonical_setup(
+    &self,
+    circuit: &OuterWrapperCircuit,
+    verification_key_artifact: &str,
+  ) -> Result<CanonicalOuterCircuitSetupArtifacts, OuterGroth16BackendError> {
+    circuit.assert_ready_for_synthesis().map_err(|error| {
+      OuterGroth16BackendError::OuterCircuitInputInvalid { reason: error.to_string() }
+    })?;
+
+    Ok(CanonicalOuterCircuitSetupArtifacts {
+      build_status: match circuit.build_status() {
+        CircuitBuildStatus::VerifierIntegrated => "verifier-integrated",
+      },
+      verification_key_artifact: verification_key_artifact.to_owned(),
+      expected_n_public: circuit.input.outer_statement.public_inputs.len(),
+      notes: vec![
+        "canonical outer circuit is ready for synthesis".to_owned(),
+        "real direct setup/prover wiring is still missing".to_owned(),
+      ],
+    })
+  }
+
+  fn plan_canonical_proof(
+    &self,
+    circuit: &OuterWrapperCircuit,
+    proof_artifact: &str,
+    public_inputs_artifact: &str,
+    public_inputs: &[String],
+  ) -> Result<CanonicalOuterCircuitProofArtifacts, OuterGroth16BackendError> {
+    circuit.assert_ready_for_synthesis().map_err(|error| {
+      OuterGroth16BackendError::OuterCircuitInputInvalid { reason: error.to_string() }
+    })?;
+
+    Ok(CanonicalOuterCircuitProofArtifacts {
+      build_status: match circuit.build_status() {
+        CircuitBuildStatus::VerifierIntegrated => "verifier-integrated",
+      },
+      proof_artifact: proof_artifact.to_owned(),
+      public_inputs_artifact: public_inputs_artifact.to_owned(),
+      public_inputs: public_inputs.to_vec(),
+      notes: vec![
+        "canonical outer circuit is ready for synthesis".to_owned(),
+        "real direct proof/prover wiring is still missing".to_owned(),
+      ],
     })
   }
 }
@@ -1375,6 +1546,54 @@ mod tests {
   }
 
   #[test]
+  fn arkworks_backend_can_plan_direct_outer_circuit_setup_surface() {
+    let backend = ArkworksGroth16Bls12381Backend;
+    let package = real_fixture_package();
+    let plan = backend
+      .plan_direct_outer_circuit_setup(
+        &package,
+        OuterCircuitInputArtifacts::new(
+          Some(groth16_fixture_raw::proof_json()),
+          Some(groth16_fixture_raw::verification_key_json()),
+        ),
+      )
+      .expect("direct outer-circuit setup surface should plan for a ready circuit");
+
+    assert_eq!(plan.build_status, "verifier-integrated");
+    assert_eq!(plan.verification_key_artifact, "circom-multiplier2-wrapper-verification-key.json");
+    assert_eq!(plan.expected_n_public, 1);
+  }
+
+  #[test]
+  fn arkworks_backend_can_plan_direct_outer_circuit_proof_surface() {
+    let backend = ArkworksGroth16Bls12381Backend;
+    let package = real_fixture_package();
+    let plan = backend
+      .plan_direct_outer_circuit_proof(
+        &package,
+        OuterCircuitInputArtifacts::new(
+          Some(groth16_fixture_raw::proof_json()),
+          Some(groth16_fixture_raw::verification_key_json()),
+        ),
+      )
+      .expect("direct outer-circuit proving surface should plan for a ready circuit");
+
+    assert_eq!(plan.build_status, "verifier-integrated");
+    assert_eq!(plan.proof_artifact, "circom-multiplier2-wrapper-proof.json");
+    assert_eq!(plan.public_inputs_artifact, "circom-multiplier2-wrapper-public.json");
+    assert_eq!(
+      plan.public_inputs,
+      package
+        .statement
+        .public_inputs
+        .entries
+        .iter()
+        .map(|entry| entry.value.clone())
+        .collect::<Vec<_>>()
+    );
+  }
+
+  #[test]
   fn arkworks_adapter_rejects_missing_inner_proof_payload() {
     let backend = ArkworksGroth16Bls12381Backend;
     let package = real_fixture_package();
@@ -1397,7 +1616,7 @@ mod tests {
     assert!(matches!(
       backend.adapt_input(
         &package,
-        OuterCircuitInputArtifacts::new(Some(groth16_fixture_raw::proof_json()), Some(br#"{}"#)),
+        OuterCircuitInputArtifacts::new(Some(groth16_fixture_raw::proof_json()), Some(br"{}")),
       ),
       Err(OuterGroth16BackendError::MalformedInnerVerificationKey { .. })
     ));

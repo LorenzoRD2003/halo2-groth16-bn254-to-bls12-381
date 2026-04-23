@@ -26,7 +26,7 @@ What the repository currently contains:
 - The expected outer artifact model now includes explicit `snarkjs`-like payload conventions for Groth16 BLS12-381 output artifacts, including planned `proof.json` keys `pi_a/pi_b/pi_c` and verification-key keys such as `nPublic` and `IC`.
 - The expected outer artifact model now also includes a `bundle_template` with placeholder `snarkjs`-like payloads for `proof.json`, `public.json`, and `verification_key.json`, so the future output contract is explicit even before the real outer prover exists.
 - The current placeholder outer backend now materializes a partial outer bundle more honestly: `public.json` is real, `verification_key.json` is emitted as a skeleton with placeholder coordinates, and `proof.json` remains absent until a real outer prover exists.
-- The selected concrete outer backend lane now treats the Halo2/Midnight outer circuit as canonical and can adapt raw artifacts into that circuit, but real Groth16 BLS12-381 setup/prove/verify is still blocked on a missing prover/serializer path for that circuit.
+- The selected concrete outer backend lane now treats the Halo2/Midnight outer circuit as canonical, can adapt raw artifacts into that circuit, and now exposes a direct canonical outer-circuit planning surface for future setup/prove/verify wiring.
 - A canonical R1CS line now exists under `crates/wrapper-circuits/src/r1cs/`, including deterministic lowering, identity hashing, zkInterface-style export, and a first Arkworks adapter, but it should currently be treated as an alternate / future backend lane rather than the critical path for the real outer wrapper flow.
 - A real Semaphore Groth16 BN254 fixture under `crates/wrapper-tests/fixtures/groth16/semaphore/` used to validate the artifact-set -> job -> package -> stub-execution lane on an ECC-heavy application circuit.
 - Contributor-oriented documentation covering architecture, roadmap, and initial design decisions.
@@ -67,7 +67,7 @@ Top-level doc roles:
 - `docs/profiling.md`: how to measure layout-cost changes
 - `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current state of the canonical R1CS line and why it is currently an alternate backend / later phase
-- `docs/outer-prover-strategy-plan.md`: decision plan for choosing the real prover/setup/verification path for the Halo2/Midnight outer wrapper circuit
+- `docs/outer-prover-strategy-plan.md`: current proving-strategy decision for the canonical outer circuit and the direct backend surface
 
 ## Planned Architecture
 

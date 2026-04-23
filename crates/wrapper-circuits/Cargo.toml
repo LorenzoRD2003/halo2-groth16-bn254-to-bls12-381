@@ -13,7 +13,7 @@ categories = ["cryptography"]
 [features]
 default = []
 halo2 = []
-test-support = []
+test = []
 
 [dependencies]
 ark-bn254.workspace = true

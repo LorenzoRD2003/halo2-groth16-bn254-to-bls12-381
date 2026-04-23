@@ -93,6 +93,16 @@ identity hashing, zkInterface-style export, and a first Arkworks adapter.
 That line should currently be treated as an alternate / future backend lane,
 not the critical path for the first real outer wrapper flow.
 
+The repository now also contains a direct canonical outer-circuit backend
+surface in `wrapper-backends/src/outer.rs`:
+
+- `CanonicalOuterCircuitProofBackend`
+- `plan_direct_outer_circuit_setup(...)`
+- `plan_direct_outer_circuit_proof(...)`
+
+This is the surface intended to host the first real setup / prove / verify path
+for `OuterWrapperCircuit`.
+
 The current expected outer-wrapper artifact model is intentionally
 `snarkjs`-like even though the real outer backend is still undecided. In
 particular, the planned Groth16 BLS12-381 output shape now records expected
@@ -119,7 +129,7 @@ Current assumptions for that lane:
 
 The next unresolved architectural question is therefore not "which circuit
 stack owns the outer wrapper?" but "which prover/setup/verification backend can
-materialize Groth16 BLS12-381 artifacts for the canonical Halo2/Midnight outer
+materialize real outer artifacts for the canonical Halo2/Midnight outer
 circuit?" That design pass is tracked in
 `docs/outer-prover-strategy-plan.md`.
 

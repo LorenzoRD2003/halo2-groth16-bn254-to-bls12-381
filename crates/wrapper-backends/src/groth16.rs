@@ -277,7 +277,7 @@ mod tests {
     assert_eq!(bundle.proof, groth16_fixture_typed::proof());
     assert_eq!(bundle.verification_key, groth16_fixture_typed::verifying_key());
     assert_eq!(bundle.public_inputs, groth16_fixture_typed::public_inputs());
-    assert_eq!(loader.summary().artifact_set_loading_available, true);
+    assert!(loader.summary().artifact_set_loading_available);
   }
 
   #[test]

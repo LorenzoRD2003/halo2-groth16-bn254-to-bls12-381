@@ -24,7 +24,7 @@ use crate::bn254::{
 
 pub mod fixtures;
 pub mod profiling;
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test, feature = "test"))]
 pub mod reference;
 
 type G2AffineCoordinates = ((ForeignField, ForeignField), (ForeignField, ForeignField));

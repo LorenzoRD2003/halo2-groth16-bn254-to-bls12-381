@@ -1,4 +1,10 @@
 //! Backend integration surfaces for proof and verification-key artifacts.
+#![allow(clippy::bool_assert_comparison)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::multiple_crate_versions)]
+#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::uninlined_format_args)]
 
 pub mod groth16;
 pub mod loader;
@@ -14,8 +20,9 @@ pub use loader::{ArtifactLoader, ArtifactLoaderError, ArtifactSetLoader, LoaderS
 pub use outer::{
   ArkworksGroth16Bls12381Backend, ArkworksGroth16OuterCircuitInput,
   ArkworksGroth16OuterStatementInput, ArkworksGroth16ProofPlan, ArkworksGroth16SetupPlan,
-  OuterCircuitInputArtifacts, OuterGroth16Backend, OuterGroth16BackendError,
-  OuterGroth16BackendMetadata, PlannedGroth16Bls12381Backend,
+  CanonicalOuterCircuitProofArtifacts, CanonicalOuterCircuitProofBackend,
+  CanonicalOuterCircuitSetupArtifacts, OuterCircuitInputArtifacts, OuterGroth16Backend,
+  OuterGroth16BackendError, OuterGroth16BackendMetadata, PlannedGroth16Bls12381Backend,
 };
 pub use registry::{BackendDescriptor, BackendRegistry};
 pub use snarkjs::{

@@ -1,5 +1,7 @@
 //! Developer CLI for inspecting and validating the current workspace state.
 #![allow(clippy::multiple_crate_versions)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::trivially_copy_pass_by_ref)]
 
 use std::{fs, path::PathBuf};
 
@@ -171,19 +173,33 @@ fn main() -> Result<()> {
     Commands::BenchInfo => run_bench_info(),
     Commands::ProfileLayout { family } => run_profile_layout(family),
     Commands::InspectGroth16Bundle { id, proof, public, vk, public_input_names } => {
-      run_inspect_groth16_bundle(&id, &proof, &public, &vk, &public_input_names)?
+      run_inspect_groth16_bundle(&id, &proof, &public, &vk, &public_input_names)?;
     }
     Commands::PlanWrapperJob { id, proof, public, vk, public_input_names } => {
-      run_plan_wrapper_job(&id, &proof, &public, &vk, &public_input_names)?
+      run_plan_wrapper_job(&id, &proof, &public, &vk, &public_input_names)?;
     }
     Commands::ExportWrapperJob { id, proof, public, vk, public_input_names, output } => {
-      run_export_wrapper_job(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?
+      run_export_wrapper_job(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?;
     }
     Commands::ExportWrapperPackage { id, proof, public, vk, public_input_names, output } => {
-      run_export_wrapper_package(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?
+      run_export_wrapper_package(
+        &id,
+        &proof,
+        &public,
+        &vk,
+        &public_input_names,
+        output.as_ref(),
+      )?;
     }
     Commands::ExecuteWrapperStub { id, proof, public, vk, public_input_names, output } => {
-      run_execute_wrapper_stub(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?
+      run_execute_wrapper_stub(
+        &id,
+        &proof,
+        &public,
+        &vk,
+        &public_input_names,
+        output.as_ref(),
+      )?;
     }
     Commands::PrintLayout => run_print_layout(),
     Commands::ValidateConfig { config } => run_validate_config(&config)?,
@@ -568,7 +584,7 @@ fn print_groth16_bundle_summary(
   } else {
     println!("Public input values:");
     for (index, value) in bundle.public_inputs.iter().enumerate() {
-      println!("  - [{}] {:?}", index, value);
+      println!("  - [{index}] {value:?}");
     }
   }
 }
@@ -698,7 +714,7 @@ fn print_wrapper_job_summary(job: &WrapperJob) {
 
   println!("Notes:");
   for note in &job.notes {
-    println!("  - {}", note);
+    println!("  - {note}");
   }
 }
 

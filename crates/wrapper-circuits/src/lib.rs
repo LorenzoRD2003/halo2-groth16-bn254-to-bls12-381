@@ -8,6 +8,21 @@
 //! Groth16 BN254 verifier slice on top: real proof/VK consumption, IC linear
 //! combination, and verifier reduction to one pairing-product check.
 #![allow(clippy::multiple_crate_versions)]
+#![allow(clippy::redundant_feature_names)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::double_must_use)]
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::large_types_passed_by_value)]
+#![allow(clippy::manual_let_else)]
+#![allow(clippy::manual_repeat_n)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::unused_self)]
+#![allow(clippy::wildcard_imports)]
 
 use ff as _;
 use halo2curves as _;
@@ -18,7 +33,7 @@ pub mod metrics;
 pub mod outer;
 pub mod planning;
 pub mod r1cs;
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test, feature = "test"))]
 mod test_support;
 
 pub use bn254::{
@@ -55,7 +70,7 @@ pub use bn254::{
   miller_loop_k, miller_loop_layout_metrics, multi_miller_loop, pairing_check, pairing_check_k,
   pairing_check_layout_metrics,
 };
-#[cfg(feature = "test-support")]
+#[cfg(feature = "test")]
 pub use groth16::fixtures::{raw as groth16_fixture_raw, typed as groth16_fixture_typed};
 pub use groth16::profiling::{
   PAIRING_TERM_PROFILE_COUNTS, PUBLIC_INPUT_PROFILE_COUNTS,
@@ -68,7 +83,7 @@ pub use groth16::profiling::{
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
   groth16_public_input_count_layout_metrics,
 };
-#[cfg(feature = "test-support")]
+#[cfg(feature = "test")]
 pub use groth16::reference::{
   ark_to_midnight_g1, groth16_g1_to_ark, groth16_g2_to_ark, host_pairing_product,
   host_public_input_accumulator, host_verify, midnight_to_ark_fq, midnight_to_ark_fr,

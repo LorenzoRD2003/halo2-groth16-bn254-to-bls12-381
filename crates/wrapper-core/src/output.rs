@@ -37,7 +37,7 @@ impl PlannedGroth16G1PointJson {
   #[must_use]
   pub fn placeholder(label: impl Into<String>) -> Self {
     let label = label.into();
-    Self { x: format!("<{}-x>", label), y: format!("<{}-y>", label), z: format!("<{}-z>", label) }
+    Self { x: format!("<{label}-x>"), y: format!("<{label}-y>"), z: format!("<{label}-z>") }
   }
 }
 
@@ -58,9 +58,9 @@ impl PlannedGroth16G2PointJson {
   pub fn placeholder(label: impl Into<String>) -> Self {
     let label = label.into();
     Self {
-      x: [format!("<{}-x-c0>", label), format!("<{}-x-c1>", label)],
-      y: [format!("<{}-y-c0>", label), format!("<{}-y-c1>", label)],
-      z: [format!("<{}-z-c0>", label), format!("<{}-z-c1>", label)],
+      x: [format!("<{label}-x-c0>"), format!("<{label}-x-c1>")],
+      y: [format!("<{label}-y-c0>"), format!("<{label}-y-c1>")],
+      z: [format!("<{label}-z-c0>"), format!("<{label}-z-c1>")],
     }
   }
 }
@@ -170,6 +170,7 @@ pub struct PlannedOuterGroth16ArtifactBundle {
 impl PlannedOuterGroth16ArtifactBundle {
   /// Builds an outer artifact bundle from explicit payloads.
   #[must_use]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     proof_system: ProofSystemDescriptor,
     canonical_circuit_identity: Option<CanonicalCircuitIdentity>,
@@ -326,6 +327,7 @@ pub struct ProducedOuterGroth16ArtifactBundle {
 impl ProducedOuterGroth16ArtifactBundle {
   /// Builds a produced outer artifact bundle from explicit payloads.
   #[must_use]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     proof_system: ProofSystemDescriptor,
     canonical_circuit_identity: Option<CanonicalCircuitIdentity>,
@@ -379,14 +381,16 @@ pub struct ExpectedProofArtifactShape {
 impl ExpectedProofArtifactShape {
   /// Builds the expected proof artifact shape.
   #[must_use]
+  #[allow(clippy::similar_names)]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     format: impl Into<String>,
     protocol: impl Into<String>,
     curve: impl Into<String>,
     top_level_keys: Vec<String>,
-    pi_a_key: impl Into<String>,
-    pi_b_key: impl Into<String>,
-    pi_c_key: impl Into<String>,
+    proof_a_key: impl Into<String>,
+    proof_b_key: impl Into<String>,
+    proof_c_key: impl Into<String>,
     g1_point_encoding: impl Into<String>,
     g2_point_encoding: impl Into<String>,
     snarkjs_like_naming: bool,
@@ -396,9 +400,9 @@ impl ExpectedProofArtifactShape {
       protocol: protocol.into(),
       curve: curve.into(),
       top_level_keys,
-      pi_a_key: pi_a_key.into(),
-      pi_b_key: pi_b_key.into(),
-      pi_c_key: pi_c_key.into(),
+      pi_a_key: proof_a_key.into(),
+      pi_b_key: proof_b_key.into(),
+      pi_c_key: proof_c_key.into(),
       g1_point_encoding: g1_point_encoding.into(),
       g2_point_encoding: g2_point_encoding.into(),
       snarkjs_like_naming,
@@ -461,6 +465,7 @@ pub struct ExpectedVerificationKeyArtifactShape {
 impl ExpectedVerificationKeyArtifactShape {
   /// Builds the expected verification-key artifact shape.
   #[must_use]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     format: impl Into<String>,
     protocol: impl Into<String>,
@@ -518,6 +523,7 @@ pub struct ExpectedWrapperArtifacts {
 impl ExpectedWrapperArtifacts {
   /// Builds the expected output artifact description.
   #[must_use]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     proof_system: ProofSystemDescriptor,
     canonical_circuit_identity: Option<CanonicalCircuitIdentity>,

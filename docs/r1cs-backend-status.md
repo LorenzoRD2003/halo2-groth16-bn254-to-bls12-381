@@ -26,7 +26,7 @@ It is **not** the current critical path for shipping the first real
 For the real wrapper flow, the current critical path remains:
 
 - canonical Halo2/Midnight outer circuit
-- real prover / serializer support for that circuit
+- direct backend surface plus real prover / serializer support for that circuit
 - produced outer proof / VK artifacts
 
 ## What Exists Today
