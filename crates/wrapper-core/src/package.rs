@@ -1,7 +1,7 @@
 //! Serializable wrapper package types for future executors.
 
-use thiserror::Error;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{NamedPublicInputs, ProofSystemDescriptor, WrapperJob};
 
@@ -113,9 +113,7 @@ impl OuterStatementContract {
 #[derive(Clone, Debug, Eq, PartialEq, Error, Serialize, Deserialize)]
 pub enum OuterStatementContractError {
   /// The wrapper statement does not match the expected outer public-input arity.
-  #[error(
-    "outer statement arity mismatch: expected {expected}, got {actual}"
-  )]
+  #[error("outer statement arity mismatch: expected {expected}, got {actual}")]
   OuterStatementArityMismatch {
     /// Expected arity from the package contract.
     expected: usize,
@@ -123,9 +121,7 @@ pub enum OuterStatementContractError {
     actual: usize,
   },
   /// The witness view over inner verifier public inputs has the wrong arity.
-  #[error(
-    "inner verifier public-input arity mismatch: expected {expected}, got {actual}"
-  )]
+  #[error("inner verifier public-input arity mismatch: expected {expected}, got {actual}")]
   InnerVerifierPublicInputArityMismatch {
     /// Expected inner public-input arity from the package contract.
     expected: usize,
@@ -136,9 +132,7 @@ pub enum OuterStatementContractError {
   #[error("outer statement field order does not mirror inner verifier public-input field order")]
   FieldOrderMismatch,
   /// The inner verification-key IC arity does not satisfy the Groth16 `n_public + 1` rule.
-  #[error(
-    "inner verification-key IC arity mismatch: expected {expected}, got {actual}"
-  )]
+  #[error("inner verification-key IC arity mismatch: expected {expected}, got {actual}")]
   VerificationKeyIcArityMismatch {
     /// Expected IC arity from the package contract.
     expected: usize,
@@ -191,15 +185,15 @@ impl WrapperExecutionPackage {
     }
 
     if self.witness.verifier_public_input_count() != contract.expected_inner_public_input_count {
-      return Err(
-        OuterStatementContractError::InnerVerifierPublicInputArityMismatch {
-          expected: contract.expected_inner_public_input_count,
-          actual: self.witness.verifier_public_input_count(),
-        },
-      );
+      return Err(OuterStatementContractError::InnerVerifierPublicInputArityMismatch {
+        expected: contract.expected_inner_public_input_count,
+        actual: self.witness.verifier_public_input_count(),
+      });
     }
 
-    if self.statement.public_inputs.field_order() != self.witness.verifier_public_inputs.field_order() {
+    if self.statement.public_inputs.field_order()
+      != self.witness.verifier_public_inputs.field_order()
+    {
       return Err(OuterStatementContractError::FieldOrderMismatch);
     }
 
@@ -217,8 +211,9 @@ impl WrapperExecutionPackage {
 #[cfg(test)]
 mod tests {
   use crate::{
-    NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind, WrapperExecutionPackage,
-    WrapperJob, WrapperStatement, WrapperWitnessInput, package::OuterStatementContractError,
+    NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind,
+    WrapperExecutionPackage, WrapperJob, WrapperStatement, WrapperWitnessInput,
+    package::OuterStatementContractError,
   };
 
   #[test]
@@ -229,10 +224,7 @@ mod tests {
     ]);
     let job = WrapperJob::new(
       "job-1",
-      ProofSystemDescriptor {
-        kind: ProofSystemKind::Groth16Bn254,
-        source: "loader".to_owned(),
-      },
+      ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
       ProofSystemDescriptor {
         kind: ProofSystemKind::Groth16Bls12_381,
         source: "planner".to_owned(),
@@ -246,10 +238,7 @@ mod tests {
       WrapperStatement::new(named.clone()),
       WrapperWitnessInput::new(
         "artifact-1",
-        ProofSystemDescriptor {
-          kind: ProofSystemKind::Groth16Bn254,
-          source: "loader".to_owned(),
-        },
+        ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
         named,
         3,
         true,
@@ -271,10 +260,7 @@ mod tests {
     WrapperExecutionPackage::new(
       WrapperJob::new(
         "job-1",
-        ProofSystemDescriptor {
-          kind: ProofSystemKind::Groth16Bn254,
-          source: "loader".to_owned(),
-        },
+        ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
         ProofSystemDescriptor {
           kind: ProofSystemKind::Groth16Bls12_381,
           source: "planner".to_owned(),
@@ -286,10 +272,7 @@ mod tests {
       WrapperStatement::new(named.clone()),
       WrapperWitnessInput::new(
         "artifact-1",
-        ProofSystemDescriptor {
-          kind: ProofSystemKind::Groth16Bn254,
-          source: "loader".to_owned(),
-        },
+        ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
         named,
         3,
         true,
@@ -314,25 +297,20 @@ mod tests {
   #[test]
   fn outer_statement_contract_rejects_outer_statement_arity_mismatch() {
     let mut package = sample_package();
-    package.statement = WrapperStatement::new(NamedPublicInputs::new(vec![
-      NamedPublicInput::new("a", "1"),
-    ]));
+    package.statement =
+      WrapperStatement::new(NamedPublicInputs::new(vec![NamedPublicInput::new("a", "1")]));
 
     assert_eq!(
       package.validate_outer_statement_contract(),
-      Err(OuterStatementContractError::OuterStatementArityMismatch {
-        expected: 2,
-        actual: 1,
-      })
+      Err(OuterStatementContractError::OuterStatementArityMismatch { expected: 2, actual: 1 })
     );
   }
 
   #[test]
   fn outer_statement_contract_rejects_inner_public_input_arity_mismatch() {
     let mut package = sample_package();
-    package.witness.verifier_public_inputs = NamedPublicInputs::new(vec![
-      NamedPublicInput::new("a", "1"),
-    ]);
+    package.witness.verifier_public_inputs =
+      NamedPublicInputs::new(vec![NamedPublicInput::new("a", "1")]);
 
     assert_eq!(
       package.validate_outer_statement_contract(),
@@ -350,10 +328,7 @@ mod tests {
 
     assert_eq!(
       package.validate_outer_statement_contract(),
-      Err(OuterStatementContractError::VerificationKeyIcArityMismatch {
-        expected: 3,
-        actual: 4,
-      })
+      Err(OuterStatementContractError::VerificationKeyIcArityMismatch { expected: 3, actual: 4 })
     );
   }
 }

@@ -3,10 +3,10 @@
 use ff::PrimeField;
 use serde::Deserialize;
 use thiserror::Error;
-use wrapper_core::{NamedPublicInput, NamedPublicInputs};
 use wrapper_circuits::{
   ForeignField, Groth16Bn254G1Point, Groth16Bn254Proof, Groth16Bn254VerifyingKey, NativeField,
 };
+use wrapper_core::{NamedPublicInput, NamedPublicInputs};
 
 type G2AffineCoordinates = ((ForeignField, ForeignField), (ForeignField, ForeignField));
 
@@ -268,10 +268,10 @@ mod tests {
     parse_groth16_bn254_public_inputs_with_names, parse_groth16_bn254_verifying_key,
   };
   use ff::{Field, PrimeField};
-  use wrapper_core::{NamedPublicInput, NamedPublicInputs};
   use wrapper_circuits::{
     ForeignField, Groth16Bn254G1Point, groth16_fixture_raw, groth16_fixture_typed,
   };
+  use wrapper_core::{NamedPublicInput, NamedPublicInputs};
 
   fn semaphore_proof_json() -> &'static [u8] {
     include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json")

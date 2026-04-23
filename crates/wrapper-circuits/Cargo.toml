@@ -13,17 +13,21 @@ categories = ["cryptography"]
 [features]
 default = []
 halo2 = []
-test-support = ["dep:ark-bn254", "dep:ark-ec", "dep:ark-ff"]
+test-support = ["dep:ark-ec"]
 
 [dependencies]
-ark-bn254 = { workspace = true, optional = true }
+ark-bn254.workspace = true
 ark-ec = { workspace = true, optional = true }
-ark-ff = { workspace = true, optional = true }
+ark-ff.workspace = true
+ark-groth16.workspace = true
+ark-relations.workspace = true
+blake2.workspace = true
 ff.workspace = true
 halo2curves.workspace = true
 midnight-circuits.workspace = true
 midnight-curves.workspace = true
 midnight-proofs.workspace = true
+rand.workspace = true
 thiserror.workspace = true
 wrapper-core = { path = "../wrapper-core" }
 

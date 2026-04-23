@@ -8,8 +8,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 use wrapper_backends::{
-  ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle, SnarkjsGroth16Bn254ArtifactSetLoader,
-  parse_snarkjs_groth16_bn254_bundle_with_names,
+  ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle,
+  SnarkjsGroth16Bn254ArtifactSetLoader, parse_snarkjs_groth16_bn254_bundle_with_names,
 };
 use wrapper_circuits::{
   CircuitPlanningView, LayoutMetrics, PAIRING_TERM_PROFILE_COUNTS, PUBLIC_INPUT_PROFILE_COUNTS,
@@ -514,7 +514,8 @@ fn plan_wrapper_job_from_paths(
   vk_path: &PathBuf,
   public_input_names: &[String],
 ) -> Result<WrapperJob> {
-  let bundle = load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
+  let bundle =
+    load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
   Ok(bundle.plan_bls12_381_wrapper_job())
 }
 
@@ -525,7 +526,8 @@ fn build_wrapper_execution_package_from_paths(
   vk_path: &PathBuf,
   public_input_names: &[String],
 ) -> Result<WrapperExecutionPackage> {
-  let bundle = load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
+  let bundle =
+    load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
   Ok(bundle.build_bls12_381_execution_package())
 }
 
@@ -537,7 +539,8 @@ fn run_inspect_groth16_bundle(
   public_input_names: &[String],
 ) -> Result<()> {
   info!("inspecting groth16 bundle {}", identifier);
-  let bundle = load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
+  let bundle =
+    load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
 
   let loader = SnarkjsGroth16Bn254ArtifactSetLoader;
   print_groth16_bundle_summary(&bundle, &loader);
@@ -578,7 +581,8 @@ fn run_plan_wrapper_job(
   public_input_names: &[String],
 ) -> Result<()> {
   info!("planning wrapper job {}", identifier);
-  let job = plan_wrapper_job_from_paths(identifier, proof_path, public_path, vk_path, public_input_names)?;
+  let job =
+    plan_wrapper_job_from_paths(identifier, proof_path, public_path, vk_path, public_input_names)?;
   print_wrapper_job_summary(&job);
   Ok(())
 }
@@ -592,7 +596,8 @@ fn run_export_wrapper_job(
   output_path: Option<&PathBuf>,
 ) -> Result<()> {
   info!("exporting wrapper job {}", identifier);
-  let job = plan_wrapper_job_from_paths(identifier, proof_path, public_path, vk_path, public_input_names)?;
+  let job =
+    plan_wrapper_job_from_paths(identifier, proof_path, public_path, vk_path, public_input_names)?;
   let manifest =
     serde_json::to_string_pretty(&job).context("failed to serialize wrapper job as JSON")?;
 
@@ -623,8 +628,8 @@ fn run_export_wrapper_package(
     vk_path,
     public_input_names,
   )?;
-  let manifest =
-    serde_json::to_string_pretty(&package).context("failed to serialize wrapper package as JSON")?;
+  let manifest = serde_json::to_string_pretty(&package)
+    .context("failed to serialize wrapper package as JSON")?;
 
   if let Some(path) = output_path {
     fs::write(path, format!("{manifest}\n"))
@@ -661,8 +666,8 @@ fn emit_execution_result(
   result: &WrapperExecutionResult,
   output_path: Option<&PathBuf>,
 ) -> Result<()> {
-  let manifest =
-    serde_json::to_string_pretty(result).context("failed to serialize wrapper execution result as JSON")?;
+  let manifest = serde_json::to_string_pretty(result)
+    .context("failed to serialize wrapper execution result as JSON")?;
 
   if let Some(path) = output_path {
     fs::write(path, format!("{manifest}\n"))

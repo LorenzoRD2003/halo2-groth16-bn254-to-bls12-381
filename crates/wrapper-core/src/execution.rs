@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
   ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
-  ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, PlannedOuterGroth16ArtifactBundle,
-  WrapperExecutionPackage,
+  ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts,
+  PlannedOuterGroth16ArtifactBundle, WrapperExecutionPackage,
 };
 
 /// High-level outcome of a wrapper execution attempt.
@@ -128,7 +128,9 @@ impl WrapperExecutionPackage {
     }
 
     if !self.witness.requires_inner_proof || !self.witness.requires_verification_key {
-      notes.push("wrapper witness input must require both inner proof and verification key".to_owned());
+      notes.push(
+        "wrapper witness input must require both inner proof and verification key".to_owned(),
+      );
       return WrapperExecutionResult::new(
         self.job.identifier.clone(),
         WrapperExecutionStatus::Rejected,
@@ -139,7 +141,9 @@ impl WrapperExecutionPackage {
     }
 
     notes.push("package preflight checks passed".to_owned());
-    notes.push("stub executor stops before outer proof synthesis in the current repository phase".to_owned());
+    notes.push(
+      "stub executor stops before outer proof synthesis in the current repository phase".to_owned(),
+    );
 
     WrapperExecutionResult::new(
       self.job.identifier.clone(),
@@ -154,8 +158,9 @@ impl WrapperExecutionPackage {
 #[cfg(test)]
 mod tests {
   use crate::{
-    NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind, WrapperExecutionPackage,
-    WrapperExecutionStatus, WrapperJob, WrapperStatement, WrapperWitnessInput,
+    NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind,
+    WrapperExecutionPackage, WrapperExecutionStatus, WrapperJob, WrapperStatement,
+    WrapperWitnessInput,
   };
 
   fn sample_package() -> WrapperExecutionPackage {
@@ -167,10 +172,7 @@ mod tests {
     WrapperExecutionPackage::new(
       WrapperJob::new(
         "job-1",
-        ProofSystemDescriptor {
-          kind: ProofSystemKind::Groth16Bn254,
-          source: "loader".to_owned(),
-        },
+        ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
         ProofSystemDescriptor {
           kind: ProofSystemKind::Groth16Bls12_381,
           source: "planner".to_owned(),
@@ -182,10 +184,7 @@ mod tests {
       WrapperStatement::new(named.clone()),
       WrapperWitnessInput::new(
         "artifact-1",
-        ProofSystemDescriptor {
-          kind: ProofSystemKind::Groth16Bn254,
-          source: "loader".to_owned(),
-        },
+        ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
         named,
         3,
         true,

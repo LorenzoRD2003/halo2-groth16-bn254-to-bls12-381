@@ -23,11 +23,11 @@ mod tests {
     OuterCircuitInputArtifacts, OuterGroth16Backend, PlannedGroth16Bls12381Backend,
     SnarkjsGroth16Bn254ArtifactSetLoader, parse_snarkjs_groth16_bn254_bundle_with_names,
   };
-  use wrapper_core::{NamedPublicInput, NamedPublicInputs, ProjectConfig, ProofSystemKind};
   use wrapper_circuits::{
-    CircuitBuildStatus, CircuitPlanningView, NativeField, groth16_fixture_raw, groth16_fixture_typed,
-    host_verify,
+    CircuitBuildStatus, CircuitPlanningView, NativeField, groth16_fixture_raw,
+    groth16_fixture_typed, host_verify,
   };
+  use wrapper_core::{NamedPublicInput, NamedPublicInputs, ProjectConfig, ProofSystemKind};
 
   use super::example_config;
 
@@ -97,11 +97,7 @@ mod tests {
     let bundle = load_groth16_fixture();
     assert_canonical_fixture_public_inputs(&bundle.public_inputs);
 
-    assert!(host_verify(
-      &bundle.verification_key,
-      &bundle.proof,
-      &bundle.public_inputs,
-    ));
+    assert!(host_verify(&bundle.verification_key, &bundle.proof, &bundle.public_inputs,));
   }
 
   #[test]
@@ -110,11 +106,7 @@ mod tests {
     let mut public_inputs = bundle.public_inputs.clone();
     public_inputs[0] = NativeField::from(34_u64);
 
-    assert!(!host_verify(
-      &bundle.verification_key,
-      &bundle.proof,
-      &public_inputs,
-    ));
+    assert!(!host_verify(&bundle.verification_key, &bundle.proof, &public_inputs,));
   }
 
   #[test]
@@ -123,11 +115,7 @@ mod tests {
 
     assert_eq!(bundle.public_inputs.len(), 4);
     assert_eq!(bundle.verification_key.ic.len(), 5);
-    assert!(host_verify(
-      &bundle.verification_key,
-      &bundle.proof,
-      &bundle.public_inputs,
-    ));
+    assert!(host_verify(&bundle.verification_key, &bundle.proof, &bundle.public_inputs,));
   }
 
   #[test]
@@ -136,11 +124,7 @@ mod tests {
     let mut public_inputs = bundle.public_inputs.clone();
     public_inputs[1] += NativeField::from(1_u64);
 
-    assert!(!host_verify(
-      &bundle.verification_key,
-      &bundle.proof,
-      &public_inputs,
-    ));
+    assert!(!host_verify(&bundle.verification_key, &bundle.proof, &public_inputs,));
   }
 
   #[test]
@@ -176,9 +160,8 @@ mod tests {
     let bundle = load_semaphore_fixture();
     let package = bundle.build_bls12_381_execution_package();
     let backend = PlannedGroth16Bls12381Backend;
-    let planned_output = backend
-      .prepare(&package)
-      .expect("planned outer backend should accept the Semaphore package");
+    let planned_output =
+      backend.prepare(&package).expect("planned outer backend should accept the Semaphore package");
     let outer_bundle = planned_output.bundle_template;
 
     assert_eq!(outer_bundle.proof_system.kind, ProofSystemKind::Groth16Bls12_381);

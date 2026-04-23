@@ -20,11 +20,7 @@ impl PlannedGroth16G1PointJson {
   #[must_use]
   pub fn placeholder(label: impl Into<String>) -> Self {
     let label = label.into();
-    Self {
-      x: format!("<{}-x>", label),
-      y: format!("<{}-y>", label),
-      z: format!("<{}-z>", label),
-    }
+    Self { x: format!("<{}-x>", label), y: format!("<{}-y>", label), z: format!("<{}-z>", label) }
   }
 }
 
@@ -211,7 +207,8 @@ impl PlannedOuterGroth16ArtifactBundle {
       notes: vec![
         format!("planned {protocol}/{curve} outer bundle preserves the wrapper public inputs"),
         "proof payload remains absent until a real outer prover exists".to_owned(),
-        "verification-key payload is materialized as a skeleton with placeholder coordinates".to_owned(),
+        "verification-key payload is materialized as a skeleton with placeholder coordinates"
+          .to_owned(),
       ],
     }
   }
@@ -525,9 +522,10 @@ mod tests {
   use crate::{
     ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
     ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, NamedPublicInput,
-    NamedPublicInputs, PlannedOuterGroth16ArtifactBundle, ProofSystemDescriptor, ProofSystemKind,
-    ProducedGroth16G1PointJson, ProducedGroth16G2PointJson, ProducedOuterGroth16ArtifactBundle,
-    ProducedOuterGroth16ProofJson, ProducedOuterGroth16VerificationKeyJson, WrapperStatement,
+    NamedPublicInputs, PlannedOuterGroth16ArtifactBundle, ProducedGroth16G1PointJson,
+    ProducedGroth16G2PointJson, ProducedOuterGroth16ArtifactBundle, ProducedOuterGroth16ProofJson,
+    ProducedOuterGroth16VerificationKeyJson, ProofSystemDescriptor, ProofSystemKind,
+    WrapperStatement,
   };
 
   #[test]
@@ -681,21 +679,9 @@ mod tests {
           z: ["1".to_owned(), "0".to_owned()],
         },
         ic: vec![
-          ProducedGroth16G1PointJson {
-            x: "1".to_owned(),
-            y: "2".to_owned(),
-            z: "1".to_owned(),
-          },
-          ProducedGroth16G1PointJson {
-            x: "3".to_owned(),
-            y: "4".to_owned(),
-            z: "1".to_owned(),
-          },
-          ProducedGroth16G1PointJson {
-            x: "5".to_owned(),
-            y: "6".to_owned(),
-            z: "1".to_owned(),
-          },
+          ProducedGroth16G1PointJson { x: "1".to_owned(), y: "2".to_owned(), z: "1".to_owned() },
+          ProducedGroth16G1PointJson { x: "3".to_owned(), y: "4".to_owned(), z: "1".to_owned() },
+          ProducedGroth16G1PointJson { x: "5".to_owned(), y: "6".to_owned(), z: "1".to_owned() },
         ],
       },
       vec![],

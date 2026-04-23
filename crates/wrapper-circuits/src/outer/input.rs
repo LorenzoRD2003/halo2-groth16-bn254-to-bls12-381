@@ -38,8 +38,11 @@ impl OuterWrapperCircuitInput {
     inner_public_inputs: Vec<NativeField>,
     outer_field_names: Vec<String>,
   ) -> Self {
-    let outer_statement =
-      OuterStatementInput::new(OuterStatementSemantics::MirrorInnerPublicInputs, outer_field_names, inner_public_inputs.clone());
+    let outer_statement = OuterStatementInput::new(
+      OuterStatementSemantics::MirrorInnerPublicInputs,
+      outer_field_names,
+      inner_public_inputs.clone(),
+    );
     Self::new(inner_proof, inner_verification_key, inner_public_inputs, outer_statement)
   }
 

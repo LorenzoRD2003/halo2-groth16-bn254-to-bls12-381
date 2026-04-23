@@ -2,8 +2,8 @@
 
 use wrapper_circuits::{Groth16Bn254Proof, Groth16Bn254VerifyingKey, NativeField};
 use wrapper_core::{
-  NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind, WrapperExecutionPackage,
-  WrapperJob, WrapperStatement, WrapperWitnessInput,
+  NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind,
+  WrapperExecutionPackage, WrapperJob, WrapperStatement, WrapperWitnessInput,
 };
 
 use crate::loader::{ArtifactSetLoader, LoaderSummary};
@@ -75,7 +75,9 @@ impl Groth16Bn254ArtifactBundle {
           .public_inputs
           .iter()
           .enumerate()
-          .map(|(index, value)| NamedPublicInput::new(format!("public_input_{index}"), format!("{value:?}")))
+          .map(|(index, value)| {
+            NamedPublicInput::new(format!("public_input_{index}"), format!("{value:?}"))
+          })
           .collect(),
       )
     })

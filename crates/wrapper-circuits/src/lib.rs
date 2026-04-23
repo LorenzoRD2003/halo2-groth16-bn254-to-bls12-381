@@ -17,6 +17,7 @@ mod groth16;
 pub mod metrics;
 pub mod outer;
 pub mod planning;
+pub mod r1cs;
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
 
@@ -84,4 +85,15 @@ pub use outer::{
 pub use planning::{
   CircuitPlanningView, PRIMITIVE_COUNT, PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,
   PrimitiveDefinition, primitive_definitions,
+};
+pub use r1cs::{
+  ArkworksPreparedVerifyingKey, ArkworksProof, ArkworksProvingKey, ArkworksR1csCircuit,
+  ArkworksVerifyingKey, CanonicalCellUnionFind, CanonicalClassId, CanonicalR1csBuilder,
+  EqualityEdge, Halo2CellAssignmentMap, Halo2CellLinearCombination, Halo2CellRef, Halo2CellTerm,
+  Halo2Phase1R1csLowering, Halo2PublicInputRef, Halo2R1csMetadata, LinearCombination, LinearTerm,
+  R1CS_IDENTITY_DOMAIN_SEPARATOR, R1csAssignment, R1csBuildError, R1csCircuit, R1csConstraint,
+  R1csIdentityHash, VariableId, ZkInterfaceConstraint, ZkInterfaceLinearCombination,
+  ZkInterfaceR1csExport, ZkInterfaceTerm, ZkInterfaceWitnessAssignment, ZkInterfaceWitnessExport,
+  arkworks_create_random_proof, arkworks_generate_random_parameters, arkworks_verify_proof,
+  export_witness, ordered_public_inputs, to_ark_lc,
 };

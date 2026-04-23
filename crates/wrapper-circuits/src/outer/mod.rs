@@ -11,8 +11,9 @@ use midnight_circuits::midnight_proofs::{
 use wrapper_core::{LayoutDescriptor, ProjectConfig, WrapperError};
 
 use crate::{
-  Bn254BoolChip, Bn254BoolConfig, NativeField, groth16_verify,
+  Bn254BoolChip, Bn254BoolConfig, NativeField,
   bn254::{Bn254FieldChip, Bn254FieldConfig, Bn254G1Chip, Bn254G1Config},
+  groth16_verify,
 };
 
 pub use builder::build_outer_wrapper_circuit;
@@ -117,10 +118,7 @@ impl Circuit<NativeField> for OuterWrapperCircuit {
   type Params = ();
 
   fn without_witnesses(&self) -> Self {
-    Self {
-      config: self.config.clone(),
-      input: self.input.without_witnesses(),
-    }
+    Self { config: self.config.clone(), input: self.input.without_witnesses() }
   }
 
   fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
@@ -147,9 +145,7 @@ impl Circuit<NativeField> for OuterWrapperCircuit {
     config: Self::Config,
     mut layouter: impl Layouter<NativeField>,
   ) -> Result<(), Error> {
-    self
-      .assert_ready_for_synthesis()
-      .map_err(|error| Error::Synthesis(error.to_string()))?;
+    self.assert_ready_for_synthesis().map_err(|error| Error::Synthesis(error.to_string()))?;
 
     let field_chip = Bn254FieldChip::new(&config.field);
     let bool_chip = Bn254BoolChip::new(&config.bools);

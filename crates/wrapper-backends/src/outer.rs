@@ -4,11 +4,13 @@ use ff::{Field, PrimeField};
 use thiserror::Error;
 use wrapper_circuits::{
   Groth16Bn254Proof, Groth16Bn254VerifyingKey, NativeField, OuterStatementInput,
-  OuterStatementSemantics, OuterWrapperCircuit, OuterWrapperCircuitInput, build_outer_wrapper_circuit,
+  OuterStatementSemantics, OuterWrapperCircuit, OuterWrapperCircuitInput,
+  build_outer_wrapper_circuit,
 };
 use wrapper_core::{
-  ExpectedWrapperArtifacts, OuterStatementContractError, ProofSystemKind, ProducedOuterGroth16ArtifactBundle,
-  ProducedOuterGroth16ProofJson, ProducedOuterGroth16VerificationKeyJson, WrapperExecutionPackage,
+  ExpectedWrapperArtifacts, OuterStatementContractError, ProducedOuterGroth16ArtifactBundle,
+  ProducedOuterGroth16ProofJson, ProducedOuterGroth16VerificationKeyJson, ProofSystemKind,
+  WrapperExecutionPackage,
 };
 
 use crate::snarkjs::{
@@ -122,9 +124,7 @@ pub struct ArkworksGroth16ProofPlan {
 #[derive(Debug, Error)]
 pub enum OuterGroth16BackendError {
   /// The package targets a different outer proof system than the backend supports.
-  #[error(
-    "outer backend expected target proof system '{expected}', got '{actual}'"
-  )]
+  #[error("outer backend expected target proof system '{expected}', got '{actual}'")]
   UnsupportedTarget {
     /// Expected proof-system identifier.
     expected: &'static str,
@@ -147,7 +147,9 @@ pub enum OuterGroth16BackendError {
     source_artifact_id: String,
   },
   /// The supplied inner proof payload could not be parsed as the expected Groth16 BN254 shape.
-  #[error("failed to parse inner proof payload for source artifact '{source_artifact_id}': {source}")]
+  #[error(
+    "failed to parse inner proof payload for source artifact '{source_artifact_id}': {source}"
+  )]
   MalformedInnerProof {
     /// Source artifact identifier from the package witness metadata.
     source_artifact_id: String,
@@ -156,7 +158,9 @@ pub enum OuterGroth16BackendError {
     source: SnarkjsGroth16ParseError,
   },
   /// The supplied inner verification key could not be parsed as the expected Groth16 BN254 shape.
-  #[error("failed to parse inner verification-key payload for source artifact '{source_artifact_id}': {source}")]
+  #[error(
+    "failed to parse inner verification-key payload for source artifact '{source_artifact_id}': {source}"
+  )]
   MalformedInnerVerificationKey {
     /// Source artifact identifier from the package witness metadata.
     source_artifact_id: String,
@@ -185,9 +189,7 @@ pub enum OuterGroth16BackendError {
     actual: usize,
   },
   /// The emitted setup verification key does not match the expected protocol label.
-  #[error(
-    "outer setup verification-key protocol mismatch: expected '{expected}', got '{actual}'"
-  )]
+  #[error("outer setup verification-key protocol mismatch: expected '{expected}', got '{actual}'")]
   VerificationKeyProtocolMismatch {
     /// Expected protocol label from the planning contract.
     expected: String,
@@ -203,9 +205,7 @@ pub enum OuterGroth16BackendError {
     actual: String,
   },
   /// The emitted setup verification key does not match the expected public-input arity.
-  #[error(
-    "outer setup verification-key nPublic mismatch: expected {expected}, got {actual}"
-  )]
+  #[error("outer setup verification-key nPublic mismatch: expected {expected}, got {actual}")]
   VerificationKeyPublicInputCountMismatch {
     /// Expected `nPublic` from the planning contract.
     expected: usize,
@@ -213,9 +213,7 @@ pub enum OuterGroth16BackendError {
     actual: usize,
   },
   /// The emitted setup verification key does not match the expected IC table length.
-  #[error(
-    "outer setup verification-key IC length mismatch: expected {expected}, got {actual}"
-  )]
+  #[error("outer setup verification-key IC length mismatch: expected {expected}, got {actual}")]
   VerificationKeyShapeMismatch {
     /// Expected IC table length from the planning contract.
     expected: usize,
@@ -249,9 +247,7 @@ pub enum OuterGroth16BackendError {
     actual: String,
   },
   /// The emitted proof does not preserve the planned snarkjs-like top-level keys.
-  #[error(
-    "outer produced proof top-level key mismatch: expected {expected:?}, got {actual:?}"
-  )]
+  #[error("outer produced proof top-level key mismatch: expected {expected:?}, got {actual:?}")]
   ProofTopLevelKeysMismatch {
     /// Expected top-level key set from the planning contract.
     expected: Vec<String>,
@@ -281,7 +277,9 @@ pub enum OuterGroth16BackendError {
     reason: String,
   },
   /// The backend does not implement the requested execution phase yet.
-  #[error("outer backend '{backend}' does not implement '{operation}' in the current repository phase")]
+  #[error(
+    "outer backend '{backend}' does not implement '{operation}' in the current repository phase"
+  )]
   UnsupportedOperation {
     /// Backend identifier.
     backend: &'static str,
@@ -421,21 +419,24 @@ fn parse_native_input_value(
     let radix = NativeField::from(16_u64);
 
     for ch in hex.chars() {
-      let digit = ch.to_digit(16).ok_or_else(|| OuterGroth16BackendError::InvalidPublicInputValue {
-        context,
-        field_name: field_name.to_owned(),
-        value: value.to_owned(),
-      })?;
+      let digit =
+        ch.to_digit(16).ok_or_else(|| OuterGroth16BackendError::InvalidPublicInputValue {
+          context,
+          field_name: field_name.to_owned(),
+          value: value.to_owned(),
+        })?;
       accumulator = accumulator * radix + NativeField::from(u64::from(digit));
     }
 
     return Ok(accumulator);
   }
 
-  NativeField::from_str_vartime(value).ok_or_else(|| OuterGroth16BackendError::InvalidPublicInputValue {
-    context,
-    field_name: field_name.to_owned(),
-    value: value.to_owned(),
+  NativeField::from_str_vartime(value).ok_or_else(|| {
+    OuterGroth16BackendError::InvalidPublicInputValue {
+      context,
+      field_name: field_name.to_owned(),
+      value: value.to_owned(),
+    }
   })
 }
 
@@ -509,19 +510,13 @@ impl OuterGroth16Backend for ArkworksGroth16Bls12381Backend {
     package.validate_outer_statement_contract()?;
 
     let mut planned = package.expected_output();
-    planned.notes.push(format!(
-      "selected outer backend stack: {}",
-      self.metadata().stack
-    ));
-    planned.notes.extend(
-      self
-        .metadata()
-        .serialization_conventions
-        .iter()
-        .map(|note| (*note).to_owned()),
-    );
+    planned.notes.push(format!("selected outer backend stack: {}", self.metadata().stack));
+    planned
+      .notes
+      .extend(self.metadata().serialization_conventions.iter().map(|note| (*note).to_owned()));
     planned.bundle_template.notes.push(
-      "selected backend is the arkworks Groth16 BLS12-381 lane; proof generation remains pending".to_owned(),
+      "selected backend is the arkworks Groth16 BLS12-381 lane; proof generation remains pending"
+        .to_owned(),
     );
 
     Ok(planned)
@@ -796,9 +791,10 @@ impl ArkworksGroth16Bls12381Backend {
   ) -> Result<ArkworksGroth16OuterCircuitInput, OuterGroth16BackendError> {
     let _ = self.prepare(package)?;
 
-    let proof_json = artifacts.proof_json.ok_or_else(|| OuterGroth16BackendError::MissingInnerProofPayload {
-      source_artifact_id: package.witness.source_artifact_id.clone(),
-    })?;
+    let proof_json =
+      artifacts.proof_json.ok_or_else(|| OuterGroth16BackendError::MissingInnerProofPayload {
+        source_artifact_id: package.witness.source_artifact_id.clone(),
+      })?;
     let verification_key_json = artifacts.verification_key_json.ok_or_else(|| {
       OuterGroth16BackendError::MissingInnerVerificationKeyPayload {
         source_artifact_id: package.witness.source_artifact_id.clone(),
@@ -880,11 +876,9 @@ impl ArkworksGroth16Bls12381Backend {
   ) -> Result<OuterWrapperCircuit, OuterGroth16BackendError> {
     let adapted = self.adapt_input(package, artifacts)?;
     let circuit = build_outer_wrapper_circuit(adapted.to_circuit_input());
-    circuit
-      .assert_ready_for_synthesis()
-      .map_err(|error| OuterGroth16BackendError::OuterCircuitInputInvalid {
-        reason: error.to_string(),
-      })?;
+    circuit.assert_ready_for_synthesis().map_err(|error| {
+      OuterGroth16BackendError::OuterCircuitInputInvalid { reason: error.to_string() }
+    })?;
     Ok(circuit)
   }
 }
@@ -915,14 +909,8 @@ mod tests {
     WrapperExecutionPackage::new(
       WrapperJob::new(
         "job-1",
-        ProofSystemDescriptor {
-          kind: ProofSystemKind::Groth16Bn254,
-          source: "loader".to_owned(),
-        },
-        ProofSystemDescriptor {
-          kind: target_kind,
-          source: "planner".to_owned(),
-        },
+        ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
+        ProofSystemDescriptor { kind: target_kind, source: "planner".to_owned() },
         2,
         Some(named.clone()),
         vec![],
@@ -930,10 +918,7 @@ mod tests {
       WrapperStatement::new(named.clone()),
       WrapperWitnessInput::new(
         "artifact-1",
-        ProofSystemDescriptor {
-          kind: ProofSystemKind::Groth16Bn254,
-          source: "loader".to_owned(),
-        },
+        ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
         named,
         3,
         true,
@@ -969,10 +954,8 @@ mod tests {
     assert_eq!(bundle.public_inputs, vec!["1", "2"]);
     assert_eq!(bundle.public_inputs_artifact, "job-1-wrapper-public.json");
     assert_eq!(bundle.verification_key_artifact, "job-1-wrapper-verification-key.json");
-    let verification_key = bundle
-      .verification_key
-      .as_ref()
-      .expect("planned backend should materialize a VK skeleton");
+    let verification_key =
+      bundle.verification_key.as_ref().expect("planned backend should materialize a VK skeleton");
     assert_eq!(verification_key.protocol, "groth16");
     assert_eq!(verification_key.curve, "bls12-381");
     assert_eq!(verification_key.n_public, 2);
@@ -1028,10 +1011,7 @@ mod tests {
     );
     assert_eq!(metadata.protocol, "groth16");
     assert_eq!(metadata.curve, "bls12-381");
-    assert!(metadata
-      .serialization_conventions
-      .iter()
-      .any(|entry| entry.contains("pi_a")));
+    assert!(metadata.serialization_conventions.iter().any(|entry| entry.contains("pi_a")));
   }
 
   #[test]
@@ -1045,11 +1025,13 @@ mod tests {
       .notes
       .iter()
       .any(|note| note.contains("selected outer backend stack: halo2/midnight outer wrapper lane targeting Groth16 BLS12-381 artifacts")));
-    assert!(planned
-      .bundle_template
-      .notes
-      .iter()
-      .any(|note| note.contains("arkworks Groth16 BLS12-381 lane")));
+    assert!(
+      planned
+        .bundle_template
+        .notes
+        .iter()
+        .any(|note| note.contains("arkworks Groth16 BLS12-381 lane"))
+    );
   }
 
   #[test]
@@ -1115,21 +1097,13 @@ mod tests {
     ProducedOuterGroth16ProofJson {
       protocol: "groth16".to_owned(),
       curve: "bls12-381".to_owned(),
-      pi_a: ProducedGroth16G1PointJson {
-        x: "1".to_owned(),
-        y: "2".to_owned(),
-        z: "1".to_owned(),
-      },
+      pi_a: ProducedGroth16G1PointJson { x: "1".to_owned(), y: "2".to_owned(), z: "1".to_owned() },
       pi_b: ProducedGroth16G2PointJson {
         x: ["1".to_owned(), "0".to_owned()],
         y: ["2".to_owned(), "0".to_owned()],
         z: ["1".to_owned(), "0".to_owned()],
       },
-      pi_c: ProducedGroth16G1PointJson {
-        x: "3".to_owned(),
-        y: "4".to_owned(),
-        z: "1".to_owned(),
-      },
+      pi_c: ProducedGroth16G1PointJson { x: "3".to_owned(), y: "4".to_owned(), z: "1".to_owned() },
     }
   }
 
@@ -1230,10 +1204,7 @@ mod tests {
 
     assert!(matches!(
       backend.validate_setup_verification_key(&package, &vk),
-      Err(OuterGroth16BackendError::VerificationKeyShapeMismatch {
-        expected: 3,
-        actual: 2,
-      })
+      Err(OuterGroth16BackendError::VerificationKeyShapeMismatch { expected: 3, actual: 2 })
     ));
   }
 
@@ -1253,10 +1224,7 @@ mod tests {
 
     assert_eq!(adapted.source_artifact_id, "circom-multiplier2");
     assert_eq!(adapted.inner_verifier_public_inputs, adapted.outer_statement.public_inputs);
-    assert_eq!(
-      adapted.outer_statement.field_names,
-      vec!["public_input_0".to_owned()]
-    );
+    assert_eq!(adapted.outer_statement.field_names, vec!["public_input_0".to_owned()]);
     assert_eq!(adapted.inner_verification_key.ic.len(), 2);
   }
 
@@ -1276,10 +1244,7 @@ mod tests {
     let circuit_input = adapted.to_circuit_input();
 
     assert_eq!(circuit_input.inner_public_inputs, adapted.inner_verifier_public_inputs);
-    assert_eq!(
-      circuit_input.outer_statement.public_inputs,
-      adapted.outer_statement.public_inputs
-    );
+    assert_eq!(circuit_input.outer_statement.public_inputs, adapted.outer_statement.public_inputs);
   }
 
   #[test]
@@ -1336,9 +1301,7 @@ mod tests {
     let package = real_fixture_package();
     let mut vk_json: Value = serde_json::from_slice(groth16_fixture_raw::verification_key_json())
       .expect("fixture VK JSON should parse as a serde_json::Value");
-    let ic = vk_json["IC"]
-      .as_array_mut()
-      .expect("fixture VK should carry an IC array");
+    let ic = vk_json["IC"].as_array_mut().expect("fixture VK should carry an IC array");
     ic.push(ic[0].clone());
     vk_json["nPublic"] = Value::from(2_u64);
     let malformed_vk = serde_json::to_vec(&vk_json).expect("modified VK should serialize");
@@ -1351,10 +1314,7 @@ mod tests {
           Some(malformed_vk.as_slice()),
         ),
       ),
-      Err(OuterGroth16BackendError::VerificationKeyIcCountMismatch {
-        expected: 2,
-        actual: 3,
-      })
+      Err(OuterGroth16BackendError::VerificationKeyIcCountMismatch { expected: 2, actual: 3 })
     ));
   }
 

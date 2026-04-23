@@ -45,16 +45,15 @@ impl WrapperJob {
 
 #[cfg(test)]
 mod tests {
-  use crate::{NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind, WrapperJob};
+  use crate::{
+    NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind, WrapperJob,
+  };
 
   #[test]
   fn wrapper_job_keeps_named_public_inputs() {
     let job = WrapperJob::new(
       "job-1",
-      ProofSystemDescriptor {
-        kind: ProofSystemKind::Groth16Bn254,
-        source: "snarkjs".to_owned(),
-      },
+      ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "snarkjs".to_owned() },
       ProofSystemDescriptor {
         kind: ProofSystemKind::Groth16Bls12_381,
         source: "planned-outer".to_owned(),
