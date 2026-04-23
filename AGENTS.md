@@ -4,11 +4,11 @@
 
 This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based wrapper that may eventually verify Groth16 BN254 proofs inside an outer Halo2 proof system.
 
-The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations, the narrow Week 2 slices, the Week 3 extension-field slice, and the first Week 4 pairing-core slice through real optimal-ate Miller traversal, final exponentiation, and a narrow multi-pairing product check, but it is still far from a Groth16 wrapper verifier.
+The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations, the narrow Week 2 slices, the Week 3 extension-field slice, the Week 4 pairing-core slice through real optimal-ate Miller traversal, final exponentiation, and a narrow multi-pairing product check, and the first Week 5 end-to-end Groth16 BN254 verifier slice on top of that pairing core. It is still far from a broad or production-ready wrapper verifier.
 
 ## Current Phase and Scope Boundaries
 
-Current phase: Stage 1 / Week 4 pairing-core correctness.
+Current phase: Stage 1 / Week 5 first end-to-end Groth16 BN254 verifier slice.
 
 Implemented in scope today:
 
@@ -42,6 +42,12 @@ Implemented in scope today:
 - narrow BN254 final exponentiation over Miller-loop output, aligned with arkworks on supported non-exceptional single-pair inputs
 - narrow multi-pairing product check that multiplies Miller outputs first, applies exactly one shared final exponentiation, and compares the result against the target-group identity
 - narrow end-to-end pairing-core correctness against arkworks on supported non-exceptional 1-term, 2-term, and 3-term products
+- narrow Groth16 BN254 verifier types in `wrapper-circuits/src/groth16.rs`
+- verifier-only BN254 G1 IC accumulation using fixed public-input scalars over the existing Midnight G1 chip
+- real snarkjs Groth16 BN254 JSON parsing in `wrapper-backends/src/snarkjs.rs`
+- verifier-equation reduction to one multi-pairing product check using `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`
+- a real Circom/snarkjs fixture under `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/`
+- end-to-end valid / invalid Groth16 verifier tests on top of the existing pairing core
 - Real layout and row visibility through the Halo2/Midnight cost model
 - Deterministic arkworks-backed tests for `Fp`, `Fp2`, `Fp6`, `Fp12`, G1, and the current narrow G2 affine / Jacobian / Miller-step behavior
 - Criterion sanity benchmarks for the currently implemented primitive circuits
@@ -53,30 +59,39 @@ Out of scope right now:
 - G2 subgroup checks
 - scalar multiplication on G2
 - broad public full-pairing or multi-pairing APIs beyond the narrow pairing-check boundary
-- Groth16 verifier logic
+- broad Groth16 verifier frameworks beyond the first narrow BN254 slice
 - MSM as a public supported layer
 - wrapper verifier circuit composition
 - production optimization of layout/cost beyond the narrow implemented sanity circuits
 
-Do not treat the current code as a full verifier foundation. It is a deliberately narrow primitive layer.
+Do not treat the current code as a full verifier foundation. It is a deliberately narrow primitive-plus-first-verifier slice.
+
+Week 5 verifier-memory notes:
+
+- the committed real fixture lives under `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/`
+- it comes from `circom` + `snarkjs` and keeps the raw `proof.json`, `public.json`, and `verification_key.json` artifacts in the snarkjs `bn128` format
+- snarkjs G1 points in that fixture use projective `[x, y, z]`; the parser accepts affine `z = 1` plus the snarkjs G1 identity encoding `[0, 1, 0]`
+- the current Groth16 pairing reduction is `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`
+- the current IC accumulation path is verifier-only and uses fixed public-input scalars over the existing Midnight G1 chip; it is not a broad public MSM API
 
 ## Fast Context Load
 
 When you need to build context quickly, read in this order:
 
-1. `crates/wrapper-circuits/src/bn254/mod.rs`
-2. `crates/wrapper-circuits/src/bn254/traits.rs`
-3. `crates/wrapper-circuits/src/bn254/host/mod.rs`
-4. `crates/wrapper-circuits/src/bn254/fp2.rs`, `fp6.rs`, `fp12.rs`
-5. `crates/wrapper-circuits/src/bn254/g2/mod.rs`
-6. `crates/wrapper-circuits/src/bn254/g2/affine.rs`
-7. `crates/wrapper-circuits/src/bn254/g2/jacobian.rs`
-8. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
-9. `crates/wrapper-circuits/src/bn254/tests/mod.rs`
-10. `crates/wrapper-circuits/src/bn254/tests/support.rs`
-11. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
-12. `crates/wrapper-circuits/src/bn254/metrics.rs`, `crates/wrapper-circuits/src/planning.rs`
-13. `crates/wrapper-cli/src/main.rs`
+1. `crates/wrapper-circuits/src/groth16.rs`
+2. `crates/wrapper-backends/src/snarkjs.rs`
+3. `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/README.md`
+4. `crates/wrapper-circuits/src/bn254/mod.rs`
+5. `crates/wrapper-circuits/src/bn254/traits.rs`
+6. `crates/wrapper-circuits/src/bn254/host/mod.rs`
+7. `crates/wrapper-circuits/src/bn254/fp2.rs`, `fp6.rs`, `fp12.rs`
+8. `crates/wrapper-circuits/src/bn254/g2/mod.rs`
+9. `crates/wrapper-circuits/src/bn254/g2/affine.rs`
+10. `crates/wrapper-circuits/src/bn254/g2/jacobian.rs`
+11. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
+12. `crates/wrapper-circuits/src/bn254/tests/support.rs`
+13. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
+14. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
 
 This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
 

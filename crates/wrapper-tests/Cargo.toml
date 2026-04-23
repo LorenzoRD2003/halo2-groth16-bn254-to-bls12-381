@@ -17,7 +17,11 @@ wrapper-circuits = { path = "../wrapper-circuits" }
 wrapper-core = { path = "../wrapper-core" }
 
 [dev-dependencies]
+ark-bn254.workspace = true
+ark-ec.workspace = true
+ark-ff.workspace = true
 criterion.workspace = true
+ff.workspace = true
 midnight-proofs.workspace = true
 
 [[bench]]

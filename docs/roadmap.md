@@ -36,6 +36,7 @@ Goals:
 - land narrow final exponentiation over that Miller-loop output, still without widening into a verifier-facing full pairing API
 - land a narrow verifier-shaped pairing-product check that multiplies Miller outputs first and applies exactly one shared final exponentiation
 - land sparse-specialized BN254 Miller accumulator line consumption for the current D-twist `(ell_0, ell_w, ell_vw)` layout
+- land the first narrow Groth16 BN254 verifier slice: real snarkjs proof/VK parsing, IC linear combination, verifier-equation reduction to one pairing-product check, and end-to-end valid/invalid regression coverage
 - measure real layout/row cost for the Week 1 primitives
 - keep host/reference BN254 tower arithmetic centralized rather than duplicated across modules
 - keep measured primitive metadata centralized so CLI reporting and benchmark-info stay in sync
@@ -47,8 +48,8 @@ Still excluded unless explicitly planned:
 - broad public pairings
 - full multi-pairing / verifier-facing pipeline beyond the current narrow pairing-check slice
 - G2 subgroup checks
-- scalar multiplication
-- Groth16 verifier logic
+- broad scalar multiplication
+- generalized Groth16 verifier frameworks beyond the first narrow BN254 slice
 - production-ready backend support
 
 ## Later Pairing Work
@@ -66,9 +67,9 @@ This stage should be preceded by explicit design notes and likely additional ADR
 
 Potential goals:
 
-- Groth16 BN254 verifier decomposition
+- broader Groth16 BN254 verifier decomposition beyond the landed narrow slice
 - integration of verifier subcomponents into the outer Halo2 circuit
-- soundness-oriented tests and fixture strategy
+- soundness-oriented tests and richer fixture strategy
 - performance and proof-size analysis
 
 ## Possible Cardano Integration

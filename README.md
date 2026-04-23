@@ -28,7 +28,7 @@ What is explicitly not implemented yet:
 - Real backend adapters to arkworks, Midnight, `blst`, or `snarkjs`
 - Cryptographic soundness claims of any kind
 
-This repository now includes Week 1 arithmetic foundations, but it is still far from a Groth16 wrapper verifier.
+This repository now includes the primitive BN254 foundation plus the first narrow Groth16 BN254 verifier slice, but it is still far from a broad or production-ready wrapper verifier.
 
 ## Planned Architecture
 
@@ -149,8 +149,8 @@ What still does not exist:
 - full Miller loop line accumulation
 - final exponentiation
 - MSM
-- Groth16 verification
-- wrapper verifier logic
+- generalized Groth16 verification beyond the first narrow BN254 slice
+- broad wrapper verifier logic
 - production-focused optimization or proof-system integration work
 - real proof or verification-key backend adapters
 
@@ -187,7 +187,7 @@ For the current primitive-foundation phase, prefer correctness and measured layo
 - Stage 1 / Week 3 slice: BN254 `fp12` arithmetic over the existing `AssignedFp6` layer, with measured add/mul/square costs
 - Stage 1 / Week 3 slice: BN254 G2 `double_with_line` / `mixed_add_with_line` extraction with Miller-ready sparse coefficient layout
 - Later pairing work: foreign field and pairing-related gadget research
-- Later wrapper verifier work: Groth16 verifier logic inside the outer proof system
+- Later wrapper verifier work: broader Groth16 verifier logic inside the outer proof system
 - Possible Cardano integration: ecosystem-specific packaging, artifacts, and engineering constraints
 - Possible Semaphore migration case study: testing a migrated application-shaped circuit use case
 
@@ -222,10 +222,10 @@ Future strategy:
 ## Non-Goals for This Phase
 
 - Shipping a usable wrapper proof system
-- Implementing full G2 arithmetic, pairings, or Groth16 verification
+- Implementing full G2 arithmetic, broader pairings, or generalized Groth16 verification
 - Selecting a final proving backend
 - Claiming compatibility with production proof artifacts
 
 ## Disclaimer
 
-This repository now contains a circuit-backed BN254 primitive layer using `midnight-circuits` and `midnight-proofs`, organized under `wrapper-circuits/src/bn254/`, including a first Week 2 Fp2 slice, minimal Fp6 and Fp12 slices, a minimal G2 affine slice, a narrow Jacobian G2 projective slice, and a Miller-path G2 line-extraction slice. The Fp6 and Fp12 layers support `add`, `sub`, `neg`, `mul`, and `square` over the arkworks-compatible BN254 tower; the Jacobian G2 layer supports non-identity `from_affine`, `neg`, `double`, and incomplete `add`; and the Miller-path layer supports non-identity `double_with_line` and `mixed_add_with_line` with sparse `Fp12`-facing coefficients. The repository still does not include subgroup checks, scalar multiplication, a full Miller loop, final exponentiation, pairings, Groth16 verification, or a wrapper verifier circuit. Current Criterion benchmarks are sanity-check hooks over small implemented circuits and should not be read as production cryptographic performance claims.
+This repository now contains a circuit-backed BN254 primitive layer using `midnight-circuits` and `midnight-proofs`, organized under `wrapper-circuits/src/bn254/`, together with a first narrow Groth16 BN254 verifier slice in `wrapper-circuits/src/groth16.rs` and `wrapper-backends/src/snarkjs.rs`. The Fp6 and Fp12 layers support `add`, `sub`, `neg`, `mul`, and `square` over the arkworks-compatible BN254 tower; the Jacobian G2 layer supports non-identity `from_affine`, `neg`, `double`, and incomplete `add`; the Miller-path layer supports non-identity `double_with_line` and `mixed_add_with_line` with sparse `Fp12`-facing coefficients; and the verifier slice now supports real snarkjs proof/VK parsing, verifier-only IC accumulation, and one end-to-end pairing-product-check verification path. The repository still does not include subgroup checks, broad scalar multiplication, generalized verifier frameworks, proof generation, or a production wrapper verifier circuit. Current Criterion benchmarks are sanity-check hooks over small implemented circuits and should not be read as production cryptographic performance claims.

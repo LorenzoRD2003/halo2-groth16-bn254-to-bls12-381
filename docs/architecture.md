@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer: Week 1 delivered Fp and minimal G1 support, Week 2 / Week 3 added the first Fp2/Fp6/Fp12 and narrow G2 slices, and Week 4 now reaches the pairing core through the real Miller loop, final exponentiation, and a narrow pairing-product check. It still does not implement subgroup checks, scalar multiplication, broad verifier-facing pairing APIs, verifier logic, or a production wrapper circuit.
+This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer plus the first narrow verifier slice: Week 1 delivered Fp and minimal G1 support, Week 2 / Week 3 added the first Fp2/Fp6/Fp12 and narrow G2 slices, Week 4 reached the pairing core through the real Miller loop, final exponentiation, and a narrow pairing-product check, and Week 5 now layers real snarkjs proof/VK parsing, IC linear combination, and one end-to-end Groth16 BN254 verification path on top. It still does not implement subgroup checks, broad scalar-multiplication APIs, broad verifier-facing pairing APIs, generalized verifier orchestration, or a production wrapper circuit.
 
 ## Intended Data Flow
 
@@ -13,7 +13,7 @@ The expected long-term flow is:
 3. `wrapper-circuits` consumes domain-level configuration and normalized metadata to construct Halo2-facing circuit descriptions.
 4. The CLI or future orchestration layers coordinate configuration loading, validation, inspection, and eventually proof-related workflows.
 
-The current implementation includes enough BN254 arithmetic to validate Week 1 interfaces, circuit wiring, and layout measurements, while still stopping well short of a wrapper verifier.
+The current implementation includes enough BN254 arithmetic and verifier wiring to validate the first real Groth16 BN254 wrapper-verifier slice, while still stopping well short of a broad or production-ready wrapper verifier.
 
 ## Why `wrapper-core` Stays Domain-Oriented
 
@@ -209,7 +209,8 @@ Current limitations:
 - `mixed_add_with_line` is intentionally unsupported for exceptional cases such as `P = Q` and `P = -Q`
 - the current pairing slice now covers single-pair Miller accumulation, final exponentiation, and a narrow multi-pairing product check for supported non-exceptional inputs
 - this is still not a broad public full-pairing or multi-pairing API beyond the narrow product-check boundary
-- no Groth16 verification path or wrapper verifier circuit exists yet
+- only the first narrow Groth16 BN254 verification path exists: snarkjs fixture parsing, verifier-only IC accumulation, verifier-equation reduction to one pairing-product check, and end-to-end acceptance / rejection tests
+- no generalized wrapper verifier circuit or broader backend ecosystem exists yet
 
 ## Current Architectural Contracts
 

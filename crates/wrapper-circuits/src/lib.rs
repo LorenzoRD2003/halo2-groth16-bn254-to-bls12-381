@@ -4,13 +4,16 @@
 //! Midnight/Halo2 chips, together with lightweight layout reporting. Week 2
 //! and the current Week 3 slice add narrow BN254 Fp2/Fp6/Fp12 layers plus
 //! minimal G2 affine/projective support, all organized under the `bn254/`
-//! module. Pairings and verifier logic remain intentionally out of scope.
+//! module. Week 4 added the pairing core, and Week 5 now layers a first narrow
+//! Groth16 BN254 verifier slice on top: real proof/VK consumption, IC linear
+//! combination, and verifier reduction to one pairing-product check.
 #![allow(clippy::multiple_crate_versions)]
 
 use ff as _;
 use halo2curves as _;
 
 mod bn254;
+mod groth16;
 pub mod metrics;
 pub mod outer;
 pub mod planning;
@@ -20,17 +23,18 @@ pub use bn254::{
   AssignedG2Affine, AssignedG2LineCoeffs, AssignedG2MillerPoint, AssignedG2Projective,
   AssignedMillerAccumulator, Bn254BitChip, Bn254BoolChip, Bn254BoolConfig, Bn254EccChip,
   Bn254FpChip, Bn254MillerAddend, Bn254MillerSchedule, Bn254MillerScheduleStep,
-  FinalExponentiationCircuit, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit,
-  Fp6MulCircuit, Fp6SquareCircuit, Fp12AddCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit,
-  FpMulCircuit, G1AddCircuit, G1OnCurveCircuit, G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit,
-  G2NegCircuit, G2OnCurveCircuit, G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit,
-  G2ProjectiveFromAffineCircuit, G2ProjectiveIdentityCircuit, G2ProjectiveNegCircuit,
-  MillerAccumulatorMulByLineCircuit, MillerAccumulatorMulByLineSparseCircuit,
-  MillerAccumulatorSquareCircuit, MillerLoopCircuit, MillerStep, MillerStepConstant, NativeField,
-  PairingCheckCircuit, PairingFinalExponentiationCircuit, PreparedG2Miller, bn254_ate_loop_count,
-  final_exponentiation, final_exponentiation_k, final_exponentiation_layout_metrics, fp_add_k,
-  fp_add_layout_metrics, fp_mul_k, fp_mul_layout_metrics, fp2_add_k, fp2_add_layout_metrics,
-  fp2_mul_k, fp2_mul_layout_metrics, fp2_square_k, fp2_square_layout_metrics, fp6_add_k,
+  FinalExponentiationCircuit, ForeignField, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit,
+  Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit, Fp12AddCircuit, Fp12MulCircuit,
+  Fp12SquareCircuit, FpAddCircuit, FpMulCircuit, G1AddCircuit, G1OnCurveCircuit,
+  G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
+  G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit,
+  G2ProjectiveIdentityCircuit, G2ProjectiveNegCircuit, MillerAccumulatorMulByLineCircuit,
+  MillerAccumulatorMulByLineSparseCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
+  MillerStep, MillerStepConstant, NativeField, PairingCheckCircuit,
+  PairingFinalExponentiationCircuit, PreparedG2Miller, bn254_ate_loop_count, final_exponentiation,
+  final_exponentiation_k, final_exponentiation_layout_metrics, fp_add_k, fp_add_layout_metrics,
+  fp_mul_k, fp_mul_layout_metrics, fp2_add_k, fp2_add_layout_metrics, fp2_mul_k,
+  fp2_mul_layout_metrics, fp2_square_k, fp2_square_layout_metrics, fp6_add_k,
   fp6_add_layout_metrics, fp6_mul_k, fp6_mul_layout_metrics, fp6_nonresidue, fp6_square_k,
   fp6_square_layout_metrics, fp12_add_k, fp12_add_layout_metrics, fp12_mul_k,
   fp12_mul_layout_metrics, fp12_nonresidue, fp12_square_k, fp12_square_layout_metrics, g1_add_k,
@@ -44,6 +48,10 @@ pub use bn254::{
   miller_accumulator_square_k, miller_accumulator_square_layout_metrics, miller_loop,
   miller_loop_k, miller_loop_layout_metrics, multi_miller_loop, pairing_check, pairing_check_k,
   pairing_check_layout_metrics,
+};
+pub use groth16::{
+  Groth16Bn254G1Point, Groth16Bn254Proof, Groth16Bn254VerifierCircuit, Groth16Bn254VerifyingKey,
+  Groth16IcAccumulatorCircuit, Groth16VerifierError, groth16_accumulate_ic, groth16_verify,
 };
 pub use metrics::{CostEstimate, LayoutMetrics};
 pub use outer::{CircuitBuildStatus, OuterWrapperCircuit};

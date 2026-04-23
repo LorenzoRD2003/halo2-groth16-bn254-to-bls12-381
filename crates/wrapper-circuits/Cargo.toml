@@ -20,6 +20,7 @@ halo2curves.workspace = true
 midnight-circuits.workspace = true
 midnight-curves.workspace = true
 midnight-proofs.workspace = true
+thiserror.workspace = true
 wrapper-core = { path = "../wrapper-core" }
 
 [dev-dependencies]

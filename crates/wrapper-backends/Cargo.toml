@@ -16,6 +16,11 @@ arkworks = []
 midnight = []
 
 [dependencies]
+ff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+wrapper-circuits = { path = "../wrapper-circuits" }
 wrapper-core = { path = "../wrapper-core" }
 
 [lints]

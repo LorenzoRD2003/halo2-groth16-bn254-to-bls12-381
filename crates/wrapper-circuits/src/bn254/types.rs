@@ -10,7 +10,7 @@ use midnight_circuits::{
   },
   instructions::{
     ArithInstructions, AssertionInstructions, AssignmentInstructions, BinaryInstructions,
-    EccInstructions, EqualityInstructions,
+    EccInstructions, EqualityInstructions, ZeroInstructions,
   },
   midnight_proofs::{
     circuit::{Layouter, Value},
@@ -326,6 +326,37 @@ impl Bn254G1Chip {
     point: &AssignedG1,
   ) -> Result<AssignedG1, Error> {
     self.ecc_chip.negate(layouter, point)
+  }
+
+  /// Multiplies a BN254 G1 point by a fixed BN254 scalar.
+  pub fn mul_by_scalar_constant(
+    &self,
+    layouter: &mut impl Layouter<NativeField>,
+    scalar: NativeField,
+    point: &AssignedG1,
+  ) -> Result<AssignedG1, Error> {
+    self.ecc_chip.mul_by_constant(layouter, scalar, point)
+  }
+
+  /// Returns the assigned affine x-coordinate of a BN254 G1 point.
+  #[must_use]
+  pub fn x_coordinate(&self, point: &AssignedG1) -> AssignedFp {
+    self.ecc_chip.x_coordinate(point)
+  }
+
+  /// Returns the assigned affine y-coordinate of a BN254 G1 point.
+  #[must_use]
+  pub fn y_coordinate(&self, point: &AssignedG1) -> AssignedFp {
+    self.ecc_chip.y_coordinate(point)
+  }
+
+  /// Returns a native boolean indicating whether the point is the identity.
+  pub fn is_identity(
+    &self,
+    layouter: &mut impl Layouter<NativeField>,
+    point: &AssignedG1,
+  ) -> Result<AssignedBool, Error> {
+    self.ecc_chip.is_zero(layouter, point)
   }
 
   /// Asserts that the assigned point matches the expected constant point.

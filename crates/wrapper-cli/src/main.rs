@@ -118,7 +118,7 @@ fn print_cost_line_with_lookups(name: &str, layout: LayoutMetrics) {
 }
 
 fn print_primitive_costs(primitive_costs: &PrimitiveCostTable) {
-  println!("Current Stage 1 / Week 4 primitive estimates:");
+  println!("Current Stage 1 / Week 5 primitive estimates:");
   let entries = primitive_costs.entries();
   print_cost_group(PrimitiveCostLayer::Field, entries);
   print_cost_group(PrimitiveCostLayer::Curve, entries);
@@ -155,7 +155,7 @@ fn run_bench_info() {
     print_bench_group(layer);
   }
   println!(
-    "Warning: current benchmarks use small Midnight-backed sanity circuits. The Miller-loop, final-exponentiation, and pairing-check entries cover only the current narrow pairing-core slice, not a broad verifier-facing pairing API or verifier logic."
+    "Warning: current benchmarks use small Midnight-backed sanity circuits. The Miller-loop, final-exponentiation, and pairing-check entries cover only the current narrow pairing and first Groth16-verifier slice, not a broad verifier framework or production wrapper pipeline."
   );
 }
 
@@ -194,12 +194,12 @@ fn run_validate_config(path: &PathBuf) -> Result<()> {
 fn run_about() {
   info!("printing project overview");
   println!("Project: Halo2 wrapper workspace");
-  println!("Phase: stage 1 / week 4 (real Miller loop + final exponentiation + pairing check)");
+  println!("Phase: stage 1 / week 5 (first end-to-end Groth16 BN254 verifier slice)");
   println!("Purpose: stage a serious multi-crate codebase for Halo2 wrapper research.");
   println!(
-    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2/fp6/fp12 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg, Jacobian projective from_affine/add/double/neg, real optimal-ate Miller-path G2 prep/loop, narrow final exponentiation, narrow multi-pairing product check, CLI, and sanity-check benches."
+    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2/fp6/fp12 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg, Jacobian projective from_affine/add/double/neg, real optimal-ate Miller-path G2 prep/loop, narrow final exponentiation, narrow multi-pairing product check, the first narrow Groth16 BN254 verifier path, CLI, and sanity-check benches."
   );
   println!(
-    "Not implemented: G2 subgroup checks or scalar multiplication, broad verifier-facing pairing APIs beyond the narrow product-check path, Groth16 verification, and wrapper verifier circuits."
+    "Not implemented: G2 subgroup checks, broad public scalar-multiplication APIs beyond the verifier-only IC path, generalized verifier frameworks, proof generation, and production wrapper verifier circuits."
   );
 }
