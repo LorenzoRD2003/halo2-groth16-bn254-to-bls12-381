@@ -105,41 +105,53 @@ Code-level operation tally outside `exp_by_neg_x(...)`:
 
 ## What `exp_by_neg_x(...)` Does
 
-`exp_by_neg_x(value)` is implemented as:
+`exp_by_neg_x(value)` is now implemented as:
 
-1. `pow_constant_exp(value, &[4965661367192848881])`
+1. a BN254-specific handcrafted chain for
+   `x = 4965661367192848881 = 0x44e992b44a6909f1`
 2. `unitary_inverse(...)`
 
-The current `pow_constant_exp(...)` is a generic square-and-multiply loop in
-`fp12.rs`, not a BN254-specific handcrafted chain.
+The fixed chain uses the decomposition:
 
-For the current hard-coded exponent:
+```text
+x = ((((((((17 << 7) + 29) << 7) + 25) << 8) + 43) << 6) + 17) << 8
+   + 41) << 6 + 41) << 10 + 39) << 6 + 49
+```
 
-- exponent bit length: `63`
-- exponent popcount: `28`
+That lets the code precompute the exact odd windows it needs and then apply
+fixed square blocks instead of a generic bit-walk.
 
-So each `pow_constant_exp(...)` performs:
+Per call, the handcrafted `value^x` path now performs:
 
-- `62` squares
-- `27` multiplies
+- `63` squares
+- `16` multiplies
 
 Then `exp_by_neg_x(...)` adds:
 
 - `1` `unitary_inverse`
 
-Since the hard part calls `exp_by_neg_x(...)` three times, that contributes:
+For comparison, the previous generic square-and-multiply path used:
 
-- `186` squares
-- `81` multiplies
+- `62` squares
+- `27` multiplies
+- `1` `unitary_inverse`
+
+Since the hard part calls `exp_by_neg_x(...)` three times, the new helper
+contributes:
+
+- `189` squares
+- `48` multiplies
 - `3` `unitary_inverse`
+
+That is one extra square but `33` fewer multiplies across the hard part.
 
 ## Total Hard-Part Operation Tally
 
 Adding the explicit hard-part operations to the three `exp_by_neg_x(...)`
 calls gives:
 
-- `square`: `189`
-- `mul`: `91`
+- `square`: `192`
+- `mul`: `58`
 - `frobenius_map`: `3`
 - `unitary_inverse`: `6`
 - `inv`: `0`
@@ -157,32 +169,44 @@ cargo run -p wrapper-cli -- profile-layout --family blocks
 Current rows:
 
 - `bn254_final_exponentiation_easy_part`: `13884` rows, `k=14`
+- `bn254_final_exponentiation_hard_part`: `1037936` rows, `k=20`
+- `bn254_final_exponentiation`: `1053500` rows, `k=21`
+- `bn254_pairing_check_sample_2_terms`: `2221564` rows, `k=22`
+
+Previous baseline before the handcrafted `exp_by_neg_x(...)` chain:
+
 - `bn254_final_exponentiation_hard_part`: `1190996` rows, `k=21`
 - `bn254_final_exponentiation`: `1215080` rows, `k=21`
+- `bn254_pairing_check`: `2383144` rows, `k=22`
 
 Interpretation:
 
 - the easy part is tiny relative to the total
-- the hard part accounts for essentially all of the current final
-  exponentiation cost
-- future optimization work should focus almost entirely on the hard part unless
-  a very cheap easy-part cleanup appears
+- the hard part still accounts for essentially all final-exponentiation cost
+- the BN254-specific `exp_by_neg_x(...)` rewrite removed `153060` hard-part rows
+  and `161580` total final-exponentiation rows
+- the same local change also reduced the sample pairing-check block by
+  `161580` rows
+- future optimization work should continue to focus almost entirely on the hard
+  part unless a very cheap easy-part cleanup appears
 
 ## Reuse / Recomputation Findings
 
 Grounded observations from the current code:
 
-### 1. `exp_by_neg_x(...)` is repeated three times
+### 1. `exp_by_neg_x(...)` is still repeated three times
 
-This is the largest structural repetition in the current code.
+This remains the largest structural repetition in the current code, but the
+most obvious first cleanup is now implemented: the generic square-and-multiply
+path has already been replaced with a BN254-specific fixed chain.
 
-The same generic square-and-multiply engine is invoked on:
+The same fixed BN254 chain is invoked on:
 
 - `r`
 - `y3`
 - `y5`
 
-Each call is expensive on its own.
+Each call is still expensive on its own, just materially cheaper than before.
 
 ### 2. No obvious duplicated Frobenius image of the same expression
 
@@ -224,27 +248,19 @@ changing the structure of the exponentiation path itself.
 
 The current final exponentiation is not expensive because of the easy part.
 
-It is expensive because the hard part contains:
+It is expensive because the hard part still contains:
 
-- three generic constant-exponentiation calls
+- three nontrivial constant-exponentiation calls, even after the first
+  handcrafted-chain rewrite
 - a very large number of Fp12 squares and multiplies
-- enough structure to push the block to `k=21`
+- enough structure to keep the total block above one million rows
 
 ## Ranked Next Optimization Candidates
 
 These are candidates for a later targeted rewrite, not changes implemented in
 this audit.
 
-### 1. Replace generic `exp_by_neg_x(...)` with a handcrafted BN254 chain
-
-Why it ranks first:
-
-- it is called three times
-- each call currently expands to `62` squares + `27` multiplies + one
-  `unitary_inverse`
-- it is the clearest repeated structural hotspot in the code
-
-### 2. Introduce cyclotomic-squaring-aware hard-part rewriting
+### 1. Introduce cyclotomic-squaring-aware hard-part rewriting
 
 Why it ranks high:
 
@@ -257,7 +273,7 @@ Caveat:
 - this should be validated carefully against the exact values the current chain
   produces; do not assume every intermediate can be replaced blindly
 
-### 3. Evaluate compressed squaring within the hard part
+### 2. Evaluate compressed squaring within the hard part
 
 Why it ranks high:
 
@@ -265,18 +281,19 @@ Why it ranks high:
 - this is the other obvious square-focused structural lever after cyclotomic
   squaring
 
-### 4. Rebuild the hard part around a better addition chain
+### 3. Rebuild the hard part around a better whole-hard-part chain
 
 Why it matters:
 
-- even without new algebraic kernels, the current chain may not be the best
-  circuit-oriented arrangement of exponentiations and intermediate products
+- even with the improved inner `exp_by_neg_x(...)` helper, the overall hard
+  part may still admit a better circuit-oriented arrangement of exponentiations
+  and intermediate products
 
-### 5. Treat easy-part cleanup as low priority
+### 4. Treat easy-part cleanup as low priority
 
 Why it ranks low:
 
-- easy part is only `13884` rows versus `1190996` for the hard part
+- easy part is only `13884` rows versus `1037936` for the hard part
 - unless a cleanup is nearly free, it is unlikely to move total verifier cost
   materially
 
@@ -291,6 +308,7 @@ cargo check
 Validate the new decomposition circuits:
 
 ```bash
+cargo test -p wrapper-circuits exp_by_neg_x_constant_matches_generic_square_and_multiply
 cargo test -p wrapper-circuits final_exponentiation_easy_part_sample_matches_host_decomposition -- --ignored --nocapture
 cargo test -p wrapper-circuits final_exponentiation_hard_part_sample_matches_host_decomposition -- --ignored --nocapture
 ```
@@ -304,8 +322,8 @@ cargo run -p wrapper-cli -- profile-layout --family blocks
 ## Caveats
 
 - this audit is layout-focused, not runtime-focused
-- `pow_constant_exp(...)` is counted structurally from the current code path,
-  not from a symbolic algebra system
-- this note does not claim the current chain is mathematically suboptimal in an
-  abstract sense; it only identifies where the implemented circuit is spending
-  its cost
+- the current `exp_by_neg_x(...)` helper is a local BN254-specific improvement,
+  not a full hard-part rewrite
+- this note does not claim the current chain is mathematically optimal in an
+  abstract sense; it only records where the implemented circuit is now
+  spending its cost

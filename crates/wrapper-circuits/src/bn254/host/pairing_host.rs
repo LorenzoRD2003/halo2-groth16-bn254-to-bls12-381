@@ -1,6 +1,9 @@
 use super::*;
 
-pub(crate) fn fp12_pow_constant_exp(value: &Fp12Constant, exp: &[u64]) -> Fp12Constant {
+const BN254_X_ABS: u64 = 4_965_661_367_192_848_881;
+
+#[cfg(test)]
+fn fp12_pow_constant_exp(value: &Fp12Constant, exp: &[u64]) -> Fp12Constant {
   let mut result = fp12_one_constant();
   let mut seen_one = false;
 
@@ -19,8 +22,75 @@ pub(crate) fn fp12_pow_constant_exp(value: &Fp12Constant, exp: &[u64]) -> Fp12Co
   result
 }
 
+fn fp12_square_6_times(value: &Fp12Constant) -> Fp12Constant {
+  let value = fp12_square_constant(value);
+  let value = fp12_square_constant(&value);
+  let value = fp12_square_constant(&value);
+  let value = fp12_square_constant(&value);
+  let value = fp12_square_constant(&value);
+  fp12_square_constant(&value)
+}
+
+fn fp12_square_7_times(value: &Fp12Constant) -> Fp12Constant {
+  let value = fp12_square_6_times(value);
+  fp12_square_constant(&value)
+}
+
+fn fp12_square_8_times(value: &Fp12Constant) -> Fp12Constant {
+  let value = fp12_square_7_times(value);
+  fp12_square_constant(&value)
+}
+
+fn fp12_square_10_times(value: &Fp12Constant) -> Fp12Constant {
+  let value = fp12_square_8_times(value);
+  let value = fp12_square_constant(&value);
+  fp12_square_constant(&value)
+}
+
 pub(crate) fn fp12_exp_by_neg_x_constant(value: &Fp12Constant) -> Fp12Constant {
-  let exp = fp12_pow_constant_exp(value, &[4965661367192848881]);
+  // Compute value^x for the BN254 parameter
+  // x = 0x44e992b44a6909f1 = 4965661367192848881.
+  //
+  // This mirrors the circuit-side fixed chain exactly:
+  // x = ((((((((17 << 7) + 29) << 7) + 25) << 8) + 43) << 6) + 17) << 8
+  //    + 41) << 6 + 41) << 10 + 39) << 6 + 49.
+  //
+  // Relative to generic square-and-multiply for this exponent, the chain uses
+  // 63 squares + 16 muls instead of 62 squares + 27 muls before the final
+  // conjugation.
+  debug_assert_eq!(BN254_X_ABS, 0x44e9_92b4_4a69_09f1);
+  let x2 = fp12_square_constant(value);
+  let x4 = fp12_square_constant(&x2);
+  let x8 = fp12_square_constant(&x4);
+  let x16 = fp12_square_constant(&x8);
+  let x32 = fp12_square_constant(&x16);
+
+  let x10 = fp12_mul_constant(&x8, &x2);
+  let x17 = fp12_mul_constant(&x16, value);
+  let x25 = fp12_mul_constant(&x17, &x8);
+  let x29 = fp12_mul_constant(&x25, &x4);
+  let x39 = fp12_mul_constant(&x29, &x10);
+  let x41 = fp12_mul_constant(&x25, &x16);
+  let x43 = fp12_mul_constant(&x41, &x2);
+  let x49 = fp12_mul_constant(&x32, &x17);
+
+  let mut exp = x17;
+  exp = fp12_square_7_times(&exp);
+  exp = fp12_mul_constant(&exp, &x29);
+  exp = fp12_square_7_times(&exp);
+  exp = fp12_mul_constant(&exp, &x25);
+  exp = fp12_square_8_times(&exp);
+  exp = fp12_mul_constant(&exp, &x43);
+  exp = fp12_square_6_times(&exp);
+  exp = fp12_mul_constant(&exp, &x17);
+  exp = fp12_square_8_times(&exp);
+  exp = fp12_mul_constant(&exp, &x41);
+  exp = fp12_square_6_times(&exp);
+  exp = fp12_mul_constant(&exp, &x41);
+  exp = fp12_square_10_times(&exp);
+  exp = fp12_mul_constant(&exp, &x39);
+  exp = fp12_square_6_times(&exp);
+  exp = fp12_mul_constant(&exp, &x49);
   fp12_conjugate_constant(&exp)
 }
 
@@ -63,4 +133,29 @@ pub(crate) fn bn254_final_exponentiation_hard_part_constant(value: &Fp12Constant
 pub(crate) fn bn254_final_exponentiation_constant(value: &Fp12Constant) -> Fp12Constant {
   let easy = bn254_final_exponentiation_easy_part_constant(value);
   bn254_final_exponentiation_hard_part_constant(&easy)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn exp_by_neg_x_constant_matches_generic_square_and_multiply() {
+    let sample = (
+      (
+        (ForeignField::from(1_u64), ForeignField::from(2_u64)),
+        (ForeignField::from(3_u64), ForeignField::from(4_u64)),
+        (ForeignField::from(5_u64), ForeignField::from(6_u64)),
+      ),
+      (
+        (ForeignField::from(7_u64), ForeignField::from(8_u64)),
+        (ForeignField::from(9_u64), ForeignField::from(10_u64)),
+        (ForeignField::from(11_u64), ForeignField::from(12_u64)),
+      ),
+    );
+    let expected = fp12_conjugate_constant(&fp12_pow_constant_exp(&sample, &[BN254_X_ABS]));
+    let actual = fp12_exp_by_neg_x_constant(&sample);
+
+    assert_eq!(actual, expected);
+  }
 }

@@ -778,7 +778,94 @@ fn exp_by_neg_x(
   layouter: &mut impl Layouter<NativeField>,
   value: &AssignedFp12,
 ) -> Result<AssignedFp12, Error> {
-  let exp = value.pow_constant_exp(chip, layouter, &[4965661367192848881])?;
+  const BN254_X_ABS: u64 = 4_965_661_367_192_848_881;
+
+  fn square_6_times(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    value: &AssignedFp12,
+  ) -> Result<AssignedFp12, Error> {
+    let value = value.square(chip, layouter)?;
+    let value = value.square(chip, layouter)?;
+    let value = value.square(chip, layouter)?;
+    let value = value.square(chip, layouter)?;
+    let value = value.square(chip, layouter)?;
+    value.square(chip, layouter)
+  }
+
+  fn square_7_times(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    value: &AssignedFp12,
+  ) -> Result<AssignedFp12, Error> {
+    let value = square_6_times(chip, layouter, value)?;
+    value.square(chip, layouter)
+  }
+
+  fn square_8_times(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    value: &AssignedFp12,
+  ) -> Result<AssignedFp12, Error> {
+    let value = square_7_times(chip, layouter, value)?;
+    value.square(chip, layouter)
+  }
+
+  fn square_10_times(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    value: &AssignedFp12,
+  ) -> Result<AssignedFp12, Error> {
+    let value = square_8_times(chip, layouter, value)?;
+    let value = value.square(chip, layouter)?;
+    value.square(chip, layouter)
+  }
+
+  // Compute value^x for the BN254 parameter
+  // x = 0x44e992b44a6909f1 = 4965661367192848881.
+  //
+  // This uses a fixed handcrafted chain:
+  // x = ((((((((17 << 7) + 29) << 7) + 25) << 8) + 43) << 6) + 17) << 8
+  //    + 41) << 6 + 41) << 10 + 39) << 6 + 49.
+  //
+  // We precompute only the odd windows that this decomposition needs and then
+  // apply the fixed square blocks directly. Compared with generic
+  // square-and-multiply for this exponent, this replaces 62 squares + 27 muls
+  // with 63 squares + 16 muls, which is a meaningful win because Fp12 mul is
+  // much more expensive than Fp12 square in this circuit.
+  debug_assert_eq!(BN254_X_ABS, 0x44e9_92b4_4a69_09f1);
+  let x2 = value.square(chip, layouter)?;
+  let x4 = x2.square(chip, layouter)?;
+  let x8 = x4.square(chip, layouter)?;
+  let x16 = x8.square(chip, layouter)?;
+  let x32 = x16.square(chip, layouter)?;
+
+  let x10 = x8.mul(chip, layouter, &x2)?;
+  let x17 = x16.mul(chip, layouter, value)?;
+  let x25 = x17.mul(chip, layouter, &x8)?;
+  let x29 = x25.mul(chip, layouter, &x4)?;
+  let x39 = x29.mul(chip, layouter, &x10)?;
+  let x41 = x25.mul(chip, layouter, &x16)?;
+  let x43 = x41.mul(chip, layouter, &x2)?;
+  let x49 = x32.mul(chip, layouter, &x17)?;
+
+  let mut exp = x17.clone();
+  exp = square_7_times(chip, layouter, &exp)?;
+  exp = exp.mul(chip, layouter, &x29)?;
+  exp = square_7_times(chip, layouter, &exp)?;
+  exp = exp.mul(chip, layouter, &x25)?;
+  exp = square_8_times(chip, layouter, &exp)?;
+  exp = exp.mul(chip, layouter, &x43)?;
+  exp = square_6_times(chip, layouter, &exp)?;
+  exp = exp.mul(chip, layouter, &x17)?;
+  exp = square_8_times(chip, layouter, &exp)?;
+  exp = exp.mul(chip, layouter, &x41)?;
+  exp = square_6_times(chip, layouter, &exp)?;
+  exp = exp.mul(chip, layouter, &x41)?;
+  exp = square_10_times(chip, layouter, &exp)?;
+  exp = exp.mul(chip, layouter, &x39)?;
+  exp = square_6_times(chip, layouter, &exp)?;
+  exp = exp.mul(chip, layouter, &x49)?;
   exp.unitary_inverse(chip, layouter)
 }
 

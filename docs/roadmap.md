@@ -1,5 +1,16 @@
 # Roadmap
 
+## When To Read This Document
+
+Read this document when the main question is "should this work exist yet?" or
+"what stage does this belong to?".
+
+Use it together with:
+
+- `README.md` for the fastest high-level repo snapshot
+- `AGENTS.md` for binding scope boundaries and code-touching rules
+- `docs/architecture.md` for crate ownership and implementation placement
+
 ## Initialization
 
 Status: completed.

@@ -74,6 +74,53 @@ Week 5 verifier-memory notes:
 - the current Groth16 pairing reduction is `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`
 - the current IC accumulation path is verifier-only and uses fixed public-input scalars over the existing Midnight G1 chip; it is not a broad public MSM API
 
+## Quick Context Routes
+
+Choose the shortest route that matches the task instead of reading the whole
+repo every time.
+
+If you need the current truth fast:
+
+1. `README.md`
+2. `AGENTS.md` up through `Fast Context Load`
+3. `docs/architecture.md`
+
+If you need Groth16 verifier context:
+
+1. `crates/wrapper-circuits/src/groth16.rs`
+2. `crates/wrapper-backends/src/snarkjs.rs`
+3. `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/README.md`
+4. `crates/wrapper-circuits/src/groth16/profiling.rs`
+
+If you need pairing-core / final-exponentiation context:
+
+1. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
+2. `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`
+3. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
+4. `docs/final-exponentiation-audit.md`
+5. `docs/profiling.md`
+
+If you need BN254 primitive structure / ownership context:
+
+1. `crates/wrapper-circuits/src/bn254/mod.rs`
+2. `crates/wrapper-circuits/src/bn254/traits.rs`
+3. `crates/wrapper-circuits/src/bn254/host/mod.rs`
+4. `docs/architecture.md`
+
+If you need CLI / measurement context:
+
+1. `crates/wrapper-circuits/src/planning.rs`
+2. `crates/wrapper-circuits/src/groth16/profiling.rs`
+3. `crates/wrapper-cli/src/main.rs`
+4. `docs/profiling.md`
+5. `docs/benchmarking.md`
+
+If you need stage boundaries / "is this in scope?" context:
+
+1. `AGENTS.md` `Current Phase and Scope Boundaries`
+2. `docs/roadmap.md`
+3. `docs/architecture.md`
+
 ## Fast Context Load
 
 When you need to build context quickly, read in this order:
@@ -98,6 +145,21 @@ When you need to build context quickly, read in this order:
 18. `docs/final-exponentiation-audit.md`
 
 This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
+
+## Document Roles
+
+Use each top-level doc for one job:
+
+- `README.md`: fastest repo snapshot, workspace map, contributor commands, and entry points
+- `AGENTS.md`: binding scope, architectural boundaries, staged constraints, and code-touching rules
+- `docs/architecture.md`: crate ownership, data flow, and primitive-layer boundaries
+- `docs/roadmap.md`: what stage the repo is in and what remains explicitly out of scope
+- `docs/profiling.md`: how to measure layout cost and compare optimization baselines
+- `docs/benchmarking.md`: benchmark naming, bench-info wiring, and benchmark/reporting sync rules
+- `docs/final-exponentiation-audit.md`: current hard-part chain, measured hotspot split, and next optimization targets
+
+When adding a new major doc, update this list and at least one context route so
+future agents know when to read it.
 
 ## Repository Map
 
@@ -243,7 +305,7 @@ Concrete BN254 conventions already in use:
 - final exponentiation follows the standard BN254 easy-part / hard-part split used by arkworks over the Miller-loop output
 - the narrow pairing-check path computes each real Miller loop, multiplies the Miller outputs in `Fp12`, applies exactly one final exponentiation, and checks equality with the `Fp12` multiplicative identity
 - the current final-exponentiation code now exposes `final_exponentiation_easy_part(...)` and `final_exponentiation_hard_part(...)` as audit-friendly internal helpers without changing semantics
-- the current hard-part hotspot is `exp_by_neg_x(...)`, which still uses generic `pow_constant_exp(..., &[4965661367192848881])` followed by a `unitary_inverse`; it is called three times in the hard part
+- the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/final-exponentiation-audit.md` before changing it so you inherit the current chain shape, measured split, and next optimization targets
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
   `Fq2(19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)`

@@ -241,6 +241,7 @@ impl AssignedFp12 {
     Self::assign(chip, layouter, assigned_witness.0, assigned_witness.1)
   }
 
+  #[allow(dead_code)]
   pub(crate) fn pow_constant_exp(
     &self,
     chip: &Bn254FieldChip,

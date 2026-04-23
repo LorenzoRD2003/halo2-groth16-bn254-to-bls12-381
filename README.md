@@ -32,6 +32,24 @@ What is explicitly not implemented yet:
 
 This repository now includes the primitive BN254 foundation plus the first narrow Groth16 BN254 verifier slice, but it is still far from a broad or production-ready wrapper verifier.
 
+## Quick Context Routes
+
+Use the shortest route that matches the task:
+
+- Current repo snapshot: `README.md` -> `AGENTS.md` -> `docs/architecture.md`
+- Groth16 verifier slice: `crates/wrapper-circuits/src/groth16.rs` -> `crates/wrapper-backends/src/snarkjs.rs` -> `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/README.md`
+- Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/final-exponentiation-audit.md`
+- Layout profiling / optimization: `crates/wrapper-circuits/src/groth16/profiling.rs` -> `crates/wrapper-cli/src/main.rs` -> `docs/profiling.md`
+- Scope / stage boundaries: `AGENTS.md` `Current Phase and Scope Boundaries` -> `docs/roadmap.md`
+
+Top-level doc roles:
+
+- `README.md`: quickest orientation and common commands
+- `AGENTS.md`: binding contributor rules plus the most detailed context-loading map
+- `docs/architecture.md`: ownership boundaries and current implementation shape
+- `docs/roadmap.md`: stage intent and explicit non-goals
+- `docs/profiling.md`: how to measure layout-cost changes
+
 ## Planned Architecture
 
 The intended shape of the project is:
@@ -65,6 +83,14 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
     ├── wrapper-cli/
     └── wrapper-tests/
 ```
+
+## Where To Read Next
+
+- Start in `README.md` when you need the fastest high-level reload.
+- Go to `AGENTS.md` before editing code or docs so you inherit repo-specific constraints.
+- Go to `docs/architecture.md` when deciding where code should live.
+- Go to `docs/roadmap.md` when checking whether an idea belongs in the current stage.
+- Go to `docs/profiling.md` and `docs/final-exponentiation-audit.md` for optimization work.
 
 ## Build Instructions
 
@@ -167,7 +193,11 @@ What works now:
 - Circuit-backed `double_with_line` and `mixed_add_with_line` following the same homogeneous-projective prepared-G2 formulas used by arkworks / Midnight for BN prepared-G2 generation
 - The public consumption boundary is now `AssignedG2LineCoeffs -> AssignedMillerAccumulator::mul_by_line(...)`
 - `AssignedFp12` stays relatively clean; sparse line evaluation remains an internal detail of the accumulator for now
-- Tuple-based host/reference arithmetic for the BN254 tower is centralized in `wrapper-circuits/src/bn254/host.rs`
+- Narrow BN254 Miller-loop accumulation over the real fixed optimal-ate prepared schedule
+- Narrow BN254 final exponentiation over Miller-loop output
+- Narrow verifier-shaped BN254 pairing-product check with one shared final exponentiation
+- First narrow Groth16 BN254 verifier slice with real `snarkjs` parsing, verifier-only IC accumulation, and end-to-end valid/invalid fixture coverage
+- Tuple-based host/reference arithmetic for the BN254 tower is centralized under `wrapper-circuits/src/bn254/host/`
 - Deterministic randomized tests against arkworks reference behavior
 - Real row/layout measurements via `midnight_proofs::dev::cost_model`
 - Small Criterion benchmark hooks over the actual Week 1 sanity circuits
@@ -177,15 +207,13 @@ What works now:
 
 What still does not exist:
 
-- pairings
 - G2 subgroup checks or scalar multiplication
-- full Miller loop line accumulation
-- final exponentiation
-- MSM
+- broad public pairing or multi-pairing APIs beyond the narrow pairing-check slice
+- broad public MSM support
 - generalized Groth16 verification beyond the first narrow BN254 slice
-- broad wrapper verifier logic
-- production-focused optimization or proof-system integration work
-- real proof or verification-key backend adapters
+- broad wrapper verifier circuit composition
+- production-focused optimization beyond the narrow implemented sanity circuits
+- broad backend ecosystems beyond the current narrow `snarkjs` BN254 parser path
 
 ## Running the CLI
 
@@ -208,18 +236,21 @@ cargo run -p wrapper-cli -- bench-info
 4. Expose orchestration and diagnostics through `wrapper-cli`.
 5. Add regression coverage in `wrapper-tests` before growing implementation scope.
 
-For the current primitive-foundation phase, prefer correctness and measured layout visibility over optimization.
+For the current narrow primitive-plus-first-verifier phase, prefer correctness
+and measured layout visibility over optimization.
 
 ## Roadmap / Phases
 
 - Initialization: workspace scaffold, docs, CLI, placeholders, tests
-- Stage 1 / Week 1: current phase; Midnight-backed BN254 `fp add` / `fp mul`, minimal G1 addition, arkworks sanity checks, layout visibility
+- Stage 1 / Week 1: Midnight-backed BN254 `fp add` / `fp mul`, minimal G1 addition, arkworks sanity checks, layout visibility
 - Stage 1 / Week 2 slice 1: BN254 `fp2` arithmetic over the existing Midnight-backed `AssignedFp` layer, with measured add/mul/square costs
 - Stage 1 / Week 2 slice 2: minimal BN254 G2 affine assignment, equality, negation, and twist on-curve validation
 - Stage 1 / Week 2 slice 3: narrow BN254 G2 Jacobian projective embedding, negation, doubling, incomplete addition, and cost visibility
 - Stage 1 / early Week 3 slice: BN254 `fp6` arithmetic over the existing `AssignedFp2` layer, with measured add/mul/square costs
 - Stage 1 / Week 3 slice: BN254 `fp12` arithmetic over the existing `AssignedFp6` layer, with measured add/mul/square costs
 - Stage 1 / Week 3 slice: BN254 G2 `double_with_line` / `mixed_add_with_line` extraction with Miller-ready sparse coefficient layout
+- Stage 1 / Week 4 slice: narrow pairing core with real Miller loop, final exponentiation, and verifier-shaped pairing check
+- Stage 1 / Week 5 slice: first narrow Groth16 BN254 verifier path with real fixtures and one end-to-end verifier equation reduction
 - Later pairing work: foreign field and pairing-related gadget research
 - Later wrapper verifier work: broader Groth16 verifier logic inside the outer proof system
 - Possible Cardano integration: ecosystem-specific packaging, artifacts, and engineering constraints

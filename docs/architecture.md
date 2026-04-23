@@ -1,5 +1,20 @@
 # Architecture
 
+## When To Read This Document
+
+Read this document when you need crate ownership, data flow, or boundary
+clarity. If you only need a fast repo snapshot, start with `README.md`; if you
+need binding task constraints or the fastest code-reading order, start with
+`AGENTS.md`.
+
+Fast path through this document:
+
+1. `Purpose`
+2. `Intended Data Flow`
+3. `Why Circuits and Backends Are Separate`
+4. the specific BN254 section that matches your task
+5. `Current Architectural Contracts`
+
 ## Purpose
 
 This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer plus the first narrow verifier slice: Week 1 delivered Fp and minimal G1 support, Week 2 / Week 3 added the first Fp2/Fp6/Fp12 and narrow G2 slices, Week 4 reached the pairing core through the real Miller loop, final exponentiation, and a narrow pairing-product check, and Week 5 now layers real snarkjs proof/VK parsing, IC linear combination, and one end-to-end Groth16 BN254 verification path on top. It still does not implement subgroup checks, broad scalar-multiplication APIs, broad verifier-facing pairing APIs, generalized verifier orchestration, or a production wrapper circuit.
@@ -225,3 +240,6 @@ The current skeleton defines:
 - a canonical primitive registry in `wrapper-circuits/src/planning.rs` that drives measured primitive metadata for CLI reporting and benchmark-info output
 
 These contracts are intentionally conservative and meant to support staged development rather than predict final cryptographic APIs in detail.
+
+For stage boundaries, pair this document with `docs/roadmap.md`. For
+file-by-file loading order, pair it with `AGENTS.md`.
