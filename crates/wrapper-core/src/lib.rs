@@ -28,8 +28,15 @@ pub use metadata::{
 pub use output::{
   ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
   ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts,
+  PlannedGroth16G1PointJson, PlannedGroth16G2PointJson, PlannedOuterGroth16ArtifactBundle,
+  PlannedOuterGroth16ProofJson, PlannedOuterGroth16VerificationKeyJson,
+  ProducedGroth16G1PointJson, ProducedGroth16G2PointJson, ProducedOuterGroth16ArtifactBundle,
+  ProducedOuterGroth16ProofJson, ProducedOuterGroth16VerificationKeyJson,
 };
-pub use package::{WrapperExecutionPackage, WrapperStatement, WrapperWitnessInput};
+pub use package::{
+  OuterStatementContract, OuterStatementContractError, OuterStatementSemantics, WrapperExecutionPackage,
+  WrapperStatement, WrapperWitnessInput,
+};
 pub use phase::{ProjectOverview, ProjectPhase, ProjectStatusReport};
 pub use statement::{NamedPublicInput, NamedPublicInputs};
 

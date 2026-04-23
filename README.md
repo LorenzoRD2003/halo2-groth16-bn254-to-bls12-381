@@ -20,8 +20,13 @@ What the repository currently contains:
 - A narrow Week 4 pairing core: real Miller loop, final exponentiation, and verifier-shaped pairing check.
 - A first Week 5 Groth16 BN254 verifier slice with real `snarkjs` proof/VK/public-input parsing, verifier-only `vk_x` accumulation, and one end-to-end pairing-product-check path.
 - Generic `snarkjs` Groth16 BN254 artifact-set loading in `wrapper-backends`, including named public-input views when the caller supplies semantic names.
+- A generic `OuterGroth16Backend` contract plus a placeholder `PlannedGroth16Bls12381Backend` that materializes the planned outer artifact bundle from a wrapper execution package.
+- A real Halo2/Midnight outer wrapper circuit in `wrapper-circuits` that reuses the landed narrow Groth16 BN254 verifier slice and exposes the frozen outer statement as public inputs.
 - Domain-level wrapper planning and execution-package modeling in `wrapper-core`, including `WrapperJob`, `WrapperExecutionPackage`, expected outer artifact shapes, and stub execution results.
 - The expected outer artifact model now includes explicit `snarkjs`-like payload conventions for Groth16 BLS12-381 output artifacts, including planned `proof.json` keys `pi_a/pi_b/pi_c` and verification-key keys such as `nPublic` and `IC`.
+- The expected outer artifact model now also includes a `bundle_template` with placeholder `snarkjs`-like payloads for `proof.json`, `public.json`, and `verification_key.json`, so the future output contract is explicit even before the real outer prover exists.
+- The current placeholder outer backend now materializes a partial outer bundle more honestly: `public.json` is real, `verification_key.json` is emitted as a skeleton with placeholder coordinates, and `proof.json` remains absent until a real outer prover exists.
+- The selected concrete outer backend lane now treats the Halo2/Midnight outer circuit as canonical and can adapt raw artifacts into that circuit, but real Groth16 BLS12-381 setup/prove/verify is still blocked on a missing prover/serializer path for that circuit.
 - A real Semaphore Groth16 BN254 fixture under `crates/wrapper-tests/fixtures/groth16/semaphore/` used to validate the artifact-set -> job -> package -> stub-execution lane on an ECC-heavy application circuit.
 - Contributor-oriented documentation covering architecture, roadmap, and initial design decisions.
 - A `wrapper-cli` binary with honest developer commands for environment inspection, configuration validation, primitive reporting, and narrow layout profiling.
@@ -45,6 +50,8 @@ Use the shortest route that matches the task:
 - Groth16 verifier slice: `crates/wrapper-circuits/src/groth16.rs` -> `crates/wrapper-backends/src/snarkjs.rs` -> `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/README.md`
 - Wrapper planning / package flow: `crates/wrapper-backends/src/groth16.rs` -> `crates/wrapper-core/src/job.rs` -> `crates/wrapper-core/src/package.rs` -> `crates/wrapper-core/src/output.rs` -> `crates/wrapper-core/src/execution.rs`
 - Semaphore migration fixture: `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `crates/wrapper-tests/src/lib.rs` -> `crates/wrapper-cli/src/main.rs`
+- Real `.circom` integration plan: `docs/real-circom-wrapper-integration-plan.md`
+- Outer prover strategy: `docs/outer-prover-strategy-plan.md`
 - Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/final-exponentiation-audit.md`
 - Layout profiling / optimization: `crates/wrapper-circuits/src/groth16/profiling.rs` -> `crates/wrapper-cli/src/main.rs` -> `docs/profiling.md`
 - Scope / stage boundaries: `AGENTS.md` `Current Phase and Scope Boundaries` -> `docs/roadmap.md`
@@ -56,6 +63,8 @@ Top-level doc roles:
 - `docs/architecture.md`: ownership boundaries and current implementation shape
 - `docs/roadmap.md`: stage intent and explicit non-goals
 - `docs/profiling.md`: how to measure layout-cost changes
+- `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
+- `docs/outer-prover-strategy-plan.md`: decision plan for choosing the real prover/setup/verification path for the Halo2/Midnight outer wrapper circuit
 
 ## Planned Architecture
 
@@ -82,6 +91,7 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 │   ├── benchmarking.md
 │   ├── final-exponentiation-audit.md
 │   ├── groth16-optimization-summary.md
+│   ├── outer-prover-strategy-plan.md
 │   ├── profiling.md
 │   ├── roadmap.md
 │   └── decisions/0001-initial-workspace-structure.md

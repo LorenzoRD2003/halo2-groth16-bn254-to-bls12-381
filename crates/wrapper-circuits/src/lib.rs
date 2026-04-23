@@ -77,7 +77,10 @@ pub use groth16::{
   Groth16IcAccumulatorCircuit, Groth16VerifierError, groth16_accumulate_ic, groth16_verify,
 };
 pub use metrics::{CostEstimate, LayoutMetrics};
-pub use outer::{CircuitBuildStatus, OuterWrapperCircuit};
+pub use outer::{
+  CircuitBuildStatus, OuterStatementInput, OuterStatementSemantics, OuterWrapperCircuit,
+  OuterWrapperCircuitInput, build_outer_wrapper_circuit,
+};
 pub use planning::{
   CircuitPlanningView, PRIMITIVE_COUNT, PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,
   PrimitiveDefinition, primitive_definitions,

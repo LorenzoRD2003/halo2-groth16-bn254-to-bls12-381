@@ -24,6 +24,14 @@ pub enum WrapperError {
   /// The requested feature is intentionally unavailable in the current stage.
   #[error("feature not implemented in current phase: {0}")]
   NotImplemented(&'static str),
+  /// One input violated the current wrapper contract.
+  #[error("invalid {context}: {reason}")]
+  InvalidInput {
+    /// Which boundary rejected the input.
+    context: &'static str,
+    /// Human-readable explanation of the rejection.
+    reason: String,
+  },
   /// Configuration was invalid.
   #[error(transparent)]
   Config(#[from] ConfigError),

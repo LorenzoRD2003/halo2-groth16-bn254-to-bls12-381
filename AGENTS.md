@@ -46,6 +46,8 @@ Implemented in scope today:
 - verifier-only BN254 G1 IC accumulation using fixed public-input scalars over the existing Midnight G1 chip
 - real snarkjs Groth16 BN254 JSON parsing in `wrapper-backends/src/snarkjs.rs`
 - generic snarkjs Groth16 BN254 artifact-set loading in `wrapper-backends/src/groth16.rs`
+- outer Groth16 backend contracts in `wrapper-backends/src/outer.rs`
+- a real Halo2/Midnight outer wrapper circuit in `wrapper-circuits/src/outer/`
 - domain-level wrapper-job planning in `wrapper-core/src/job.rs`
 - serializable wrapper execution packages in `wrapper-core/src/package.rs`
 - expected outer Groth16 BLS12-381 output-artifact modeling in `wrapper-core/src/output.rs`
@@ -83,7 +85,13 @@ Week 5 verifier-memory notes:
 - the current generic artifact-set path is `snarkjs artifacts -> Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage -> WrapperExecutionResult`
 - the current target wrapper experiment is planned as `Groth16Bn254 -> Groth16Bls12_381`, but only as metadata / planning / stub execution; no outer proof is synthesized yet
 - the current expected outer artifact model is intentionally `snarkjs`-like: proof keys such as `pi_a/pi_b/pi_c`, verification-key keys such as `nPublic` / `IC`, and JSON decimal-string encodings are modeled explicitly even though the real outer backend is not implemented yet
+- the current stub execution result also exposes a placeholder `bundle_template` for the expected outer `proof.json`, `public.json`, and `verification_key.json` payloads
 - the current CLI surfaces for that lane are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, and `execute-wrapper-stub`
+- the current placeholder outer backend is `PlannedGroth16Bls12381Backend`, which materializes the planned output bundle shape but does not generate a real proof
+- the selected concrete outer backend lane is still named `ArkworksGroth16Bls12381Backend`, but it now treats the Halo2/Midnight outer circuit as canonical rather than assuming a second circuit implementation in arkworks
+- the current outer backend lane can now adapt artifact bundles into the canonical outer circuit input, build a real outer circuit, plan setup/proof outputs, and validate produced proof/VK shapes
+- the remaining blocker for real outer artifacts is now a missing concrete prover/serializer for the Halo2/Midnight outer circuit, not a missing second circuit implementation in another stack
+- the prover-strategy design pass for that blocker lives in `docs/outer-prover-strategy-plan.md`
 
 ## Quick Context Routes
 
@@ -118,6 +126,23 @@ If you need the current Semaphore migration fixture context:
 2. `crates/wrapper-tests/src/lib.rs`
 3. `crates/wrapper-backends/src/groth16.rs`
 4. `crates/wrapper-cli/src/main.rs`
+
+If you need the remaining path to a real `.circom` end-to-end wrapper flow:
+
+1. `docs/outer-prover-strategy-plan.md`
+2. `docs/real-circom-wrapper-integration-plan.md`
+3. `crates/wrapper-backends/src/outer.rs`
+4. `crates/wrapper-circuits/src/outer/mod.rs`
+5. `crates/wrapper-core/src/output.rs`
+6. `crates/wrapper-core/src/execution.rs`
+
+If you need outer wrapper circuit context:
+
+1. `crates/wrapper-circuits/src/outer/mod.rs`
+2. `crates/wrapper-circuits/src/outer/input.rs`
+3. `crates/wrapper-circuits/src/outer/statement.rs`
+4. `crates/wrapper-backends/src/outer.rs`
+5. `docs/outer-prover-strategy-plan.md`
 
 If you need pairing-core / final-exponentiation context:
 
@@ -169,11 +194,14 @@ When you need to build context quickly, read in this order:
 13. `crates/wrapper-circuits/src/bn254/tests/support.rs`
 14. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
 15. `crates/wrapper-circuits/src/groth16/profiling.rs`
-16. `crates/wrapper-backends/src/groth16.rs`
-17. `crates/wrapper-core/src/job.rs`, `package.rs`, `output.rs`, `execution.rs`
-18. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
-19. `docs/profiling.md`
-20. `docs/final-exponentiation-audit.md`
+16. `crates/wrapper-circuits/src/outer/mod.rs`
+17. `crates/wrapper-backends/src/groth16.rs`
+18. `crates/wrapper-backends/src/outer.rs`
+19. `crates/wrapper-core/src/job.rs`, `package.rs`, `output.rs`, `execution.rs`
+20. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
+21. `docs/outer-prover-strategy-plan.md`
+22. `docs/profiling.md`
+23. `docs/final-exponentiation-audit.md`
 
 This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
 
@@ -188,6 +216,8 @@ Use each top-level doc for one job:
 - `docs/profiling.md`: how to measure layout cost and compare optimization baselines
 - `docs/benchmarking.md`: benchmark naming, bench-info wiring, and benchmark/reporting sync rules
 - `docs/final-exponentiation-audit.md`: current hard-part chain, measured hotspot split, and next optimization targets
+- `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
+- `docs/outer-prover-strategy-plan.md`: technical decision plan for choosing the real prover/setup/verification path for the canonical Halo2/Midnight outer circuit
 
 When adding a new major doc, update this list and at least one context route so
 future agents know when to read it.
@@ -204,6 +234,7 @@ future agents know when to read it.
 - `docs/benchmarking.md`: benchmark structure and conventions
 - `docs/profiling.md`: reproducible layout-profiling workflow for the current Groth16 slice
 - `docs/final-exponentiation-audit.md`: code-level final-exponentiation chain, sub-block metrics, and next optimization targets
+- `docs/outer-prover-strategy-plan.md`: strategy document for the remaining prover/backend decision on the outer Halo2/Midnight circuit
 - `docs/decisions/0001-initial-workspace-structure.md`: ADR for the workspace split
 
 ## Crate Responsibilities
@@ -219,6 +250,7 @@ future agents know when to read it.
 `wrapper-circuits`
 
 - Own Halo2-facing code, Midnight integration, circuit planning, and primitive gadget boundaries.
+- Own the canonical outer wrapper circuit under `src/outer/`; backend crates may adapt inputs into that circuit but must not define a second competing circuit source of truth.
 - Currently owns the BN254 `AssignedFp`, `AssignedFp2`, `AssignedFp6`, `AssignedFp12`, `AssignedG1`, `AssignedG2Affine`, narrow `AssignedG2Projective`, Miller-path `AssignedG2MillerPoint`, `AssignedG2LineCoeffs`, and `AssignedMillerAccumulator` circuit-backed layer.
 - Keeps the active BN254 primitive implementation under `src/bn254/`, split by concern instead of one monolithic file.
 - The current `g2/` subtree is split by model:

@@ -83,12 +83,39 @@ Today it also owns:
 - generic `snarkjs` Groth16 BN254 artifact-set parsing
 - a dedicated `ArtifactSetLoader` contract for complete `proof + public + vk` bundles
 - bundle-to-wrapper-job / package adapters for planning and fixture-driven experiments
+- an `OuterGroth16Backend` contract for future outer-proof production
+- a planning-only Groth16 BLS12-381 backend that materializes the planned output bundle shape
+- a selected concrete outer backend lane, `ArkworksGroth16Bls12381Backend`, which currently treats the Halo2/Midnight outer circuit as canonical while leaving real Groth16 BLS12-381 setup/prove/verify implementation for later steps
 
 The current expected outer-wrapper artifact model is intentionally
 `snarkjs`-like even though the real outer backend is still undecided. In
 particular, the planned Groth16 BLS12-381 output shape now records expected
 top-level proof keys `pi_a`, `pi_b`, `pi_c` and verification-key keys such as
-`nPublic` and `IC`, plus the expected point encodings for those fields.
+`nPublic` and `IC`, plus the expected point encodings for those fields. The
+stub execution result also carries a placeholder `bundle_template` so future
+implementors can see the intended payload skeleton for proof, public inputs,
+and verification key in one place. The current placeholder outer backend now
+materializes that bundle partially: `public_inputs` are real, the verification
+key is present as a skeleton, and the proof payload remains absent until a real
+outer prover exists.
+
+The selected concrete outer lane now treats the Halo2/Midnight outer circuit as
+canonical while still targeting Groth16 BLS12-381 output artifacts.
+That choice is encapsulated inside `wrapper-backends`; `wrapper-core` still
+only sees generic package, statement, and artifact-shape contracts.
+Current assumptions for that lane:
+
+- the outer circuit implementation lives in Halo2/Midnight and remains the only circuit source of truth
+- one Groth16 CRS per outer circuit configuration
+- setup output will later be serialized once and reused across proofs for the same circuit configuration
+- produced artifacts must remain compatible with the current `snarkjs`-like wrapper output model: `pi_a/pi_b/pi_c`, `protocol`, `curve`, `nPublic`, `IC`, and decimal-string point encodings
+- proving/verification backend details must not leak into `wrapper-core`
+
+The next unresolved architectural question is therefore not "which circuit
+stack owns the outer wrapper?" but "which prover/setup/verification backend can
+materialize Groth16 BLS12-381 artifacts for the canonical Halo2/Midnight outer
+circuit?" That design pass is tracked in
+`docs/outer-prover-strategy-plan.md`.
 
 When an application wants semantic names for a `snarkjs` public-input array,
 that naming should stay at the domain or fixture layer. Backend parsing should
@@ -280,4 +307,8 @@ The current skeleton defines:
 These contracts are intentionally conservative and meant to support staged development rather than predict final cryptographic APIs in detail.
 
 For stage boundaries, pair this document with `docs/roadmap.md`. For
-file-by-file loading order, pair it with `AGENTS.md`.
+file-by-file loading order, pair it with `AGENTS.md`. For the remaining
+implementation path from real `.circom` artifacts to a real outer proof, pair
+it with `docs/real-circom-wrapper-integration-plan.md`. For the remaining
+prover/backend decision on the canonical outer circuit, pair it with
+`docs/outer-prover-strategy-plan.md`.

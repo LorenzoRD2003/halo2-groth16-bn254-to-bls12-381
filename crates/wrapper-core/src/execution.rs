@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
   ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
-  ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, WrapperExecutionPackage,
+  ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, PlannedOuterGroth16ArtifactBundle,
+  WrapperExecutionPackage,
 };
 
 /// High-level outcome of a wrapper execution attempt.
@@ -96,6 +97,12 @@ impl WrapperExecutionPackage {
         true,
       ),
       self.statement.clone(),
+      PlannedOuterGroth16ArtifactBundle::placeholder(
+        self.job.identifier.clone(),
+        "groth16",
+        "bls12-381",
+        &self.statement,
+      ),
       vec![
         "proof artifact shape is planned to follow a Groth16-style external bundle".to_owned(),
         "public-input artifact is planned to follow the current snarkjs-style JSON array convention".to_owned(),
@@ -109,30 +116,8 @@ impl WrapperExecutionPackage {
   pub fn execute_stub(&self) -> WrapperExecutionResult {
     let mut notes = Vec::new();
 
-    if self.job.public_input_count != self.statement.public_inputs.entries.len() {
-      notes.push("job public-input count does not match wrapper statement arity".to_owned());
-      return WrapperExecutionResult::new(
-        self.job.identifier.clone(),
-        WrapperExecutionStatus::Rejected,
-        false,
-        None,
-        notes,
-      );
-    }
-
-    if self.statement.public_inputs.field_order() != self.witness.verifier_public_inputs.field_order() {
-      notes.push("wrapper statement fields do not align with witness verifier public inputs".to_owned());
-      return WrapperExecutionResult::new(
-        self.job.identifier.clone(),
-        WrapperExecutionStatus::Rejected,
-        false,
-        None,
-        notes,
-      );
-    }
-
-    if self.witness.verification_key_ic_count != self.job.public_input_count + 1 {
-      notes.push("inner verification-key IC count does not match Groth16 public-input arity".to_owned());
+    if let Err(error) = self.validate_outer_statement_contract() {
+      notes.push(error.to_string());
       return WrapperExecutionResult::new(
         self.job.identifier.clone(),
         WrapperExecutionStatus::Rejected,

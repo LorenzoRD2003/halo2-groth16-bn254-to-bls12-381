@@ -19,13 +19,14 @@ pub fn example_config() -> &'static str {
 #[cfg(test)]
 mod tests {
   use wrapper_backends::{
-    ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle,
-    SnarkjsGroth16Bn254ArtifactSetLoader,
-    parse_snarkjs_groth16_bn254_bundle_with_names,
+    ArkworksGroth16Bls12381Backend, ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle,
+    OuterCircuitInputArtifacts, OuterGroth16Backend, PlannedGroth16Bls12381Backend,
+    SnarkjsGroth16Bn254ArtifactSetLoader, parse_snarkjs_groth16_bn254_bundle_with_names,
   };
-  use wrapper_core::{NamedPublicInput, NamedPublicInputs, ProjectConfig};
+  use wrapper_core::{NamedPublicInput, NamedPublicInputs, ProjectConfig, ProofSystemKind};
   use wrapper_circuits::{
-    CircuitPlanningView, NativeField, groth16_fixture_raw, groth16_fixture_typed, host_verify,
+    CircuitBuildStatus, CircuitPlanningView, NativeField, groth16_fixture_raw, groth16_fixture_typed,
+    host_verify,
   };
 
   use super::example_config;
@@ -168,5 +169,109 @@ mod tests {
         ),
       ])
     );
+  }
+
+  #[test]
+  fn semaphore_execution_package_can_materialize_placeholder_outer_bundle() {
+    let bundle = load_semaphore_fixture();
+    let package = bundle.build_bls12_381_execution_package();
+    let backend = PlannedGroth16Bls12381Backend;
+    let planned_output = backend
+      .prepare(&package)
+      .expect("planned outer backend should accept the Semaphore package");
+    let outer_bundle = planned_output.bundle_template;
+
+    assert_eq!(outer_bundle.proof_system.kind, ProofSystemKind::Groth16Bls12_381);
+    assert_eq!(outer_bundle.proof_artifact, "semaphore-depth-10-wrapper-proof.json");
+    assert_eq!(outer_bundle.public_inputs.len(), 4);
+    assert_eq!(outer_bundle.public_inputs_artifact, "semaphore-depth-10-wrapper-public.json");
+    assert_eq!(
+      outer_bundle.verification_key_artifact,
+      "semaphore-depth-10-wrapper-verification-key.json"
+    );
+    assert!(outer_bundle.proof.is_none());
+    let verification_key = outer_bundle
+      .verification_key
+      .as_ref()
+      .expect("placeholder outer backend should materialize a VK skeleton");
+    assert_eq!(verification_key.protocol, "groth16");
+    assert_eq!(verification_key.curve, "bls12-381");
+    assert_eq!(verification_key.n_public, 4);
+    assert_eq!(verification_key.ic.len(), 5);
+  }
+
+  #[test]
+  fn semaphore_execution_package_can_prepare_selected_arkworks_outer_lane() {
+    let bundle = load_semaphore_fixture();
+    let package = bundle.build_bls12_381_execution_package();
+    let backend = ArkworksGroth16Bls12381Backend;
+    let planned_output = backend
+      .prepare(&package)
+      .expect("selected arkworks backend should accept the Semaphore package");
+
+    assert!(planned_output
+      .notes
+      .iter()
+      .any(|note| note.contains("selected outer backend stack: halo2/midnight outer wrapper lane targeting Groth16 BLS12-381 artifacts")));
+    assert_eq!(backend.metadata().curve, "bls12-381");
+  }
+
+  #[test]
+  fn canonical_fixture_package_can_adapt_into_arkworks_outer_input() {
+    let bundle = load_groth16_fixture();
+    let package = bundle.build_bls12_381_execution_package();
+    let backend = ArkworksGroth16Bls12381Backend;
+    let adapted = backend
+      .adapt_input(
+        &package,
+        OuterCircuitInputArtifacts::new(
+          Some(groth16_fixture_raw::proof_json()),
+          Some(groth16_fixture_raw::verification_key_json()),
+        ),
+      )
+      .expect("arkworks backend should adapt the canonical fixture package");
+
+    assert_eq!(adapted.source_artifact_id, "circom-multiplier2");
+    assert_eq!(adapted.inner_verifier_public_inputs, adapted.outer_statement.public_inputs);
+    assert_eq!(adapted.outer_statement.field_names, vec!["public_input_0".to_owned()]);
+  }
+
+  #[test]
+  fn canonical_fixture_package_can_build_outer_circuit_through_backend() {
+    let bundle = load_groth16_fixture();
+    let package = bundle.build_bls12_381_execution_package();
+    let backend = ArkworksGroth16Bls12381Backend;
+    let circuit = backend
+      .build_outer_circuit(
+        &package,
+        OuterCircuitInputArtifacts::new(
+          Some(groth16_fixture_raw::proof_json()),
+          Some(groth16_fixture_raw::verification_key_json()),
+        ),
+      )
+      .expect("backend should build a ready outer circuit for the canonical fixture");
+
+    assert_eq!(circuit.build_status(), CircuitBuildStatus::VerifierIntegrated);
+    circuit
+      .assert_ready_for_synthesis()
+      .expect("backend-built outer circuit should be ready for synthesis");
+  }
+
+  #[test]
+  fn semaphore_fixture_package_can_build_outer_circuit_through_backend() {
+    let bundle = load_semaphore_fixture();
+    let package = bundle.build_bls12_381_execution_package();
+    let backend = ArkworksGroth16Bls12381Backend;
+    let circuit = backend
+      .build_outer_circuit(
+        &package,
+        OuterCircuitInputArtifacts::new(
+          Some(include_bytes!("../fixtures/groth16/semaphore/proof.json")),
+          Some(include_bytes!("../fixtures/groth16/semaphore/verification_key.json")),
+        ),
+      )
+      .expect("backend should build a ready outer circuit for the Semaphore fixture");
+
+    assert_eq!(circuit.build_status(), CircuitBuildStatus::VerifierIntegrated);
   }
 }

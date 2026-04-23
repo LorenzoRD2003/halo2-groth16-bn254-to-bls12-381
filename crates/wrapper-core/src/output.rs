@@ -4,6 +4,330 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ProofSystemDescriptor, WrapperStatement};
 
+/// Placeholder G1 point payload using `snarkjs`-like projective JSON shape.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PlannedGroth16G1PointJson {
+  /// Projective x-coordinate.
+  pub x: String,
+  /// Projective y-coordinate.
+  pub y: String,
+  /// Projective z-coordinate.
+  pub z: String,
+}
+
+impl PlannedGroth16G1PointJson {
+  /// Builds a placeholder G1 point from a label stem.
+  #[must_use]
+  pub fn placeholder(label: impl Into<String>) -> Self {
+    let label = label.into();
+    Self {
+      x: format!("<{}-x>", label),
+      y: format!("<{}-y>", label),
+      z: format!("<{}-z>", label),
+    }
+  }
+}
+
+/// Placeholder G2 point payload using `snarkjs`-like projective JSON shape.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PlannedGroth16G2PointJson {
+  /// Projective x-coordinate over Fq2.
+  pub x: [String; 2],
+  /// Projective y-coordinate over Fq2.
+  pub y: [String; 2],
+  /// Projective z-coordinate over Fq2.
+  pub z: [String; 2],
+}
+
+impl PlannedGroth16G2PointJson {
+  /// Builds a placeholder G2 point from a label stem.
+  #[must_use]
+  pub fn placeholder(label: impl Into<String>) -> Self {
+    let label = label.into();
+    Self {
+      x: [format!("<{}-x-c0>", label), format!("<{}-x-c1>", label)],
+      y: [format!("<{}-y-c0>", label), format!("<{}-y-c1>", label)],
+      z: [format!("<{}-z-c0>", label), format!("<{}-z-c1>", label)],
+    }
+  }
+}
+
+/// Planned JSON payload for the future outer Groth16 proof artifact.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PlannedOuterGroth16ProofJson {
+  /// Protocol label.
+  pub protocol: String,
+  /// Curve label.
+  pub curve: String,
+  /// Proof point `A`.
+  pub pi_a: PlannedGroth16G1PointJson,
+  /// Proof point `B`.
+  pub pi_b: PlannedGroth16G2PointJson,
+  /// Proof point `C`.
+  pub pi_c: PlannedGroth16G1PointJson,
+}
+
+impl PlannedOuterGroth16ProofJson {
+  /// Builds a placeholder outer-proof payload.
+  #[must_use]
+  pub fn placeholder(protocol: impl Into<String>, curve: impl Into<String>) -> Self {
+    Self {
+      protocol: protocol.into(),
+      curve: curve.into(),
+      pi_a: PlannedGroth16G1PointJson::placeholder("outer-proof-pi-a"),
+      pi_b: PlannedGroth16G2PointJson::placeholder("outer-proof-pi-b"),
+      pi_c: PlannedGroth16G1PointJson::placeholder("outer-proof-pi-c"),
+    }
+  }
+}
+
+/// Planned JSON payload for the future outer Groth16 verification-key artifact.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PlannedOuterGroth16VerificationKeyJson {
+  /// Protocol label.
+  pub protocol: String,
+  /// Curve label.
+  pub curve: String,
+  /// Number of public inputs.
+  #[serde(rename = "nPublic")]
+  pub n_public: usize,
+  /// Verification-key point `alpha`.
+  #[serde(rename = "vk_alpha_1")]
+  pub vk_alpha_1: PlannedGroth16G1PointJson,
+  /// Verification-key point `beta`.
+  #[serde(rename = "vk_beta_2")]
+  pub vk_beta_2: PlannedGroth16G2PointJson,
+  /// Verification-key point `gamma`.
+  #[serde(rename = "vk_gamma_2")]
+  pub vk_gamma_2: PlannedGroth16G2PointJson,
+  /// Verification-key point `delta`.
+  #[serde(rename = "vk_delta_2")]
+  pub vk_delta_2: PlannedGroth16G2PointJson,
+  /// IC table with the expected Groth16 arity relation.
+  #[serde(rename = "IC")]
+  pub ic: Vec<PlannedGroth16G1PointJson>,
+}
+
+impl PlannedOuterGroth16VerificationKeyJson {
+  /// Builds a placeholder outer verification-key payload.
+  #[must_use]
+  pub fn placeholder(
+    protocol: impl Into<String>,
+    curve: impl Into<String>,
+    public_input_count: usize,
+  ) -> Self {
+    Self {
+      protocol: protocol.into(),
+      curve: curve.into(),
+      n_public: public_input_count,
+      vk_alpha_1: PlannedGroth16G1PointJson::placeholder("outer-vk-alpha-1"),
+      vk_beta_2: PlannedGroth16G2PointJson::placeholder("outer-vk-beta-2"),
+      vk_gamma_2: PlannedGroth16G2PointJson::placeholder("outer-vk-gamma-2"),
+      vk_delta_2: PlannedGroth16G2PointJson::placeholder("outer-vk-delta-2"),
+      ic: (0..=public_input_count)
+        .map(|index| PlannedGroth16G1PointJson::placeholder(format!("outer-vk-ic-{index}")))
+        .collect(),
+    }
+  }
+}
+
+/// Planned/materialized outer Groth16 artifact bundle before real proving exists.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PlannedOuterGroth16ArtifactBundle {
+  /// Output proof system represented by the bundle.
+  pub proof_system: ProofSystemDescriptor,
+  /// Logical proof artifact identifier.
+  pub proof_artifact: String,
+  /// Materialized proof payload when available.
+  pub proof: Option<PlannedOuterGroth16ProofJson>,
+  /// Logical public-input artifact identifier.
+  pub public_inputs_artifact: String,
+  /// Planned public-input payload.
+  pub public_inputs: Vec<String>,
+  /// Logical verification-key artifact identifier.
+  pub verification_key_artifact: String,
+  /// Materialized verification-key payload when available.
+  pub verification_key: Option<PlannedOuterGroth16VerificationKeyJson>,
+  /// Notes about materialization state.
+  pub notes: Vec<String>,
+}
+
+impl PlannedOuterGroth16ArtifactBundle {
+  /// Builds an outer artifact bundle from explicit payloads.
+  #[must_use]
+  pub fn new(
+    proof_system: ProofSystemDescriptor,
+    proof_artifact: impl Into<String>,
+    proof: Option<PlannedOuterGroth16ProofJson>,
+    public_inputs_artifact: impl Into<String>,
+    public_inputs: Vec<String>,
+    verification_key_artifact: impl Into<String>,
+    verification_key: Option<PlannedOuterGroth16VerificationKeyJson>,
+    notes: Vec<String>,
+  ) -> Self {
+    Self {
+      proof_system,
+      proof_artifact: proof_artifact.into(),
+      proof,
+      public_inputs_artifact: public_inputs_artifact.into(),
+      public_inputs,
+      verification_key_artifact: verification_key_artifact.into(),
+      verification_key,
+      notes,
+    }
+  }
+
+  /// Builds a currently materializable outer artifact bundle from a wrapper statement.
+  #[must_use]
+  pub fn placeholder(
+    identifier: impl Into<String>,
+    protocol: impl Into<String>,
+    curve: impl Into<String>,
+    statement: &WrapperStatement,
+  ) -> Self {
+    let identifier = identifier.into();
+    let protocol = protocol.into();
+    let curve = curve.into();
+    Self {
+      proof_system: ProofSystemDescriptor {
+        kind: crate::ProofSystemKind::Groth16Bls12_381,
+        source: "planned-groth16-bls12-381-wrapper".to_owned(),
+      },
+      proof_artifact: format!("{identifier}-wrapper-proof.json"),
+      proof: None,
+      public_inputs_artifact: format!("{identifier}-wrapper-public.json"),
+      public_inputs: statement
+        .public_inputs
+        .entries
+        .iter()
+        .map(|entry| entry.value.clone())
+        .collect(),
+      verification_key_artifact: format!("{identifier}-wrapper-verification-key.json"),
+      verification_key: Some(PlannedOuterGroth16VerificationKeyJson::placeholder(
+        protocol.clone(),
+        curve.clone(),
+        statement.public_inputs.entries.len(),
+      )),
+      notes: vec![
+        format!("planned {protocol}/{curve} outer bundle preserves the wrapper public inputs"),
+        "proof payload remains absent until a real outer prover exists".to_owned(),
+        "verification-key payload is materialized as a skeleton with placeholder coordinates".to_owned(),
+      ],
+    }
+  }
+}
+
+/// Produced G1 point payload using the final `snarkjs`-like projective JSON shape.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProducedGroth16G1PointJson {
+  /// Projective x-coordinate.
+  pub x: String,
+  /// Projective y-coordinate.
+  pub y: String,
+  /// Projective z-coordinate.
+  pub z: String,
+}
+
+/// Produced G2 point payload using the final `snarkjs`-like projective JSON shape.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProducedGroth16G2PointJson {
+  /// Projective x-coordinate over Fq2.
+  pub x: [String; 2],
+  /// Projective y-coordinate over Fq2.
+  pub y: [String; 2],
+  /// Projective z-coordinate over Fq2.
+  pub z: [String; 2],
+}
+
+/// Produced JSON payload for a real outer Groth16 proof artifact.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProducedOuterGroth16ProofJson {
+  /// Protocol label.
+  pub protocol: String,
+  /// Curve label.
+  pub curve: String,
+  /// Proof point `A`.
+  pub pi_a: ProducedGroth16G1PointJson,
+  /// Proof point `B`.
+  pub pi_b: ProducedGroth16G2PointJson,
+  /// Proof point `C`.
+  pub pi_c: ProducedGroth16G1PointJson,
+}
+
+/// Produced JSON payload for a real outer Groth16 verification-key artifact.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProducedOuterGroth16VerificationKeyJson {
+  /// Protocol label.
+  pub protocol: String,
+  /// Curve label.
+  pub curve: String,
+  /// Number of public inputs.
+  #[serde(rename = "nPublic")]
+  pub n_public: usize,
+  /// Verification-key point `alpha`.
+  #[serde(rename = "vk_alpha_1")]
+  pub vk_alpha_1: ProducedGroth16G1PointJson,
+  /// Verification-key point `beta`.
+  #[serde(rename = "vk_beta_2")]
+  pub vk_beta_2: ProducedGroth16G2PointJson,
+  /// Verification-key point `gamma`.
+  #[serde(rename = "vk_gamma_2")]
+  pub vk_gamma_2: ProducedGroth16G2PointJson,
+  /// Verification-key point `delta`.
+  #[serde(rename = "vk_delta_2")]
+  pub vk_delta_2: ProducedGroth16G2PointJson,
+  /// IC table with the expected Groth16 arity relation.
+  #[serde(rename = "IC")]
+  pub ic: Vec<ProducedGroth16G1PointJson>,
+}
+
+/// Strict produced outer Groth16 artifact bundle emitted by a real backend.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProducedOuterGroth16ArtifactBundle {
+  /// Output proof system represented by the bundle.
+  pub proof_system: ProofSystemDescriptor,
+  /// Logical proof artifact identifier.
+  pub proof_artifact: String,
+  /// Produced proof payload.
+  pub proof: ProducedOuterGroth16ProofJson,
+  /// Logical public-input artifact identifier.
+  pub public_inputs_artifact: String,
+  /// Produced public-input payload.
+  pub public_inputs: Vec<String>,
+  /// Logical verification-key artifact identifier.
+  pub verification_key_artifact: String,
+  /// Produced verification-key payload.
+  pub verification_key: ProducedOuterGroth16VerificationKeyJson,
+  /// Notes about production/setup state.
+  pub notes: Vec<String>,
+}
+
+impl ProducedOuterGroth16ArtifactBundle {
+  /// Builds a produced outer artifact bundle from explicit payloads.
+  #[must_use]
+  pub fn new(
+    proof_system: ProofSystemDescriptor,
+    proof_artifact: impl Into<String>,
+    proof: ProducedOuterGroth16ProofJson,
+    public_inputs_artifact: impl Into<String>,
+    public_inputs: Vec<String>,
+    verification_key_artifact: impl Into<String>,
+    verification_key: ProducedOuterGroth16VerificationKeyJson,
+    notes: Vec<String>,
+  ) -> Self {
+    Self {
+      proof_system,
+      proof_artifact: proof_artifact.into(),
+      proof,
+      public_inputs_artifact: public_inputs_artifact.into(),
+      public_inputs,
+      verification_key_artifact: verification_key_artifact.into(),
+      verification_key,
+      notes,
+    }
+  }
+}
+
 /// Planned serialized shape for the outer proof artifact.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExpectedProofArtifactShape {
@@ -160,6 +484,8 @@ pub struct ExpectedWrapperArtifacts {
   pub verification_key_shape: ExpectedVerificationKeyArtifactShape,
   /// Public wrapper statement expected to match the emitted public-input artifact.
   pub statement: WrapperStatement,
+  /// Currently materializable outer artifact bundle.
+  pub bundle_template: PlannedOuterGroth16ArtifactBundle,
   /// Planning notes about the expected outputs.
   pub notes: Vec<String>,
 }
@@ -176,6 +502,7 @@ impl ExpectedWrapperArtifacts {
     verification_key_artifact: impl Into<String>,
     verification_key_shape: ExpectedVerificationKeyArtifactShape,
     statement: WrapperStatement,
+    bundle_template: PlannedOuterGroth16ArtifactBundle,
     notes: Vec<String>,
   ) -> Self {
     Self {
@@ -187,6 +514,7 @@ impl ExpectedWrapperArtifacts {
       verification_key_artifact: verification_key_artifact.into(),
       verification_key_shape,
       statement,
+      bundle_template,
       notes,
     }
   }
@@ -197,7 +525,9 @@ mod tests {
   use crate::{
     ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
     ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, NamedPublicInput,
-    NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind, WrapperStatement,
+    NamedPublicInputs, PlannedOuterGroth16ArtifactBundle, ProofSystemDescriptor, ProofSystemKind,
+    ProducedGroth16G1PointJson, ProducedGroth16G2PointJson, ProducedOuterGroth16ArtifactBundle,
+    ProducedOuterGroth16ProofJson, ProducedOuterGroth16VerificationKeyJson, WrapperStatement,
   };
 
   #[test]
@@ -254,6 +584,15 @@ mod tests {
         NamedPublicInput::new("x", "1"),
         NamedPublicInput::new("y", "2"),
       ])),
+      PlannedOuterGroth16ArtifactBundle::placeholder(
+        "test-artifact",
+        "groth16",
+        "bls12-381",
+        &WrapperStatement::new(NamedPublicInputs::new(vec![
+          NamedPublicInput::new("x", "1"),
+          NamedPublicInput::new("y", "2"),
+        ])),
+      ),
       vec![],
     );
 
@@ -263,5 +602,107 @@ mod tests {
     assert_eq!(artifacts.proof_shape.pi_a_key, "pi_a");
     assert_eq!(artifacts.verification_key_shape.ic_key, "IC");
     assert!(artifacts.proof_shape.snarkjs_like_naming);
+    assert_eq!(artifacts.bundle_template.public_inputs, vec!["1", "2"]);
+    assert!(artifacts.bundle_template.proof.is_none());
+    assert_eq!(
+      artifacts
+        .bundle_template
+        .verification_key
+        .as_ref()
+        .expect("bundle template should materialize a VK skeleton")
+        .n_public,
+      2
+    );
+    assert_eq!(
+      artifacts
+        .bundle_template
+        .verification_key
+        .as_ref()
+        .expect("bundle template should materialize a VK skeleton")
+        .ic
+        .len(),
+      3
+    );
+    assert_eq!(artifacts.bundle_template.proof_system.kind, ProofSystemKind::Groth16Bls12_381);
+  }
+
+  #[test]
+  fn produced_outer_bundle_requires_real_proof_and_verification_key() {
+    let bundle = ProducedOuterGroth16ArtifactBundle::new(
+      ProofSystemDescriptor {
+        kind: ProofSystemKind::Groth16Bls12_381,
+        source: "real-backend".to_owned(),
+      },
+      "proof.json",
+      ProducedOuterGroth16ProofJson {
+        protocol: "groth16".to_owned(),
+        curve: "bls12-381".to_owned(),
+        pi_a: ProducedGroth16G1PointJson {
+          x: "1".to_owned(),
+          y: "2".to_owned(),
+          z: "1".to_owned(),
+        },
+        pi_b: ProducedGroth16G2PointJson {
+          x: ["1".to_owned(), "0".to_owned()],
+          y: ["2".to_owned(), "0".to_owned()],
+          z: ["1".to_owned(), "0".to_owned()],
+        },
+        pi_c: ProducedGroth16G1PointJson {
+          x: "3".to_owned(),
+          y: "4".to_owned(),
+          z: "1".to_owned(),
+        },
+      },
+      "public.json",
+      vec!["1".to_owned(), "2".to_owned()],
+      "vk.json",
+      ProducedOuterGroth16VerificationKeyJson {
+        protocol: "groth16".to_owned(),
+        curve: "bls12-381".to_owned(),
+        n_public: 2,
+        vk_alpha_1: ProducedGroth16G1PointJson {
+          x: "1".to_owned(),
+          y: "2".to_owned(),
+          z: "1".to_owned(),
+        },
+        vk_beta_2: ProducedGroth16G2PointJson {
+          x: ["1".to_owned(), "0".to_owned()],
+          y: ["2".to_owned(), "0".to_owned()],
+          z: ["1".to_owned(), "0".to_owned()],
+        },
+        vk_gamma_2: ProducedGroth16G2PointJson {
+          x: ["3".to_owned(), "0".to_owned()],
+          y: ["4".to_owned(), "0".to_owned()],
+          z: ["1".to_owned(), "0".to_owned()],
+        },
+        vk_delta_2: ProducedGroth16G2PointJson {
+          x: ["5".to_owned(), "0".to_owned()],
+          y: ["6".to_owned(), "0".to_owned()],
+          z: ["1".to_owned(), "0".to_owned()],
+        },
+        ic: vec![
+          ProducedGroth16G1PointJson {
+            x: "1".to_owned(),
+            y: "2".to_owned(),
+            z: "1".to_owned(),
+          },
+          ProducedGroth16G1PointJson {
+            x: "3".to_owned(),
+            y: "4".to_owned(),
+            z: "1".to_owned(),
+          },
+          ProducedGroth16G1PointJson {
+            x: "5".to_owned(),
+            y: "6".to_owned(),
+            z: "1".to_owned(),
+          },
+        ],
+      },
+      vec![],
+    );
+
+    assert_eq!(bundle.proof.protocol, "groth16");
+    assert_eq!(bundle.verification_key.n_public, 2);
+    assert_eq!(bundle.verification_key.ic.len(), 3);
   }
 }
