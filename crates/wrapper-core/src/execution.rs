@@ -53,6 +53,7 @@ impl WrapperExecutionPackage {
   pub fn expected_output(&self) -> ExpectedWrapperArtifacts {
     ExpectedWrapperArtifacts::new(
       self.job.target.clone(),
+      None,
       format!("{}-wrapper-proof.json", self.job.identifier),
       ExpectedProofArtifactShape::new(
         "json",

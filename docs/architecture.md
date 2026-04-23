@@ -87,6 +87,12 @@ Today it also owns:
 - a planning-only Groth16 BLS12-381 backend that materializes the planned output bundle shape
 - a selected concrete outer backend lane, `ArkworksGroth16Bls12381Backend`, which currently treats the Halo2/Midnight outer circuit as canonical while leaving real Groth16 BLS12-381 setup/prove/verify implementation for later steps
 
+The repository now also contains a canonical R1CS line under
+`wrapper-circuits/src/r1cs/`, including deterministic lowering, canonical
+identity hashing, zkInterface-style export, and a first Arkworks adapter.
+That line should currently be treated as an alternate / future backend lane,
+not the critical path for the first real outer wrapper flow.
+
 The current expected outer-wrapper artifact model is intentionally
 `snarkjs`-like even though the real outer backend is still undecided. In
 particular, the planned Groth16 BLS12-381 output shape now records expected
@@ -116,6 +122,16 @@ stack owns the outer wrapper?" but "which prover/setup/verification backend can
 materialize Groth16 BLS12-381 artifacts for the canonical Halo2/Midnight outer
 circuit?" That design pass is tracked in
 `docs/outer-prover-strategy-plan.md`.
+
+The canonical R1CS line still matters strategically:
+
+- it is the long-term circuit-identity source
+- it provides an alternate backend path
+- it reduces future lock-in to one proving-system integration surface
+
+However, until the full non-native BN254 pairing core is lowered into canonical
+R1CS, it should not be treated as the delivery critical path for the first real
+`.circom` -> outer-wrapper end-to-end flow.
 
 When an application wants semantic names for a `snarkjs` public-input array,
 that naming should stay at the domain or fixture layer. Backend parsing should

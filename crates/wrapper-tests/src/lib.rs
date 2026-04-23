@@ -27,7 +27,9 @@ mod tests {
     CircuitBuildStatus, CircuitPlanningView, NativeField, groth16_fixture_raw,
     groth16_fixture_typed, host_verify,
   };
-  use wrapper_core::{NamedPublicInput, NamedPublicInputs, ProjectConfig, ProofSystemKind};
+  use wrapper_core::{
+    NamedPublicInput, NamedPublicInputs, OuterStatementSemantics, ProjectConfig, ProofSystemKind,
+  };
 
   use super::example_config;
 
@@ -172,6 +174,7 @@ mod tests {
       outer_bundle.verification_key_artifact,
       "semaphore-depth-10-wrapper-verification-key.json"
     );
+    assert_eq!(outer_bundle.canonical_circuit_identity, None);
     assert!(outer_bundle.proof.is_none());
     let verification_key = outer_bundle
       .verification_key
@@ -195,8 +198,31 @@ mod tests {
     assert!(planned_output
       .notes
       .iter()
-      .any(|note| note.contains("selected outer backend stack: halo2/midnight outer wrapper lane targeting Groth16 BLS12-381 artifacts")));
+      .any(|note| note.contains("selected outer backend stack: canonical R1CS -> arkworks Groth16 outer lane targeting Groth16 BLS12-381 artifacts")));
+    assert!(planned_output.notes.iter().any(|note| note.contains(
+      "outer statement contract is frozen to mirror ordered inner verifier public inputs"
+    )));
+    assert!(
+      planned_output
+        .notes
+        .iter()
+        .any(|note| note.contains("canonical circuit identity is not attached yet"))
+    );
     assert_eq!(backend.metadata().curve, "bls12-381");
+  }
+
+  #[test]
+  fn semaphore_execution_package_exposes_mirrored_outer_statement_contract() {
+    let bundle = load_semaphore_fixture();
+    let package = bundle.build_bls12_381_execution_package();
+    let contract = package
+      .validate_outer_statement_contract()
+      .expect("Semaphore package should satisfy the frozen outer-statement contract");
+
+    assert_eq!(contract.semantics, OuterStatementSemantics::MirrorInnerVerifierPublicInputs);
+    assert_eq!(contract.expected_outer_public_input_count, 4);
+    assert_eq!(contract.expected_inner_public_input_count, 4);
+    assert_eq!(contract.expected_verification_key_ic_count, 5);
   }
 
   #[test]
@@ -256,5 +282,31 @@ mod tests {
       .expect("backend should build a ready outer circuit for the Semaphore fixture");
 
     assert_eq!(circuit.build_status(), CircuitBuildStatus::VerifierIntegrated);
+  }
+
+  #[test]
+  fn semaphore_named_inputs_are_preserved_by_outer_input_adapter() {
+    let bundle = parse_snarkjs_groth16_bn254_bundle_with_names(
+      "semaphore-depth-10",
+      include_bytes!("../fixtures/groth16/semaphore/proof.json"),
+      include_bytes!("../fixtures/groth16/semaphore/public.json"),
+      include_bytes!("../fixtures/groth16/semaphore/verification_key.json"),
+      &SEMAPHORE_PUBLIC_INPUT_NAMES,
+    )
+    .expect("named Semaphore bundle should parse");
+    let package = bundle.build_bls12_381_execution_package();
+    let backend = ArkworksGroth16Bls12381Backend;
+    let adapted = backend
+      .adapt_input(
+        &package,
+        OuterCircuitInputArtifacts::new(
+          Some(include_bytes!("../fixtures/groth16/semaphore/proof.json")),
+          Some(include_bytes!("../fixtures/groth16/semaphore/verification_key.json")),
+        ),
+      )
+      .expect("arkworks backend should adapt the Semaphore package");
+
+    assert_eq!(adapted.outer_statement.field_names, SEMAPHORE_PUBLIC_INPUT_NAMES);
+    assert_eq!(adapted.outer_statement.public_inputs, adapted.inner_verifier_public_inputs);
   }
 }

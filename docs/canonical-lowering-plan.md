@@ -8,6 +8,12 @@ Optionally, we support **zkInterface** as a serialization and interoperability l
 
 This decision enables a **stable, auditable path** from Halo2/Midnight-style circuits to Groth16 (BLS12-381) proofs.
 
+Current repo posture:
+
+- canonical R1CS remains strategically important and implemented
+- but for the first real `.circom` -> outer-wrapper flow it should currently be
+  treated as an alternate / future backend lane, not the delivery critical path
+
 ---
 
 ## Motivation
@@ -174,7 +180,7 @@ The landed Phase 1 slice is intentionally narrower than a full Halo2 lowering
 path:
 
 - the canonical representation is a small internal R1CS data model in
-  `crates/wrapper-circuits/src/r1cs.rs`
+  `crates/wrapper-circuits/src/r1cs/`
 - linear combinations are canonicalized immediately by sorting terms by
   variable id, combining duplicates, dropping zero coefficients, and keeping
   the constant slot explicit
@@ -361,6 +367,12 @@ Important current scope note:
 - QAP generation is delegated entirely to Arkworks
 - Groth16 internals are delegated entirely to Arkworks
 - canonical R1CS remains the CRS-binding source of truth
+
+Current project positioning note:
+
+- this Arkworks R1CS adapter validates the canonical backend lane
+- it does not yet replace the direct Halo2/Midnight outer proving path as the
+  critical path for delivering the first real wrapper flow
 
 This phase still does **not** implement lookups, permutation arguments, or full
 Halo2/Midnight introspection.

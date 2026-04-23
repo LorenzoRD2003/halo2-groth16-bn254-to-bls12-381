@@ -27,6 +27,7 @@ What the repository currently contains:
 - The expected outer artifact model now also includes a `bundle_template` with placeholder `snarkjs`-like payloads for `proof.json`, `public.json`, and `verification_key.json`, so the future output contract is explicit even before the real outer prover exists.
 - The current placeholder outer backend now materializes a partial outer bundle more honestly: `public.json` is real, `verification_key.json` is emitted as a skeleton with placeholder coordinates, and `proof.json` remains absent until a real outer prover exists.
 - The selected concrete outer backend lane now treats the Halo2/Midnight outer circuit as canonical and can adapt raw artifacts into that circuit, but real Groth16 BLS12-381 setup/prove/verify is still blocked on a missing prover/serializer path for that circuit.
+- A canonical R1CS line now exists under `crates/wrapper-circuits/src/r1cs/`, including deterministic lowering, identity hashing, zkInterface-style export, and a first Arkworks adapter, but it should currently be treated as an alternate / future backend lane rather than the critical path for the real outer wrapper flow.
 - A real Semaphore Groth16 BN254 fixture under `crates/wrapper-tests/fixtures/groth16/semaphore/` used to validate the artifact-set -> job -> package -> stub-execution lane on an ECC-heavy application circuit.
 - Contributor-oriented documentation covering architecture, roadmap, and initial design decisions.
 - A `wrapper-cli` binary with honest developer commands for environment inspection, configuration validation, primitive reporting, and narrow layout profiling.
@@ -51,6 +52,7 @@ Use the shortest route that matches the task:
 - Wrapper planning / package flow: `crates/wrapper-backends/src/groth16.rs` -> `crates/wrapper-core/src/job.rs` -> `crates/wrapper-core/src/package.rs` -> `crates/wrapper-core/src/output.rs` -> `crates/wrapper-core/src/execution.rs`
 - Semaphore migration fixture: `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `crates/wrapper-tests/src/lib.rs` -> `crates/wrapper-cli/src/main.rs`
 - Real `.circom` integration plan: `docs/real-circom-wrapper-integration-plan.md`
+- Canonical R1CS backend status: `docs/r1cs-backend-status.md`
 - Outer prover strategy: `docs/outer-prover-strategy-plan.md`
 - Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/final-exponentiation-audit.md`
 - Layout profiling / optimization: `crates/wrapper-circuits/src/groth16/profiling.rs` -> `crates/wrapper-cli/src/main.rs` -> `docs/profiling.md`
@@ -64,6 +66,7 @@ Top-level doc roles:
 - `docs/roadmap.md`: stage intent and explicit non-goals
 - `docs/profiling.md`: how to measure layout-cost changes
 - `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
+- `docs/r1cs-backend-status.md`: current state of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: decision plan for choosing the real prover/setup/verification path for the Halo2/Midnight outer wrapper circuit
 
 ## Planned Architecture

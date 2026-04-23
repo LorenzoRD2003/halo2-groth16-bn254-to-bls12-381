@@ -4,6 +4,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ProofSystemDescriptor, WrapperStatement};
 
+/// Stable canonical circuit identity carried alongside planned or produced artifacts.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CanonicalCircuitIdentity {
+  /// Identity scheme name.
+  pub scheme: String,
+  /// Stable identity value under that scheme.
+  pub value: String,
+}
+
+impl CanonicalCircuitIdentity {
+  /// Builds a canonical circuit identity record.
+  #[must_use]
+  pub fn new(scheme: impl Into<String>, value: impl Into<String>) -> Self {
+    Self { scheme: scheme.into(), value: value.into() }
+  }
+}
+
 /// Placeholder G1 point payload using `snarkjs`-like projective JSON shape.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PlannedGroth16G1PointJson {
@@ -132,6 +149,8 @@ impl PlannedOuterGroth16VerificationKeyJson {
 pub struct PlannedOuterGroth16ArtifactBundle {
   /// Output proof system represented by the bundle.
   pub proof_system: ProofSystemDescriptor,
+  /// Canonical circuit identity tied to this bundle when available.
+  pub canonical_circuit_identity: Option<CanonicalCircuitIdentity>,
   /// Logical proof artifact identifier.
   pub proof_artifact: String,
   /// Materialized proof payload when available.
@@ -153,6 +172,7 @@ impl PlannedOuterGroth16ArtifactBundle {
   #[must_use]
   pub fn new(
     proof_system: ProofSystemDescriptor,
+    canonical_circuit_identity: Option<CanonicalCircuitIdentity>,
     proof_artifact: impl Into<String>,
     proof: Option<PlannedOuterGroth16ProofJson>,
     public_inputs_artifact: impl Into<String>,
@@ -163,6 +183,7 @@ impl PlannedOuterGroth16ArtifactBundle {
   ) -> Self {
     Self {
       proof_system,
+      canonical_circuit_identity,
       proof_artifact: proof_artifact.into(),
       proof,
       public_inputs_artifact: public_inputs_artifact.into(),
@@ -189,6 +210,7 @@ impl PlannedOuterGroth16ArtifactBundle {
         kind: crate::ProofSystemKind::Groth16Bls12_381,
         source: "planned-groth16-bls12-381-wrapper".to_owned(),
       },
+      canonical_circuit_identity: None,
       proof_artifact: format!("{identifier}-wrapper-proof.json"),
       proof: None,
       public_inputs_artifact: format!("{identifier}-wrapper-public.json"),
@@ -283,6 +305,8 @@ pub struct ProducedOuterGroth16VerificationKeyJson {
 pub struct ProducedOuterGroth16ArtifactBundle {
   /// Output proof system represented by the bundle.
   pub proof_system: ProofSystemDescriptor,
+  /// Canonical circuit identity tied to this bundle when available.
+  pub canonical_circuit_identity: Option<CanonicalCircuitIdentity>,
   /// Logical proof artifact identifier.
   pub proof_artifact: String,
   /// Produced proof payload.
@@ -304,6 +328,7 @@ impl ProducedOuterGroth16ArtifactBundle {
   #[must_use]
   pub fn new(
     proof_system: ProofSystemDescriptor,
+    canonical_circuit_identity: Option<CanonicalCircuitIdentity>,
     proof_artifact: impl Into<String>,
     proof: ProducedOuterGroth16ProofJson,
     public_inputs_artifact: impl Into<String>,
@@ -314,6 +339,7 @@ impl ProducedOuterGroth16ArtifactBundle {
   ) -> Self {
     Self {
       proof_system,
+      canonical_circuit_identity,
       proof_artifact: proof_artifact.into(),
       proof,
       public_inputs_artifact: public_inputs_artifact.into(),
@@ -467,6 +493,8 @@ impl ExpectedVerificationKeyArtifactShape {
 pub struct ExpectedWrapperArtifacts {
   /// Output proof system expected from the wrapper executor.
   pub proof_system: ProofSystemDescriptor,
+  /// Canonical circuit identity tied to these artifacts when available.
+  pub canonical_circuit_identity: Option<CanonicalCircuitIdentity>,
   /// Logical proof artifact identifier.
   pub proof_artifact: String,
   /// Expected serialized proof artifact shape.
@@ -492,6 +520,7 @@ impl ExpectedWrapperArtifacts {
   #[must_use]
   pub fn new(
     proof_system: ProofSystemDescriptor,
+    canonical_circuit_identity: Option<CanonicalCircuitIdentity>,
     proof_artifact: impl Into<String>,
     proof_shape: ExpectedProofArtifactShape,
     public_inputs_artifact: impl Into<String>,
@@ -504,6 +533,7 @@ impl ExpectedWrapperArtifacts {
   ) -> Self {
     Self {
       proof_system,
+      canonical_circuit_identity,
       proof_artifact: proof_artifact.into(),
       proof_shape,
       public_inputs_artifact: public_inputs_artifact.into(),
@@ -520,7 +550,7 @@ impl ExpectedWrapperArtifacts {
 #[cfg(test)]
 mod tests {
   use crate::{
-    ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
+    CanonicalCircuitIdentity, ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
     ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, NamedPublicInput,
     NamedPublicInputs, PlannedOuterGroth16ArtifactBundle, ProducedGroth16G1PointJson,
     ProducedGroth16G2PointJson, ProducedOuterGroth16ArtifactBundle, ProducedOuterGroth16ProofJson,
@@ -535,6 +565,7 @@ mod tests {
         kind: ProofSystemKind::Groth16Bls12_381,
         source: "planner".to_owned(),
       },
+      None,
       "proof.json",
       ExpectedProofArtifactShape::new(
         "json",
@@ -596,11 +627,13 @@ mod tests {
 
     assert_eq!(artifacts.statement.public_inputs.field_order(), vec!["x", "y"]);
     assert_eq!(artifacts.public_inputs_shape.container, "array");
+    assert_eq!(artifacts.canonical_circuit_identity, None);
     assert_eq!(artifacts.verification_key_shape.protocol, "groth16");
     assert_eq!(artifacts.proof_shape.pi_a_key, "pi_a");
     assert_eq!(artifacts.verification_key_shape.ic_key, "IC");
     assert!(artifacts.proof_shape.snarkjs_like_naming);
     assert_eq!(artifacts.bundle_template.public_inputs, vec!["1", "2"]);
+    assert_eq!(artifacts.bundle_template.canonical_circuit_identity, None);
     assert!(artifacts.bundle_template.proof.is_none());
     assert_eq!(
       artifacts
@@ -631,6 +664,7 @@ mod tests {
         kind: ProofSystemKind::Groth16Bls12_381,
         source: "real-backend".to_owned(),
       },
+      Some(CanonicalCircuitIdentity::new("r1cs-blake2b-256", "deadbeef")),
       "proof.json",
       ProducedOuterGroth16ProofJson {
         protocol: "groth16".to_owned(),
@@ -688,6 +722,10 @@ mod tests {
     );
 
     assert_eq!(bundle.proof.protocol, "groth16");
+    assert_eq!(
+      bundle.canonical_circuit_identity,
+      Some(CanonicalCircuitIdentity::new("r1cs-blake2b-256", "deadbeef"))
+    );
     assert_eq!(bundle.verification_key.n_public, 2);
     assert_eq!(bundle.verification_key.ic.len(), 3);
   }

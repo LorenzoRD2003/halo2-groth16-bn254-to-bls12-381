@@ -4,9 +4,30 @@
 
 This document describes the implementation path to finish the current wrapper
 lane for a real `.circom`-origin Groth16 BN254 proof and carry it through the
-planned outer `groth16-bls12-381` flow.
+planned outer flow.
 
-The plan is intentionally generic over application circuits. The current
+This plan is now grounded in the repo's landed canonical R1CS work:
+
+- canonical R1CS model and normalization
+- deterministic Halo2-style cell/equality lowering
+- explicit metadata boundary for future Halo2/Midnight extraction
+- canonical circuit identity via `R1csIdentityHash`
+- zkInterface-style internal export bridge
+- first Arkworks adapter from canonical `R1csCircuit` to Groth16-compatible
+  `ConstraintSynthesizer`
+
+As a result, the remaining work is no longer "invent the lowering story". The
+remaining work is "close the real backend and artifact-production path".
+
+Important project stance:
+
+- the canonical R1CS line is real and strategically important
+- but it should currently be treated as an **alternate backend / later phase**
+- the **delivery critical path** for the first real `.circom` wrapper flow
+  remains the canonical Halo2/Midnight outer circuit plus a real prover /
+  serializer backend for that circuit
+
+The plan remains intentionally generic over application circuits. The current
 Semaphore fixture is the validation case because it exercises a non-trivial
 ECC-heavy circuit, but the interfaces below should remain usable for any
 `snarkjs`-shaped Groth16 BN254 artifact set.
@@ -19,16 +40,28 @@ What already exists:
 - generic `ArtifactSetLoader` for complete BN254 artifact bundles
 - a `Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage ->
 WrapperExecutionResult` planning lane
-- explicit expected output shapes for outer `groth16-bls12-381` artifacts
-- a placeholder `OuterGroth16Backend` that materializes a partial outer bundle
-- a real Semaphore fixture that validates the full planning/stub path
+- explicit expected output shapes for outer wrapper artifacts
+- `OuterGroth16Backend` with explicit `prepare / setup / prove / verify`
+  boundaries
+- a real Semaphore fixture that validates the planning/stub path
+- a real Halo2/Midnight outer wrapper circuit as the canonical outer circuit
+  source of truth
+- canonical R1CS lowering infrastructure under
+  `crates/wrapper-circuits/src/r1cs/`
+- canonical circuit identity via `R1csCircuit::identity_hash()`
+- a first Arkworks Groth16 adapter from canonical `R1csCircuit` into
+  `ark_relations::r1cs::ConstraintSynthesizer`
+- end-to-end Groth16 setup/prove/verify on a small canonical R1CS smoke circuit
+- documented positioning of the canonical R1CS line as an alternate / future
+  backend lane
 
-What does not exist yet:
+What still does not exist:
 
-- a real outer Groth16 BLS12-381 circuit / proving backend
-- a real outer proof payload
-- a real outer verification key payload derived from circuit setup
-- end-to-end proof generation and verification for the outer proof
+- a real prover/serializer for the canonical outer Halo2/Midnight circuit
+- a real produced outer proof payload
+- a real produced outer verification key payload derived from setup
+- end-to-end proof generation and verification for the real outer wrapper lane
+- a CLI command that exercises the real outer path
 
 ## Goal
 
@@ -38,7 +71,7 @@ Given a real `.circom`-origin `snarkjs` artifact set:
 - `public.json`
 - `verification_key.json`
 
-produce and verify a real outer `groth16-bls12-381` artifact set:
+produce and verify a real outer artifact set:
 
 - `wrapper-proof.json`
 - `wrapper-public.json`
@@ -49,123 +82,177 @@ while preserving the current generic boundaries:
 - `wrapper-backends` stays generic over artifact ingestion and outer backend
   contracts
 - `wrapper-core` stays domain-oriented
+- `wrapper-circuits` owns the canonical outer circuit and canonical R1CS
+  lowering
 - application-specific public-input naming stays in fixture/domain layers, not
   generic parsers
 
-## Implementation Plan
+## Architectural Reality
 
-### 1. Freeze the Outer Statement Contract
+The repo now has two distinct proving-related layers:
+
+1. A canonical R1CS layer.
+   This is deterministic, auditable, hashable, and already has an Arkworks
+   Groth16 adapter.
+
+2. A canonical outer wrapper circuit layer.
+   This lives in Halo2/Midnight and remains the single source of truth for the
+   outer circuit itself.
+
+The current real integration problem is therefore:
+
+> connect real `.circom`-origin inner artifacts to the canonical outer circuit,
+> then materialize real produced outer artifacts through one concrete backend.
+
+The canonical R1CS work materially reduces risk around circuit identity and
+future CRS binding, but it does not by itself finish the real outer wrapper
+flow.
+
+For the first real wrapper delivery, the practical priority is:
+
+- keep the outer Halo2/Midnight circuit canonical
+- add a real prover / serializer backend for that circuit
+- use the canonical R1CS line as an alternate / future backend path, not as the
+  immediate blocker
+
+## Rebased Implementation Plan
+
+### 1. Keep the Outer Statement Contract Frozen and Explicit
 
 Deliverable:
 
 - one canonical rule for how outer public inputs are derived from the inner
   proof statement
 
-Tasks:
+Current status:
 
-- decide whether the outer statement mirrors inner verifier public inputs
-  exactly, or whether it exposes an application-shaped statement and proves the
-  mapping
-- keep this decision generic: the wrapper core should only need ordered named
-  public inputs, not Semaphore-specific semantics
-- add tests that reject mismatches between:
+- implemented and regression-tested already
+
+Completed scope:
+
+- the current "ordered named public inputs" contract is explicit
+- application-specific semantics remain outside generic parsers
+- the package/backend path rejects mismatches between:
   - expected outer statement arity
   - inner verifier public-input arity
   - verification-key IC length
 
-Suggested location:
+Remaining work:
+
+- keep this frozen while finishing the real backend path
+
+Primary location:
 
 - `wrapper-core`
+- `wrapper-circuits/src/outer/`
+- `wrapper-backends/src/outer.rs`
 
-### 2. Split the Outer Output Model Into “Planned” vs “Produced”
-
-Deliverable:
-
-- a type distinction between:
-  - expected/planned outer artifact shapes
-  - actually produced outer artifacts
-
-Tasks:
-
-- keep the current `ExpectedWrapperArtifacts` as the planning contract
-- introduce a produced-artifact type that represents a real generated outer
-  proof bundle, not a placeholder
-- make the produced type strict enough that `proof` and `verification_key`
-  cannot stay absent once the real backend is wired
-
-Suggested location:
-
-- `wrapper-core/src/output.rs`
-
-### 3. Introduce a Real Outer Backend Interface
+### 2. Treat Canonical R1CS as the Long-Term CRS-Binding Source of Truth
 
 Deliverable:
 
-- an `OuterGroth16Backend` contract that separates:
-  - planning/materialization
-  - actual proving/setup/verification
+- no further ambiguity about circuit identity
+
+Current status:
+
+- implemented for the canonical R1CS layer, and explicitly represented in the
+  planning/output model as an attachable identity record
 
 Tasks:
 
-- extend or replace the current placeholder backend with methods such as:
-  - `prepare(...)`
-  - `setup(...)`
-  - `prove(...)`
-  - `verify(...)`
-- keep the input generic:
-  - `WrapperExecutionPackage`
-- keep the output generic:
-  - outer Groth16 artifact bundle
-- avoid leaking application-specific semantics into the backend trait
+- keep `R1csCircuit::identity_hash()` as the canonical CRS-binding identity for
+  the lowering path
+- do not let backend serialization formats become identity sources
+- keep setup/proving metadata able to carry canonical circuit identity when the
+  outer circuit has a canonical R1CS lowering
 
-Suggested location:
+Remaining work:
+
+- attach a real canonical circuit identity to produced outer artifacts once the
+  canonical outer circuit itself is lowered to canonical R1CS
+
+Primary location:
+
+- `crates/wrapper-circuits/src/r1cs/`
+
+### 3. Keep the Canonical R1CS Backend as an Alternate / Future Lane
+
+Deliverable:
+
+- one documented alternate backend lane rooted in canonical `R1csCircuit`
+
+Current status:
+
+- canonical `R1csCircuit` exists
+- Arkworks Groth16 adapter exists
+- the R1CS backend is explicitly treated as alternate / future lane
+- the current outer wrapper lowering is still incomplete for the verifier body
+
+Remaining tasks:
+
+- continue lowering the canonical outer circuit into canonical R1CS
+- finish the non-native BN254 pairing-core lowering in that lane
+- only once that lowering is sound and complete, promote the Arkworks R1CS lane
+  to a first-class backend choice
+
+Primary location:
+
+- `crates/wrapper-circuits/src/r1cs/`
+- `crates/wrapper-circuits/src/outer/r1cs.rs`
+
+This is **not** the main blocker today.
+
+### 4. Finalize the Real Outer Backend Choice
+
+Deliverable:
+
+- one concrete backend implementation that can actually run setup/prove/verify
+  for the canonical outer Halo2/Midnight circuit
+
+Current status:
+
+- the trait exists
+- the selected lane exists
+- the remaining blocker is still the missing concrete prover / serializer path
+
+Remaining tasks:
+
+- choose the real proving stack for the canonical Halo2/Midnight outer circuit
+- keep all stack-specific types contained behind the backend implementation
+- preserve canonical circuit identity and artifact compatibility while using the
+  direct Halo2/Midnight outer path
+
+Primary location:
 
 - `wrapper-backends/src/outer.rs`
 
-### 4. Choose and Encapsulate the Real Groth16 BLS12-381 Stack
+This is the main blocker today.
+
+### 5. Finish the Outer Circuit Input Adapter
 
 Deliverable:
 
-- one concrete outer backend implementation behind the generic trait
+- a complete adapter from `WrapperExecutionPackage` to the exact witness/config
+  shape needed by the real outer backend
 
-Tasks:
+Current status:
 
-- choose the proving stack for outer `groth16-bls12-381`
-- encapsulate all stack-specific details behind the backend implementation
-- avoid spreading library-specific types across `wrapper-core`
-- document:
-  - setup assumptions
-  - serialization conventions
-  - proof/VK/public-input artifact compatibility
+- mostly implemented for planning/adaptation
 
-Suggested location:
+Remaining tasks:
 
-- `wrapper-backends/src/outer/` or a dedicated backend module subtree
-
-### 5. Build the Outer Circuit Input Adapter
-
-Deliverable:
-
-- an adapter that turns a `WrapperExecutionPackage` into the real witness/input
-  format required by the chosen outer backend
-
-Tasks:
-
-- map:
-  - inner proof payload
-  - inner verification key payload
-  - ordered public inputs
-  - outer statement
-    into the exact witness/config input required by the outer circuit
-- make failure cases explicit:
+- keep the current parsing/adaptation path strict
+- add whatever extra proving inputs the real backend requires
+- ensure all failures remain explicit:
   - missing proof payload
   - malformed VK
   - arity mismatch
   - unsupported statement layout
+  - unsupported backend mode
 
-Suggested location:
+Primary location:
 
-- `wrapper-backends`
+- `wrapper-backends/src/outer.rs`
 
 ### 6. Replace the Placeholder VK Skeleton With Real Setup Output
 
@@ -173,20 +260,26 @@ Deliverable:
 
 - a real `wrapper-verification-key.json`
 
-Tasks:
+Current status:
 
-- run the outer setup flow for the selected backend
-- serialize the resulting VK into the agreed output shape
-- verify that the emitted shape matches the current expected model:
+- planned shape exists
+- real setup output does not
+
+Remaining tasks:
+
+- run real setup for the chosen backend
+- serialize the produced VK into the agreed output shape
+- verify emitted fields match the current contract:
   - `protocol`
   - `curve`
   - `nPublic`
   - `IC`
   - point encoding conventions
 
-Suggested tests:
+Primary location:
 
-- compare actual emitted keys/fields against the planned shape contract
+- `wrapper-backends`
+- `wrapper-core/src/output.rs`
 
 ### 7. Replace `proof: null` With a Real Outer Proof
 
@@ -194,51 +287,65 @@ Deliverable:
 
 - a real `wrapper-proof.json`
 
-Tasks:
+Current status:
 
-- run the outer prover on a real `.circom`-origin inner bundle
-- serialize the proof using the agreed shape
-- verify that the output payload matches:
+- not implemented
+
+Remaining tasks:
+
+- run the real prover on a `.circom`-origin inner bundle
+- serialize the produced proof into the agreed output shape
+- verify emitted fields match the current contract:
   - key names
   - point encoding
-  - protocol/curve labels
+  - protocol / curve labels
 
-Suggested tests:
+Primary location:
 
-- proof round-trip/load/verify through the backend
+- `wrapper-backends`
 
 ### 8. Add Real Outer Verification
 
 Deliverable:
 
 - one path that verifies the produced outer proof against the produced outer VK
-  and outer public inputs
+  and the exported outer public inputs
 
-Tasks:
+Current status:
 
-- add backend-level verification for the produced outer bundle
-- use the same ordered public inputs as the exported `wrapper-public.json`
-- make this part of the integration acceptance lane
+- trait shape exists
+- real produced bundle verification does not
 
-Suggested location:
+Remaining tasks:
+
+- add backend-level verification for the produced bundle
+- use exactly the same ordered public inputs as `wrapper-public.json`
+- make verification part of the acceptance path, not an optional afterthought
+
+Primary location:
 
 - `wrapper-backends`
 - `wrapper-tests`
 
-### 9. Promote the Real Circom Fixture Lane to a First-Class Integration Test
+### 9. Promote the Real `.circom` Fixture Lane to a First-Class Integration Test
 
 Deliverable:
 
 - one reusable end-to-end integration test over a real `.circom`-origin proof
 
-Tasks:
+Current status:
 
-- keep the fixture generic:
-  - load artifacts via the generic `ArtifactSetLoader`
-- allow the fixture layer to supply semantic public-input names
-- validate the full chain:
+- planning/stub coverage exists
+- real produced outer bundle coverage does not
+
+Remaining tasks:
+
+- keep fixture loading generic through `ArtifactSetLoader`
+- allow the fixture layer to provide semantic public-input names
+- validate the full real chain:
   - load BN254 bundle
   - build wrapper package
+  - run the real outer backend
   - produce outer bundle
   - verify outer bundle
 
@@ -246,9 +353,9 @@ Current recommended real fixture:
 
 - Semaphore
 
-Additional recommended future fixture:
+Recommended future contrast fixture:
 
-- a simpler non-ECC `.circom` circuit for contrast
+- a smaller non-ECC `.circom` circuit
 
 ### 10. Add a CLI Command for the Real Path
 
@@ -267,16 +374,16 @@ wrapper-cli prove-outer-groth16 \
   --output-dir <dir>
 ```
 
-Tasks:
+Remaining tasks:
 
 - load inner bundle
 - build wrapper package
-- run the real outer backend
+- run real setup/prove/verify as requested
 - write:
   - `wrapper-proof.json`
   - `wrapper-public.json`
   - `wrapper-verification-key.json`
-- optionally run verification and print a short verdict
+- optionally print the canonical circuit identity used for the run
 
 ## Validation Matrix
 
@@ -286,27 +393,39 @@ Minimum validation before claiming end-to-end completion:
   - output-model serialization
   - backend setup/prove/verify adapters
   - statement/public-input arity checks
+  - real produced VK/proof shape validation
 - integration tests for:
-  - canonical small fixture
+  - canonical small R1CS + Arkworks smoke coverage
   - real `.circom` fixture such as Semaphore
+  - full produced outer bundle verification
 - CLI smoke test for:
   - full outer-proof generation
   - outer-proof verification
 
 ## Recommended Execution Order
 
-1. Freeze the outer statement contract.
-2. Introduce produced-artifact types distinct from planned types.
-3. Finalize the real outer backend trait and choose the stack.
-4. Implement setup and real VK emission.
-5. Implement prover and real proof emission.
-6. Implement verification.
-7. Promote the real `.circom` fixture lane to a full integration test.
-8. Add the CLI command for real outer generation.
+1. Finalize the real outer backend choice for the canonical Halo2/Midnight outer circuit.
+2. Finish the outer circuit input adapter for the chosen backend.
+3. Implement real setup and emit a produced verification key.
+4. Implement real proving and emit a produced proof.
+5. Implement real verification against produced VK + public inputs.
+6. Promote the Semaphore lane to a real end-to-end integration test.
+7. Add the CLI command for real outer generation.
+
+## Immediate Blocker Summary
+
+Today the main blocker is:
+
+- missing concrete prover/serializer support for the canonical outer
+  Halo2/Midnight circuit inside the selected outer backend lane
+
+Everything else now hangs off that decision and implementation.
 
 ## Non-Goals For This Plan
 
 - moving application-specific naming into generic backend parsing
 - pretending the current placeholder output is already a real proof
-- broadening the current repo into a general-purpose proof ecosystem before the
-  real end-to-end wrapper path exists
+- reimplementing QAP or Groth16 internals manually
+- changing canonical R1CS identity to match a backend serialization format
+- broadening the repo into a general-purpose proof ecosystem before the real
+  end-to-end wrapper path exists

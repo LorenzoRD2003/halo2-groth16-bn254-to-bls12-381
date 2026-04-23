@@ -48,6 +48,7 @@ Goals:
 - land a narrow verifier-shaped pairing-product check that multiplies Miller outputs first and applies exactly one shared final exponentiation
 - land sparse-specialized BN254 Miller accumulator line consumption for the current D-twist `(ell_0, ell_w, ell_vw)` layout
 - land the first narrow Groth16 BN254 verifier slice: real snarkjs proof/VK parsing, IC linear combination, verifier-equation reduction to one pairing-product check, and end-to-end valid/invalid regression coverage
+- land canonical R1CS infrastructure as a deterministic identity and alternate-backend lane, without making it the critical path for the first real outer wrapper flow
 - measure real layout/row cost for the Week 1 primitives
 - keep host/reference BN254 tower arithmetic centralized rather than duplicated across modules
 - keep measured primitive metadata centralized so CLI reporting and benchmark-info stay in sync
@@ -82,6 +83,19 @@ Potential goals:
 - integration of verifier subcomponents into the outer Halo2 circuit
 - soundness-oriented tests and richer fixture strategy
 - performance and proof-size analysis
+
+## Later Canonical R1CS Backend Work
+
+Potential goals:
+
+- continue lowering the canonical outer circuit into `R1csCircuit`
+- port the non-native BN254 tower into the canonical R1CS lane
+- finish the pairing-product check lowering in canonical R1CS
+- promote the Arkworks R1CS backend from alternate/future lane to first-class
+  backend once the full lowering is sound and complete
+
+This lane remains strategically important, but it is not the immediate critical
+path for the first real `.circom` -> outer-wrapper artifact flow.
 
 ## Possible Cardano Integration
 

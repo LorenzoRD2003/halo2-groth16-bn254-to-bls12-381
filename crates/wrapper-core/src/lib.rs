@@ -26,7 +26,7 @@ pub use metadata::{
   NormalizedProofArtifact, NormalizedVerificationKey, ProofSystemDescriptor, ProofSystemKind,
 };
 pub use output::{
-  ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
+  CanonicalCircuitIdentity, ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
   ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, PlannedGroth16G1PointJson,
   PlannedGroth16G2PointJson, PlannedOuterGroth16ArtifactBundle, PlannedOuterGroth16ProofJson,
   PlannedOuterGroth16VerificationKeyJson, ProducedGroth16G1PointJson, ProducedGroth16G2PointJson,

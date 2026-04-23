@@ -90,6 +90,8 @@ Week 5 verifier-memory notes:
 - the current placeholder outer backend is `PlannedGroth16Bls12381Backend`, which materializes the planned output bundle shape but does not generate a real proof
 - the selected concrete outer backend lane is still named `ArkworksGroth16Bls12381Backend`, but it now treats the Halo2/Midnight outer circuit as canonical rather than assuming a second circuit implementation in arkworks
 - the current outer backend lane can now adapt artifact bundles into the canonical outer circuit input, build a real outer circuit, plan setup/proof outputs, and validate produced proof/VK shapes
+- the repository now also contains a canonical R1CS line under `crates/wrapper-circuits/src/r1cs/`, including deterministic lowering, canonical identity hashing, a zkInterface-style export bridge, and a first Arkworks adapter
+- that canonical R1CS line should currently be treated as an alternate backend / later phase, not the critical path for the first real `.circom` -> outer-wrapper flow
 - the remaining blocker for real outer artifacts is now a missing concrete prover/serializer for the Halo2/Midnight outer circuit, not a missing second circuit implementation in another stack
 - the prover-strategy design pass for that blocker lives in `docs/outer-prover-strategy-plan.md`
 
@@ -131,10 +133,11 @@ If you need the remaining path to a real `.circom` end-to-end wrapper flow:
 
 1. `docs/outer-prover-strategy-plan.md`
 2. `docs/real-circom-wrapper-integration-plan.md`
-3. `crates/wrapper-backends/src/outer.rs`
-4. `crates/wrapper-circuits/src/outer/mod.rs`
-5. `crates/wrapper-core/src/output.rs`
-6. `crates/wrapper-core/src/execution.rs`
+3. `docs/r1cs-backend-status.md`
+4. `crates/wrapper-backends/src/outer.rs`
+5. `crates/wrapper-circuits/src/outer/mod.rs`
+6. `crates/wrapper-core/src/output.rs`
+7. `crates/wrapper-core/src/execution.rs`
 
 If you need outer wrapper circuit context:
 
@@ -217,6 +220,7 @@ Use each top-level doc for one job:
 - `docs/benchmarking.md`: benchmark naming, bench-info wiring, and benchmark/reporting sync rules
 - `docs/final-exponentiation-audit.md`: current hard-part chain, measured hotspot split, and next optimization targets
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
+- `docs/r1cs-backend-status.md`: current status of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: technical decision plan for choosing the real prover/setup/verification path for the canonical Halo2/Midnight outer circuit
 
 When adding a new major doc, update this list and at least one context route so

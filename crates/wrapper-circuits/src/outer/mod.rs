@@ -2,6 +2,7 @@
 
 mod builder;
 mod input;
+mod r1cs;
 mod statement;
 
 use midnight_circuits::midnight_proofs::{
@@ -18,6 +19,15 @@ use crate::{
 
 pub use builder::build_outer_wrapper_circuit;
 pub use input::OuterWrapperCircuitInput;
+pub use r1cs::{
+  OuterCanonicalR1csLoweringError, OuterCanonicalR1csLoweringReport, OuterCanonicalR1csSliceKind,
+  OuterCanonicalR1csSliceReport, OuterCanonicalR1csSliceStatus, OuterGroth16IcAccumulatorSlice,
+  OuterGroth16PairingProductCheckSlice, OuterStatementExposureR1cs,
+  OuterVerifierResultAssertionSlice, build_outer_groth16_ic_accumulator_slice,
+  build_outer_groth16_pairing_product_check_slice, build_outer_statement_exposure_r1cs,
+  build_outer_verifier_result_assertion_slice, build_outer_wrapper_canonical_r1cs,
+  inspect_outer_wrapper_canonical_r1cs,
+};
 pub use statement::{OuterStatementInput, OuterStatementSemantics};
 
 /// Build status for the outer circuit shell.

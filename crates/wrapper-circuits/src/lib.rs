@@ -79,8 +79,14 @@ pub use groth16::{
 };
 pub use metrics::{CostEstimate, LayoutMetrics};
 pub use outer::{
-  CircuitBuildStatus, OuterStatementInput, OuterStatementSemantics, OuterWrapperCircuit,
-  OuterWrapperCircuitInput, build_outer_wrapper_circuit,
+  CircuitBuildStatus, OuterCanonicalR1csLoweringError, OuterCanonicalR1csLoweringReport,
+  OuterCanonicalR1csSliceKind, OuterCanonicalR1csSliceReport, OuterCanonicalR1csSliceStatus,
+  OuterGroth16IcAccumulatorSlice, OuterGroth16PairingProductCheckSlice, OuterStatementExposureR1cs,
+  OuterStatementInput, OuterStatementSemantics, OuterVerifierResultAssertionSlice,
+  OuterWrapperCircuit, OuterWrapperCircuitInput, build_outer_groth16_ic_accumulator_slice,
+  build_outer_groth16_pairing_product_check_slice, build_outer_statement_exposure_r1cs,
+  build_outer_verifier_result_assertion_slice, build_outer_wrapper_canonical_r1cs,
+  build_outer_wrapper_circuit, inspect_outer_wrapper_canonical_r1cs,
 };
 pub use planning::{
   CircuitPlanningView, PRIMITIVE_COUNT, PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,

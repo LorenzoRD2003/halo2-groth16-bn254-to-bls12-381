@@ -20,6 +20,7 @@ mod identity;
 mod lowering;
 mod metadata;
 mod model;
+pub mod non_native;
 mod zkinterface;
 
 pub use arkworks::{
