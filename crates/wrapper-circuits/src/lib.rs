@@ -23,7 +23,8 @@ pub use bn254::{
   AssignedG2Affine, AssignedG2LineCoeffs, AssignedG2MillerPoint, AssignedG2Projective,
   AssignedMillerAccumulator, Bn254BitChip, Bn254BoolChip, Bn254BoolConfig, Bn254EccChip,
   Bn254FpChip, Bn254MillerAddend, Bn254MillerSchedule, Bn254MillerScheduleStep,
-  FinalExponentiationCircuit, ForeignField, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit,
+  FinalExponentiationCircuit, FinalExponentiationEasyPartCircuit,
+  FinalExponentiationHardPartCircuit, ForeignField, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit,
   Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit, Fp12AddCircuit, Fp12MulCircuit,
   Fp12SquareCircuit, FpAddCircuit, FpMulCircuit, G1AddCircuit, G1OnCurveCircuit,
   G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
@@ -32,6 +33,8 @@ pub use bn254::{
   MillerAccumulatorMulByLineSparseCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
   MillerStep, MillerStepConstant, NativeField, PairingCheckCircuit,
   PairingFinalExponentiationCircuit, PreparedG2Miller, bn254_ate_loop_count, final_exponentiation,
+  final_exponentiation_easy_part_k, final_exponentiation_easy_part_layout_metrics,
+  final_exponentiation_hard_part_k, final_exponentiation_hard_part_layout_metrics,
   final_exponentiation_k, final_exponentiation_layout_metrics, fp_add_k, fp_add_layout_metrics,
   fp_mul_k, fp_mul_layout_metrics, fp2_add_k, fp2_add_layout_metrics, fp2_mul_k,
   fp2_mul_layout_metrics, fp2_square_k, fp2_square_layout_metrics, fp6_add_k,
@@ -51,6 +54,16 @@ pub use bn254::{
 };
 #[cfg(feature = "test-support")]
 pub use groth16::fixtures::{raw as groth16_fixture_raw, typed as groth16_fixture_typed};
+pub use groth16::profiling::{
+  PAIRING_TERM_PROFILE_COUNTS, PUBLIC_INPUT_PROFILE_COUNTS,
+  groth16_fixture_ic_accumulator_layout_metrics, groth16_fixture_verifier_layout_metrics,
+  groth16_pairing_block_final_exponentiation_easy_part_layout_metrics,
+  groth16_pairing_block_final_exponentiation_hard_part_layout_metrics,
+  groth16_pairing_block_final_exponentiation_layout_metrics,
+  groth16_pairing_block_miller_loop_layout_metrics,
+  groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
+  groth16_public_input_count_layout_metrics,
+};
 #[cfg(feature = "test-support")]
 pub use groth16::reference::{
   ark_to_midnight_g1, groth16_g1_to_ark, groth16_g2_to_ark, host_pairing_product,

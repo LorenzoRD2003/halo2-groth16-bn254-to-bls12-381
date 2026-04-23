@@ -21,8 +21,8 @@ use crate::bn254::{
   NativeField, pairing_check,
 };
 
-#[cfg(any(test, feature = "test-support"))]
 pub mod fixtures;
+pub mod profiling;
 #[cfg(any(test, feature = "test-support"))]
 pub mod reference;
 

@@ -28,7 +28,8 @@ pub use jacobian::{
 pub use miller::{
   AssignedG1Point, AssignedG2LineCoeffs, AssignedG2MillerPoint, AssignedMillerAccumulator,
   Bn254MillerAddend, Bn254MillerSchedule, Bn254MillerScheduleStep, FinalExponentiationCircuit,
-  G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, MillerAccumulatorMulByLineCircuit,
+  FinalExponentiationEasyPartCircuit, FinalExponentiationHardPartCircuit, G2DoubleWithLineCircuit,
+  G2MixedAddWithLineCircuit, MillerAccumulatorMulByLineCircuit,
   MillerAccumulatorMulByLineSparseCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
   MillerStep, MillerStepConstant, PairingCheckCircuit, PairingFinalExponentiationCircuit,
   PreparedG2Miller, bn254_ate_loop_count, final_exponentiation, miller_loop, multi_miller_loop,

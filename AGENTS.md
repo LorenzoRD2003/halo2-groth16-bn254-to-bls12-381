@@ -89,9 +89,13 @@ When you need to build context quickly, read in this order:
 9. `crates/wrapper-circuits/src/bn254/g2/affine.rs`
 10. `crates/wrapper-circuits/src/bn254/g2/jacobian.rs`
 11. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
-12. `crates/wrapper-circuits/src/bn254/tests/support.rs`
-13. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
-14. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
+12. `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`
+13. `crates/wrapper-circuits/src/bn254/tests/support.rs`
+14. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
+15. `crates/wrapper-circuits/src/groth16/profiling.rs`
+16. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
+17. `docs/profiling.md`
+18. `docs/final-exponentiation-audit.md`
 
 This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
 
@@ -105,6 +109,8 @@ This is the highest-signal order for understanding the current primitive surface
 - `docs/architecture.md`: intended layering and current primitive boundaries
 - `docs/roadmap.md`: staged implementation plan
 - `docs/benchmarking.md`: benchmark structure and conventions
+- `docs/profiling.md`: reproducible layout-profiling workflow for the current Groth16 slice
+- `docs/final-exponentiation-audit.md`: code-level final-exponentiation chain, sub-block metrics, and next optimization targets
 - `docs/decisions/0001-initial-workspace-structure.md`: ADR for the workspace split
 
 ## Crate Responsibilities
@@ -155,6 +161,8 @@ This is the highest-signal order for understanding the current primitive surface
 - Own user-facing commands, output formatting, and developer diagnostics.
 - Must report missing functionality honestly.
 - Should expose measured primitive status without overstating what is implemented.
+- The current narrow optimization-baseline surface is `profile-layout`, which emits TSV layout metrics for Groth16, pairing-term scaling, public-input scaling, and existing pairing-core blocks.
+- Treat `profile-layout` as layout/constraint profiling, not runtime benchmarking.
 
 `wrapper-tests`
 
@@ -209,6 +217,7 @@ When touching the current BN254 primitive code:
 - keep Miller-path G2 work aligned with the homogeneous prepared-step formulas used by arkworks BN prepared-G2 generation
 - keep final exponentiation work aligned with the standard BN easy-part / hard-part decomposition used by arkworks unless a measured circuit-oriented rewrite clearly improves the current slice
 - keep pairing-check work verifier-shaped: accumulate Miller outputs first, apply exactly one final exponentiation to the total product, and avoid per-term final exponentiation
+- for final-exponentiation optimization work, read `docs/final-exponentiation-audit.md` first; it records the exact implemented chain, the `exp_by_neg_x(...)` hotspot, and the current easy-part / hard-part split
 - when a public method contains a full algebraic step, prefer extracting the formula into a well-named internal helper such as `double_step_jacobian`, `double_step_hom_projective`, or `mixed_add_step_hom_projective`
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
@@ -233,6 +242,8 @@ Concrete BN254 conventions already in use:
 - Miller-path `double_with_line` and `mixed_add_with_line` follow the homogeneous-projective BN prepared-G2 formulas used by arkworks / Midnight, not the Jacobian formulas used by `AssignedG2Projective`
 - final exponentiation follows the standard BN254 easy-part / hard-part split used by arkworks over the Miller-loop output
 - the narrow pairing-check path computes each real Miller loop, multiplies the Miller outputs in `Fp12`, applies exactly one final exponentiation, and checks equality with the `Fp12` multiplicative identity
+- the current final-exponentiation code now exposes `final_exponentiation_easy_part(...)` and `final_exponentiation_hard_part(...)` as audit-friendly internal helpers without changing semantics
+- the current hard-part hotspot is `exp_by_neg_x(...)`, which still uses generic `pow_constant_exp(..., &[4965661367192848881])` followed by a `unitary_inverse`; it is called three times in the hard part
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
   `Fq2(19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)`
@@ -263,7 +274,7 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `miller accumulator mul_by_line sparse`: 2790 rows / 58 queries, `k=12`
 - `miller loop narrow`: 503854 rows / 58 queries, `k=19`
 - `final exponentiation`: 1215080 rows / 58 queries, `k=21`
-- `pairing check`: 2644684 rows / 94 queries, `k=22`
+- `pairing check`: 2383144 rows / 94 queries, `k=22`
 
 Interpretation guidance:
 
@@ -273,6 +284,7 @@ Interpretation guidance:
 - `miller accumulator mul_by_line` is the generic baseline path, while `miller accumulator mul_by_line sparse` is the optimized public accumulator path for the current BN254 D-twist `(ell_0, ell_w, ell_vw)` layout
 - `miller loop narrow` now measures the real fixed single-pair BN254 optimal-ate Miller traversal, not the earlier synthetic schedule
 - `final exponentiation` measures the narrow single-pair BN254 final-exponentiation sanity circuit over a Miller-loop output, not a verifier-facing full pairing API
+- `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `13884` rows / `k=14` for the easy part and `1190996` rows / `k=21` for the hard part, so future optimization work should focus overwhelmingly on the hard part
 - `pairing check` should always be described as the narrow verifier-shaped product-check slice with one shared final exponentiation, not as a full pairing engine or Groth16 verifier
 - as of the current repo state, local accumulator-square rewrites that only swap formulas inside the existing Fp12 tower did not beat the generic `miller accumulator square` cost; future square optimization likely needs a more structural/cross-step design rather than a small algebraic rewrite, so do not keep partial `square_optimized` experiments in the tree unless they measurably win in `wrapper-cli doctor`
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
@@ -330,6 +342,10 @@ Current test expectations for the primitive layer:
 - Benchmarks must reflect real implemented circuits, not aspirational future behavior.
 - Do not make performance claims beyond what the current benchmark actually measures.
 - When changing benchmark structure, update `docs/benchmarking.md` and `wrapper-cli bench-info`.
+- For current Groth16 optimization baselines, prefer `wrapper-cli profile-layout` over ad hoc timing or new benchmark scaffolding.
+- `profile-layout` output is TSV and intended to be redirected to a file for before/after diffs.
+- The `groth16`, `pairing-terms`, and `all` profiling families are intentionally heavier than `blocks` and `public-inputs`; let them finish before inspecting the output file, or the TSV may appear empty/incomplete.
+- The `blocks` profiling family now includes `bn254_final_exponentiation_easy_part`, `bn254_final_exponentiation_hard_part`, and total `bn254_final_exponentiation`; use those rows before changing the final-exponentiation chain.
 
 Current benchmark entry points include:
 
@@ -362,6 +378,9 @@ Benchmark/metrics integration rules that have already bitten this repo:
 - `wrapper-cli bench-info` is derived from the canonical primitive registry in `crates/wrapper-circuits/src/planning.rs`; if a new primitive is missing from `bench-info`, fix the registry/layer wiring before touching docs text
 - when adding a new measured primitive, keep `crates/wrapper-tests/benches/...`, `crates/wrapper-tests/benches/primitives.rs`, `crates/wrapper-circuits/src/planning.rs`, `wrapper-cli bench-info`, and `docs/benchmarking.md` in sync in the same turn
 - use explicit honest names for Miller work such as `*_narrow`, `*_sparse`, or `*_baseline` when the slice is not a full pairing pipeline
+- when changing Groth16 optimization-baseline reporting, keep `crates/wrapper-circuits/src/groth16/profiling.rs`, `crates/wrapper-cli/src/main.rs`, `docs/profiling.md`, and the relevant README/AGENTS references in sync in the same turn
+- keep profiling identifiers stable: `family`, `id`, and `label` should remain diff-friendly across runs unless there is a deliberate reporting-schema change
+- when changing final-exponentiation decomposition or reporting, keep `crates/wrapper-circuits/src/bn254/g2/miller.rs`, `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`, `crates/wrapper-circuits/src/bn254/metrics.rs`, `docs/profiling.md`, and `docs/final-exponentiation-audit.md` in sync in the same turn
 
 ## Documentation Standards
 

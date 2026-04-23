@@ -2,6 +2,11 @@
 
 This repository uses Criterion for benchmark scaffolding.
 
+For reproducible layout-cost baselines on the current Groth16 BN254 verifier
+slice, use `wrapper-cli profile-layout` as described in `docs/profiling.md`.
+Criterion remains the home for benchmark hooks; `profile-layout` is the narrow
+TSV-reporting path for optimization baselines and before/after diffs.
+
 Current status:
 
 - benchmark structure exists
@@ -20,6 +25,25 @@ cargo bench
 ```
 
 The current benchmark target lives in `crates/wrapper-tests/benches/primitives.rs`.
+
+## Profiling vs Benchmarks
+
+Use:
+
+- `cargo bench` for Criterion benchmark hooks
+- `cargo run -p wrapper-cli -- profile-layout ...` for reproducible layout
+  metric capture on the current Groth16 slice
+
+The profiling workflow is documented in `docs/profiling.md` and is the
+preferred baseline path for optimization work on:
+
+- total Groth16 verifier layout cost
+- pairing-term scaling
+- public-input scaling
+- existing pairing-core block costs
+
+For final-exponentiation-specific audit and next-step optimization planning, see
+`docs/final-exponentiation-audit.md`.
 
 ## Current Structure
 

@@ -2,7 +2,7 @@
 
 This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based outer proof system that may eventually verify Groth16 BN254 proofs inside a Halo2 wrapper.
 
-The current phase is still intentionally narrow, but it is no longer just repository bootstrap: the project now includes a circuit-backed BN254 primitive layer built on `midnight-circuits` and `midnight-proofs`, together with CI, benchmarks, CLI diagnostics, and contributor documentation. Week 2 now includes a first Fp2 slice, a minimal G2 affine slice, and a narrow Jacobian-style G2 projective slice for `from_affine`, `neg`, `double`, and incomplete `add`. Week 3 now includes the extension-field slices in Fp6 and Fp12 plus Miller-oriented G2 `double_with_line` / `mixed_add_with_line` extraction. Pairings remain out of scope.
+The current phase is still intentionally narrow, but it is no longer just repository bootstrap: the project now includes a circuit-backed BN254 primitive layer built on `midnight-circuits` and `midnight-proofs`, together with CI, benchmarks, CLI diagnostics, and contributor documentation. Week 2 now includes a first Fp2 slice, a minimal G2 affine slice, and a narrow Jacobian-style G2 projective slice for `from_affine`, `neg`, `double`, and incomplete `add`. Week 3 now includes the extension-field slices in Fp6 and Fp12 plus Miller-oriented G2 `double_with_line` / `mixed_add_with_line` extraction. The current repository state now also includes the narrow Week 4 pairing core and the first Week 5 Groth16 BN254 verifier slice, while still stopping well short of a broad or production-ready verifier.
 
 ## Current Status
 
@@ -17,15 +17,17 @@ What the repository currently contains:
 - A narrow Week 2 BN254 G2 projective layer in Jacobian coordinates `(X:Y:Z)` with affine embedding, negation, doubling, incomplete addition, measured costs, and arkworks-backed sanity tests.
 - A Week 3 BN254 Miller-path G2 step layer with a dedicated homogeneous-projective state, `double_with_line`, `mixed_add_with_line`, and Miller-ready sparse line coefficients.
 - Placeholder outer-wrapper planning and backend integration boundaries that are honest about what is still missing.
+- A narrow Week 4 pairing core: real Miller loop, final exponentiation, and verifier-shaped pairing check.
+- A first Week 5 Groth16 BN254 verifier slice with real `snarkjs` proof/VK/public-input parsing, verifier-only `vk_x` accumulation, and one end-to-end pairing-product-check path.
 - Contributor-oriented documentation covering architecture, roadmap, and initial design decisions.
-- A `wrapper-cli` binary with honest developer commands for environment inspection and configuration validation.
+- A `wrapper-cli` binary with honest developer commands for environment inspection, configuration validation, primitive reporting, and narrow layout profiling.
 
 What is explicitly not implemented yet:
 
-- Pairing gadgets or pairing arithmetic
-- Groth16 verifier logic
+- Broad public pairing gadgets or generalized pairing APIs
+- Generalized Groth16 verifier frameworks beyond the first narrow BN254 slice
 - G2 subgroup checks or scalar multiplication
-- Real backend adapters to arkworks, Midnight, `blst`, or `snarkjs`
+- Broad backend adapters beyond the current narrow `snarkjs` BN254 parser path
 - Cryptographic soundness claims of any kind
 
 This repository now includes the primitive BN254 foundation plus the first narrow Groth16 BN254 verifier slice, but it is still far from a broad or production-ready wrapper verifier.
@@ -52,6 +54,8 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 ├── docs/
 │   ├── architecture.md
 │   ├── benchmarking.md
+│   ├── final-exponentiation-audit.md
+│   ├── profiling.md
 │   ├── roadmap.md
 │   └── decisions/0001-initial-workspace-structure.md
 └── crates/
@@ -105,6 +109,35 @@ Run them with:
 ```bash
 cargo bench
 ```
+
+## Profiling Layout Cost
+
+For optimization work on the current narrow Groth16 BN254 slice, prefer the
+layout-profiling CLI over ad hoc timing:
+
+```bash
+cargo run -p wrapper-cli -- profile-layout > baseline.tsv
+```
+
+Useful family-specific runs are:
+
+```bash
+cargo run -p wrapper-cli -- profile-layout --family groth16
+cargo run -p wrapper-cli -- profile-layout --family pairing-terms
+cargo run -p wrapper-cli -- profile-layout --family public-inputs
+cargo run -p wrapper-cli -- profile-layout --family blocks
+```
+
+Notes:
+
+- output is TSV and intended for before/after diffs
+- `public-inputs` and `blocks` are comparatively lighter
+- `groth16`, `pairing-terms`, and `all` can take noticeably longer because they
+  model large pairing-backed circuits
+- if you inspect the output file before the command exits, it may look empty or
+  incomplete; wait for the command to finish before comparing baselines
+- `blocks` now includes `final exponentiation easy part`, `final exponentiation hard part`, and total `final exponentiation`
+- for final-exponentiation work specifically, start with `docs/final-exponentiation-audit.md`
 
 ## Implemented Primitive Layer
 
@@ -161,6 +194,7 @@ The CLI is intentionally small and honest about the current phase. In particular
 ```bash
 cargo run -p wrapper-cli -- about
 cargo run -p wrapper-cli -- doctor
+cargo run -p wrapper-cli -- profile-layout
 cargo run -p wrapper-cli -- print-layout
 cargo run -p wrapper-cli -- validate-config --config crates/wrapper-tests/fixtures/example-config.toml
 cargo run -p wrapper-cli -- bench-info

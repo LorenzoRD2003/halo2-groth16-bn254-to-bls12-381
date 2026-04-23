@@ -24,15 +24,19 @@ pub(crate) fn fp12_exp_by_neg_x_constant(value: &Fp12Constant) -> Fp12Constant {
   fp12_conjugate_constant(&exp)
 }
 
-pub(crate) fn bn254_final_exponentiation_constant(value: &Fp12Constant) -> Fp12Constant {
+pub(crate) fn bn254_final_exponentiation_easy_part_constant(value: &Fp12Constant) -> Fp12Constant {
   let f1 = fp12_conjugate_constant(value);
   let f2 = fp12_inv_constant(value);
   let mut r = fp12_mul_constant(&f1, &f2);
   let r_clone = r;
   r = fp12_frobenius_map_constant(&r, 2);
-  r = fp12_mul_constant(&r, &r_clone);
+  fp12_mul_constant(&r, &r_clone)
+}
 
-  let y0 = fp12_exp_by_neg_x_constant(&r);
+pub(crate) fn bn254_final_exponentiation_hard_part_constant(value: &Fp12Constant) -> Fp12Constant {
+  let r = *value;
+
+  let y0 = fp12_exp_by_neg_x_constant(value);
   let y1 = fp12_square_constant(&y0);
   let y2 = fp12_square_constant(&y1);
   let mut y3 = fp12_mul_constant(&y2, &y1);
@@ -54,4 +58,9 @@ pub(crate) fn bn254_final_exponentiation_constant(value: &Fp12Constant) -> Fp12C
   let mut y15 = fp12_mul_constant(&r_inv, &y9);
   y15 = fp12_frobenius_map_constant(&y15, 3);
   fp12_mul_constant(&y15, &y14)
+}
+
+pub(crate) fn bn254_final_exponentiation_constant(value: &Fp12Constant) -> Fp12Constant {
+  let easy = bn254_final_exponentiation_easy_part_constant(value);
+  bn254_final_exponentiation_hard_part_constant(&easy)
 }

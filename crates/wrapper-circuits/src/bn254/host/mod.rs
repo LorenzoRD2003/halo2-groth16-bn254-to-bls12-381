@@ -13,7 +13,10 @@ pub(crate) use g2_host::{
   g2_projective_add_constant, g2_projective_double_constant, g2_projective_from_affine_constant,
   g2_projective_identity_constant,
 };
-pub(crate) use pairing_host::bn254_final_exponentiation_constant;
+pub(crate) use pairing_host::{
+  bn254_final_exponentiation_constant, bn254_final_exponentiation_easy_part_constant,
+  bn254_final_exponentiation_hard_part_constant,
+};
 
 pub(crate) type Fp2Value = (Value<ForeignField>, Value<ForeignField>);
 pub(crate) type Fp2Constant = (ForeignField, ForeignField);

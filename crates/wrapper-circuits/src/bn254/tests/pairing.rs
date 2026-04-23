@@ -4,6 +4,10 @@ use ark_bn254::{
 };
 use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
 use ark_ff::Field as _;
+use midnight_circuits::midnight_proofs::{
+  circuit::{Layouter, SimpleFloorPlanner, Value},
+  plonk::{Circuit, ConstraintSystem, Error},
+};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
@@ -15,6 +19,69 @@ use super::support::{
   random_nonzero_g1_affine, random_nonzero_g2_affine,
 };
 use super::*;
+
+#[derive(Clone, Debug)]
+struct MultiMillerLoopCircuit {
+  terms: Vec<PairingTermConstantValue>,
+  expected: Fp12ConstantValue,
+}
+
+impl MultiMillerLoopCircuit {
+  fn new(terms: &[(ArkG1Affine, ArkG2Affine)], expected: &ArkFq12) -> Self {
+    Self { terms: ark_pairing_terms_to_constants(terms), expected: ark_to_midnight_fq12(expected) }
+  }
+}
+
+impl Circuit<NativeField> for MultiMillerLoopCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    self.clone()
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    mut layouter: impl Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    let chip = Bn254FieldChip::new(&config);
+    let mut assigned_terms = Vec::with_capacity(self.terms.len());
+
+    for (g1, g2) in &self.terms {
+      let assigned_g1 =
+        AssignedG1Point::assign(&chip, &mut layouter, Value::known(g1.0), Value::known(g1.1))?;
+      let assigned_g2 = AssignedG2Affine::assign(
+        &chip,
+        &mut layouter,
+        (Value::known((g2.0).0), Value::known((g2.0).1)),
+        (Value::known((g2.1).0), Value::known((g2.1).1)),
+      )?;
+      assigned_terms.push((assigned_g1, assigned_g2));
+    }
+
+    let borrowed_terms: Vec<_> = assigned_terms.iter().map(|term| (&term.0, &term.1)).collect();
+    let actual = multi_miller_loop(&chip, &mut layouter, &borrowed_terms)?;
+    let expected_c0 = (
+      (Value::known((self.expected.0).0.0), Value::known((self.expected.0).0.1)),
+      (Value::known((self.expected.0).1.0), Value::known((self.expected.0).1.1)),
+      (Value::known((self.expected.0).2.0), Value::known((self.expected.0).2.1)),
+    );
+    let expected_c1 = (
+      (Value::known((self.expected.1).0.0), Value::known((self.expected.1).0.1)),
+      (Value::known((self.expected.1).1.0), Value::known((self.expected.1).1.1)),
+      (Value::known((self.expected.1).2.0), Value::known((self.expected.1).2.1)),
+    );
+    let expected = AssignedFp12::assign(&chip, &mut layouter, expected_c0, expected_c1)?;
+    actual.assert_equal(&chip, &mut layouter, &expected)?;
+    chip.load(&mut layouter)
+  }
+}
 
 #[test]
 fn bn254_miller_schedule_matches_expected_optimal_ate_shape() {
@@ -102,6 +169,18 @@ fn final_exponentiation_matches_arkworks_on_generator_miller_output() {
 
 #[test]
 #[ignore = "slow pairing-core"]
+fn final_exponentiation_easy_part_sample_matches_host_decomposition() {
+  assert_satisfied(&FinalExponentiationEasyPartCircuit::sample());
+}
+
+#[test]
+#[ignore = "slow pairing-core"]
+fn final_exponentiation_hard_part_sample_matches_host_decomposition() {
+  assert_satisfied(&FinalExponentiationHardPartCircuit::sample());
+}
+
+#[test]
+#[ignore = "slow pairing-core"]
 fn final_exponentiation_matches_arkworks_on_deterministic_random_miller_outputs() {
   let mut rng = ChaCha20Rng::from_seed([67_u8; 32]);
 
@@ -161,6 +240,32 @@ fn multi_miller_loop_matches_product_of_individual_miller_outputs() {
   let actual = ark_bn254_multi_miller_loop_product(&terms);
 
   assert_eq!(actual, expected);
+}
+
+#[test]
+#[ignore = "slow pairing-core"]
+fn multi_miller_loop_two_term_circuit_matches_arkworks_reference() {
+  let g1 = ArkG1Affine::generator();
+  let g2 = ArkG2Affine::generator();
+  let two_g1 = (ArkG1Projective::generator() + ArkG1Projective::generator()).into_affine();
+  let terms = [(g1, g2), (two_g1, g2)];
+  let expected = ark_bn254_multi_miller_loop_product(&terms);
+
+  assert_satisfied(&MultiMillerLoopCircuit::new(&terms, &expected));
+}
+
+#[test]
+#[ignore = "slow pairing-core"]
+fn multi_miller_loop_three_term_circuit_matches_arkworks_reference() {
+  let mut rng = ChaCha20Rng::from_seed([71_u8; 32]);
+  let q = random_nonzero_g2_affine(&mut rng);
+  let p1 = random_nonzero_g1_affine(&mut rng);
+  let p2 = random_nonzero_g1_affine(&mut rng);
+  let p3 = (-(p1.into_group() + p2.into_group())).into_affine();
+  let terms = [(p1, q), (p2, q), (p3, q)];
+  let expected = ark_bn254_multi_miller_loop_product(&terms);
+
+  assert_satisfied(&MultiMillerLoopCircuit::new(&terms, &expected));
 }
 
 #[test]
