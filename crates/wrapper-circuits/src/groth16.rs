@@ -13,12 +13,13 @@ use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
 };
+use midnight_curves::{CurveAffine, bn256::G1Affine};
 use thiserror::Error;
 
 use crate::bn254::{
   AssignedBool, AssignedG1, AssignedG1Point, AssignedG2Affine, Bn254BoolChip, Bn254BoolConfig,
   Bn254FieldChip, Bn254FieldConfig, Bn254G1Chip, Bn254G1Config, ForeignCurve, ForeignField,
-  NativeField, pairing_check,
+  NativeField, PreparedConstantG2Miller, pairing_check_with_prepared_terms,
 };
 
 pub mod fixtures;
@@ -27,6 +28,53 @@ pub mod profiling;
 pub mod reference;
 
 type G2AffineCoordinates = ((ForeignField, ForeignField), (ForeignField, ForeignField));
+
+pub(crate) fn groth16_g1_affine_coordinates(
+  point: Groth16Bn254G1Point,
+) -> (ForeignField, ForeignField) {
+  match point {
+    Groth16Bn254G1Point::Identity => {
+      panic!("profiling scenarios require non-identity affine G1 points")
+    }
+    Groth16Bn254G1Point::Affine { x, y } => (x, y),
+  }
+}
+
+pub(crate) fn groth16_g1_to_midnight_curve(point: Groth16Bn254G1Point) -> ForeignCurve {
+  match point {
+    Groth16Bn254G1Point::Identity => ForeignCurve::identity(),
+    Groth16Bn254G1Point::Affine { x, y } => {
+      let affine = Option::<G1Affine>::from(G1Affine::from_xy(x, y))
+        .expect("Groth16 G1 point should be valid");
+      affine.into()
+    }
+  }
+}
+
+pub(crate) fn groth16_negate_g1(point: Groth16Bn254G1Point) -> Groth16Bn254G1Point {
+  match point {
+    Groth16Bn254G1Point::Identity => Groth16Bn254G1Point::Identity,
+    Groth16Bn254G1Point::Affine { x, y } => Groth16Bn254G1Point::Affine { x, y: -y },
+  }
+}
+
+pub(crate) fn groth16_public_input_accumulator_constant(
+  vk: &Groth16Bn254VerifyingKey,
+  public_inputs: &[NativeField],
+) -> Groth16Bn254G1Point {
+  let mut accumulator = groth16_g1_to_midnight_curve(vk.ic[0]);
+
+  for (scalar, ic_point) in public_inputs.iter().zip(vk.ic.iter().skip(1)) {
+    accumulator += groth16_g1_to_midnight_curve(*ic_point) * *scalar;
+  }
+
+  let affine = G1Affine::from(accumulator);
+  let coordinates = Option::<midnight_curves::Coordinates<G1Affine>>::from(affine.coordinates())
+    .expect(
+      "Groth16 public-input accumulator should remain non-identity for the canonical fixture",
+    );
+  Groth16Bn254G1Point::affine(*coordinates.x(), *coordinates.y())
+}
 
 /// Narrow BN254 G1 point encoding for the Week 5 Groth16 verifier slice.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -173,6 +221,30 @@ pub fn groth16_accumulate_ic(
   let mut accumulator = assign_g1_affine(g1_chip, layouter, vk.ic[0])?;
 
   for (scalar, ic_point) in public_inputs.iter().zip(vk.ic.iter().skip(1)) {
+    if scalar.is_zero_vartime() || matches!(ic_point, Groth16Bn254G1Point::Identity) {
+      continue;
+    }
+
+    let scaled_constant = groth16_g1_to_midnight_curve(*ic_point) * *scalar;
+    let scaled = g1_chip.assign(layouter, Value::known(scaled_constant))?;
+    accumulator = g1_chip.add(layouter, &accumulator, &scaled)?;
+  }
+
+  Ok(accumulator)
+}
+
+#[cfg(test)]
+fn groth16_accumulate_ic_legacy(
+  g1_chip: &Bn254G1Chip,
+  layouter: &mut impl Layouter<NativeField>,
+  vk: &Groth16Bn254VerifyingKey,
+  public_inputs: &[NativeField],
+) -> Result<AssignedG1, Groth16VerifierError> {
+  validate_public_input_shape(vk, public_inputs)?;
+
+  let mut accumulator = assign_g1_affine(g1_chip, layouter, vk.ic[0])?;
+
+  for (scalar, ic_point) in public_inputs.iter().zip(vk.ic.iter().skip(1)) {
     let assigned_ic = assign_g1_affine(g1_chip, layouter, *ic_point)?;
     let scaled = g1_chip.mul_by_scalar_constant(layouter, *scalar, &assigned_ic)?;
     accumulator = g1_chip.add(layouter, &accumulator, &scaled)?;
@@ -218,23 +290,29 @@ pub fn groth16_verify(
   let neg_c = g1_chip.negate(layouter, &proof_c)?;
 
   let proof_b = assign_g2_affine(field_chip, layouter, proof.b)?;
-  let beta_g2 = assign_g2_affine(field_chip, layouter, vk.beta_g2)?;
-  let gamma_g2 = assign_g2_affine(field_chip, layouter, vk.gamma_g2)?;
-  let delta_g2 = assign_g2_affine(field_chip, layouter, vk.delta_g2)?;
+  let prepared_beta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.beta_g2);
+  let prepared_gamma_g2 = PreparedConstantG2Miller::from_affine_constant(vk.gamma_g2);
+  let prepared_delta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.delta_g2);
 
   let proof_a_pair = assigned_g1_to_pairing_point(g1_chip, &proof_a);
   let neg_alpha_pair = assigned_g1_to_pairing_point(g1_chip, &neg_alpha);
   let neg_vk_x_pair = assigned_g1_to_pairing_point(g1_chip, &neg_vk_x);
   let neg_c_pair = assigned_g1_to_pairing_point(g1_chip, &neg_c);
 
-  let terms = [
-    (&proof_a_pair, &proof_b),
-    (&neg_alpha_pair, &beta_g2),
-    (&neg_vk_x_pair, &gamma_g2),
-    (&neg_c_pair, &delta_g2),
+  let variable_terms = [(&proof_a_pair, &proof_b)];
+  let prepared_terms = [
+    (&neg_alpha_pair, &prepared_beta_g2),
+    (&neg_vk_x_pair, &prepared_gamma_g2),
+    (&neg_c_pair, &prepared_delta_g2),
   ];
 
-  Ok(pairing_check(field_chip, bool_chip, layouter, &terms)?)
+  Ok(pairing_check_with_prepared_terms(
+    field_chip,
+    bool_chip,
+    layouter,
+    &variable_terms,
+    &prepared_terms,
+  )?)
 }
 
 #[derive(Clone, Debug)]

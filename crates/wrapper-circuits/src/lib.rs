@@ -17,6 +17,8 @@ mod groth16;
 pub mod metrics;
 pub mod outer;
 pub mod planning;
+#[cfg(any(test, feature = "test-support"))]
+mod test_support;
 
 pub use bn254::{
   AssignedBool, AssignedFp, AssignedFp2, AssignedFp6, AssignedFp12, AssignedG1, AssignedG1Point,
@@ -61,6 +63,7 @@ pub use groth16::profiling::{
   groth16_pairing_block_final_exponentiation_hard_part_layout_metrics,
   groth16_pairing_block_final_exponentiation_layout_metrics,
   groth16_pairing_block_miller_loop_layout_metrics,
+  groth16_pairing_block_pairing_check_groth16_style_layout_metrics,
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
   groth16_public_input_count_layout_metrics,
 };

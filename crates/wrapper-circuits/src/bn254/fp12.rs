@@ -322,31 +322,6 @@ impl AssignedFp12 {
     Self::assign(chip, layouter, assigned_witness.0, assigned_witness.1)
   }
 
-  #[allow(dead_code)]
-  pub(crate) fn pow_constant_exp(
-    &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    exp: &[u64],
-  ) -> Result<Self, Error> {
-    let mut result = AssignedFp12::one(chip, layouter)?;
-    let mut seen_one = false;
-
-    for limb in exp.iter().rev() {
-      for bit in (0..64).rev() {
-        if seen_one {
-          result = result.square(chip, layouter)?;
-        }
-        if ((*limb >> bit) & 1) == 1 {
-          seen_one = true;
-          result = result.mul(chip, layouter, self)?;
-        }
-      }
-    }
-
-    Ok(result)
-  }
-
   /// Asserts coordinate-wise equality against another assigned Fp12 value.
   ///
   /// # Errors

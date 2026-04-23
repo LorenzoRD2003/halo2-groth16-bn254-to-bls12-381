@@ -266,18 +266,7 @@ fn g2_mixed_add_with_line_matches_arkworks_reference() {
   let mut rng = ChaCha20Rng::from_seed([58_u8; 32]);
 
   for _ in 0..8 {
-    let seed_point = ArkG2Projective::rand(&mut rng).into_affine();
-    let addend = ArkG2Projective::rand(&mut rng).into_affine();
-
-    if seed_point.is_zero() || addend.is_zero() {
-      continue;
-    }
-
-    let doubled_state = ark_double_with_line(ark_miller_point_from_affine(seed_point)).0;
-    let current_affine = ark_miller_point_to_affine(doubled_state);
-    if addend == current_affine || addend == -current_affine {
-      continue;
-    }
+    let (_seed_point, addend, doubled_state) = random_supported_mixed_add_fixture(&mut rng);
 
     let (next_point, line) = ark_mixed_add_with_line(doubled_state, addend);
     let expected_point = ark_miller_point_to_affine(next_point);

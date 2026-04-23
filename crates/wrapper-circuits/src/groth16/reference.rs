@@ -10,22 +10,24 @@ use ark_bn254::{
 };
 use ark_ec::{AffineRepr, CurveGroup, pairing::Pairing};
 use ark_ff::{Field as ArkField, PrimeField as ArkPrimeField};
-use ff::PrimeField;
-use midnight_curves::{CurveAffine, bn256::G1Affine};
 
 use super::{Groth16Bn254G1Point, Groth16Bn254Proof, Groth16Bn254VerifyingKey};
 use crate::bn254::{ForeignCurve, ForeignField, NativeField};
+use crate::test_support::{
+  ark_to_midnight_g1 as shared_ark_to_midnight_g1, midnight_to_ark_fq as shared_midnight_to_ark_fq,
+  midnight_to_ark_fr as shared_midnight_to_ark_fr,
+};
 
 /// Converts a Midnight BN254 base-field element into arkworks `Fq`.
 #[must_use]
 pub fn midnight_to_ark_fq(value: ForeignField) -> ArkFq {
-  ArkFq::from_le_bytes_mod_order(value.to_repr().as_ref())
+  shared_midnight_to_ark_fq(value)
 }
 
 /// Converts a Midnight native field element into arkworks `Fr`.
 #[must_use]
 pub fn midnight_to_ark_fr(value: NativeField) -> ArkFr {
-  ArkFr::from_le_bytes_mod_order(value.to_repr().as_ref())
+  shared_midnight_to_ark_fr(value)
 }
 
 /// Converts the narrow Groth16 G1 encoding into arkworks affine form.
@@ -53,14 +55,7 @@ pub fn groth16_g2_to_ark(
 /// Converts an arkworks G1 affine point into Midnight's BN254 curve type.
 #[must_use]
 pub fn ark_to_midnight_g1(point: ArkG1Affine) -> ForeignCurve {
-  let x = ForeignField::from_str_vartime(&point.x.into_bigint().to_string())
-    .expect("ark G1 x-coordinate should fit Midnight BN254 Fq");
-  let y = ForeignField::from_str_vartime(&point.y.into_bigint().to_string())
-    .expect("ark G1 y-coordinate should fit Midnight BN254 Fq");
-  let affine = Option::<G1Affine>::from(G1Affine::from_xy(x, y))
-    .expect("ark G1 point should map to a valid Midnight G1 point");
-
-  affine.into()
+  shared_ark_to_midnight_g1(point)
 }
 
 /// Computes the verifier-side host accumulator `vk_x`.

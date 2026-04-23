@@ -73,6 +73,7 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 │   ├── architecture.md
 │   ├── benchmarking.md
 │   ├── final-exponentiation-audit.md
+│   ├── groth16-optimization-summary.md
 │   ├── profiling.md
 │   ├── roadmap.md
 │   └── decisions/0001-initial-workspace-structure.md
@@ -91,6 +92,7 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 - Go to `docs/architecture.md` when deciding where code should live.
 - Go to `docs/roadmap.md` when checking whether an idea belongs in the current stage.
 - Go to `docs/profiling.md` and `docs/final-exponentiation-audit.md` for optimization work.
+- Go to `docs/groth16-optimization-summary.md` when you need the consolidated before/after history of completed optimization phases.
 
 ## Build Instructions
 
@@ -164,6 +166,11 @@ Notes:
   incomplete; wait for the command to finish before comparing baselines
 - `blocks` now includes `final exponentiation easy part`, `final exponentiation hard part`, and total `final exponentiation`
 - for final-exponentiation work specifically, start with `docs/final-exponentiation-audit.md`
+- for the consolidated optimization history and current bottleneck picture, start with `docs/groth16-optimization-summary.md`
+- the current Groth16 verifier route also precomputes Miller-step line
+  coefficients off-circuit for constant verifier-key G2 terms (`beta_g2`,
+  `gamma_g2`, `delta_g2`), trading a larger prepared VK representation for
+  lower circuit cost
 
 ## Implemented Primitive Layer
 

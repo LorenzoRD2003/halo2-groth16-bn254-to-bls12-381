@@ -6,17 +6,17 @@ use ark_ec::{
   AdditiveGroup, AffineRepr, CurveGroup, models::bn::G2Prepared as ArkPreparedG2,
   models::short_weierstrass::SWCurveConfig, pairing::Pairing,
 };
-use ark_ff::{BigInteger, Field as ArkField, PrimeField, UniformRand};
-use ff::PrimeField as HaloPrimeField;
-use halo2curves::group::Group;
+use ark_ff::{Field as ArkField, UniformRand};
 use midnight_circuits::midnight_proofs::{circuit::Value, plonk::Circuit};
-use midnight_curves::{CurveAffine, bn256::G1Affine};
 use midnight_proofs::dev::MockProver;
 use rand::RngCore;
 
 use super::*;
 use crate::bn254::host::Fp12Value;
 use crate::bn254::metrics::measure_layout;
+use crate::test_support::{
+  ark_to_midnight_fq as shared_ark_to_midnight_fq, ark_to_midnight_g1 as shared_ark_to_midnight_g1,
+};
 
 pub(crate) type Fp2AssignedValue = (Value<ForeignField>, Value<ForeignField>);
 pub(crate) type Fp6ConstantValue =
@@ -52,28 +52,11 @@ pub(crate) enum ArkMillerStep {
 }
 
 pub(crate) fn ark_to_midnight_fq(value: ArkFq) -> ForeignField {
-  let bytes = value.into_bigint().to_bytes_le();
-  let mut repr = <ForeignField as HaloPrimeField>::Repr::default();
-  let repr_bytes = repr.as_mut();
-  let copy_len = bytes.len().min(repr_bytes.len());
-  repr_bytes[..copy_len].copy_from_slice(&bytes[..copy_len]);
-
-  ForeignField::from_repr_vartime(repr)
-    .expect("arkworks bn254 fq value should fit midnight bn254 fq")
+  shared_ark_to_midnight_fq(value)
 }
 
 pub(crate) fn ark_to_midnight_g1(point: ArkG1Affine) -> ForeignCurve {
-  if point.is_zero() {
-    return ForeignCurve::identity();
-  }
-
-  let affine = Option::<G1Affine>::from(G1Affine::from_xy(
-    ark_to_midnight_fq(point.x),
-    ark_to_midnight_fq(point.y),
-  ))
-  .expect("arkworks point should map to a valid midnight bn254 point");
-
-  affine.into()
+  shared_ark_to_midnight_g1(point)
 }
 
 pub(crate) fn ark_to_midnight_fq2(value: ArkFq2) -> (ForeignField, ForeignField) {
@@ -299,6 +282,21 @@ pub(crate) fn random_nonzero_g2_affine(rng: &mut impl RngCore) -> ArkG2Affine {
     let candidate = ark_bn254::G2Projective::rand(rng).into_affine();
     if !candidate.is_zero() {
       break candidate;
+    }
+  }
+}
+
+pub(crate) fn random_supported_mixed_add_fixture(
+  rng: &mut impl RngCore,
+) -> (ArkG2Affine, ArkG2Affine, ArkG2MillerPoint) {
+  loop {
+    let seed_point = random_nonzero_g2_affine(rng);
+    let addend = random_nonzero_g2_affine(rng);
+    let doubled_state = ark_double_with_line(ark_miller_point_from_affine(seed_point)).0;
+    let current_affine = ark_miller_point_to_affine(doubled_state);
+
+    if addend != current_affine && addend != -current_affine {
+      break (seed_point, addend, doubled_state);
     }
   }
 }

@@ -45,6 +45,9 @@ preferred baseline path for optimization work on:
 For final-exponentiation-specific audit and next-step optimization planning, see
 `docs/final-exponentiation-audit.md`.
 
+For the consolidated optimization history across pairing-core, Groth16, and
+public-input scaling work, see `docs/groth16-optimization-summary.md`.
+
 ## Current Structure
 
 Benchmarks are grouped by future implementation area:

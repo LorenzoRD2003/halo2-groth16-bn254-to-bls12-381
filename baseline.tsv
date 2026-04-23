@@ -1,15 +1,17 @@
-[2m2026-04-23T13:21:06.872326Z[0m [32m INFO[0m printing Groth16 layout profiles for All
+[2m2026-04-23T15:52:51.100605Z[0m [32m INFO[0m printing Groth16 layout profiles for All
 family	id	label	term_count	public_input_count	rows	column_queries	k	table_rows	max_degree	advice_columns	fixed_columns	lookups	permutations	point_sets
 blocks	bn254_miller_loop_narrow	bn254 miller loop narrow			503854	58	19	417	5	15	37	4	18	4
-blocks	bn254_final_exponentiation	bn254 final exponentiation			1215080	58	21	417	5	15	37	4	18	4
-blocks	bn254_pairing_check_sample_2_terms	bn254 pairing check sample	2		2644684	94	22	417	5	20	60	8	24	4
-groth16	groth16_fixture_verifier_total	groth16 fixture verifier total		1	4073976	192	22	417	5	41	125	17	47	5
+blocks	bn254_final_exponentiation_easy_part	bn254 final exponentiation easy part			13884	58	14	417	5	15	37	4	18	4
+blocks	bn254_final_exponentiation_hard_part	bn254 final exponentiation hard part			690782	58	20	417	5	15	37	4	18	4
+blocks	bn254_final_exponentiation	bn254 final exponentiation			705596	58	20	417	5	15	37	4	18	4
+blocks	bn254_pairing_check_sample_2_terms	bn254 pairing check sample	2		1873660	94	21	417	5	20	60	8	24	4
+groth16	groth16_fixture_verifier_total	groth16 fixture verifier total		1	2170186	192	22	417	5	41	125	17	47	5
 groth16	groth16_fixture_vk_x_accumulator	groth16 fixture vk_x accumulator		1	680	105	10	417	5	21	67	9	25	5
-groth16	groth16_pairing_check_proxy_4_terms	groth16 pairing check 4-term proxy	4		4074056	94	22	417	5	20	60	8	24	4
-pairing_terms	pairing_check_terms_1	pairing check term scaling	1		1929998	94	21	417	5	20	60	8	24	4
-pairing_terms	pairing_check_terms_2	pairing check term scaling	2		2644684	94	22	417	5	20	60	8	24	4
-pairing_terms	pairing_check_terms_3	pairing check term scaling	3		3359370	94	22	417	5	20	60	8	24	4
-pairing_terms	pairing_check_terms_4	pairing check term scaling	4		4074056	94	22	417	5	20	60	8	24	4
+groth16	groth16_pairing_check_proxy_4_terms	groth16 pairing check 4-term proxy	4		2170266	94	22	417	5	20	60	8	24	4
+pairing_terms	pairing_check_terms_1	pairing check term scaling	1		1415916	94	21	417	5	20	60	8	24	4
+pairing_terms	pairing_check_terms_2	pairing check term scaling	2		1667366	94	21	417	5	20	60	8	24	4
+pairing_terms	pairing_check_terms_3	pairing check term scaling	3		1918816	94	21	417	5	20	60	8	24	4
+pairing_terms	pairing_check_terms_4	pairing check term scaling	4		2170266	94	22	417	5	20	60	8	24	4
 public_inputs	groth16_ic_accumulator_public_inputs_1	groth16 ic accumulator public-input scaling		1	680	105	10	417	5	21	67	9	25	5
 public_inputs	groth16_ic_accumulator_public_inputs_2	groth16 ic accumulator public-input scaling		2	1312	105	11	417	5	21	67	9	25	5
 public_inputs	groth16_ic_accumulator_public_inputs_4	groth16 ic accumulator public-input scaling		4	2576	105	12	417	5	21	67	9	25	5

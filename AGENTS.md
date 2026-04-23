@@ -99,6 +99,7 @@ If you need pairing-core / final-exponentiation context:
 3. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
 4. `docs/final-exponentiation-audit.md`
 5. `docs/profiling.md`
+6. `docs/groth16-optimization-summary.md`
 
 If you need BN254 primitive structure / ownership context:
 
@@ -114,6 +115,7 @@ If you need CLI / measurement context:
 3. `crates/wrapper-cli/src/main.rs`
 4. `docs/profiling.md`
 5. `docs/benchmarking.md`
+6. `docs/groth16-optimization-summary.md`
 
 If you need stage boundaries / "is this in scope?" context:
 
@@ -280,6 +282,7 @@ When touching the current BN254 primitive code:
 - keep final exponentiation work aligned with the standard BN easy-part / hard-part decomposition used by arkworks unless a measured circuit-oriented rewrite clearly improves the current slice
 - keep pairing-check work verifier-shaped: accumulate Miller outputs first, apply exactly one final exponentiation to the total product, and avoid per-term final exponentiation
 - for final-exponentiation optimization work, read `docs/final-exponentiation-audit.md` first; it records the exact implemented chain, the `exp_by_neg_x(...)` hotspot, and the current easy-part / hard-part split
+- before starting a new optimization pass, read `docs/groth16-optimization-summary.md` first so you inherit the current before/after numbers and do not re-open already-settled measurement questions
 - when a public method contains a full algebraic step, prefer extracting the formula into a well-named internal helper such as `double_step_jacobian`, `double_step_hom_projective`, or `mixed_add_step_hom_projective`
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
@@ -304,6 +307,7 @@ Concrete BN254 conventions already in use:
 - Miller-path `double_with_line` and `mixed_add_with_line` follow the homogeneous-projective BN prepared-G2 formulas used by arkworks / Midnight, not the Jacobian formulas used by `AssignedG2Projective`
 - final exponentiation follows the standard BN254 easy-part / hard-part split used by arkworks over the Miller-loop output
 - the narrow pairing-check path computes each real Miller loop, multiplies the Miller outputs in `Fp12`, applies exactly one final exponentiation, and checks equality with the `Fp12` multiplicative identity
+- the current Groth16 verifier route precomputes Miller-step line coefficients off-circuit for constant verifier-key G2 terms (`beta_g2`, `gamma_g2`, `delta_g2`) and feeds those prepared lines into the interleaved multi-Miller loop; only the proof term stays on the variable G2 path
 - the current final-exponentiation code now exposes `final_exponentiation_easy_part(...)` and `final_exponentiation_hard_part(...)` as audit-friendly internal helpers without changing semantics
 - the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/final-exponentiation-audit.md` before changing it so you inherit the current chain shape, measured split, and next optimization targets
 - the fixed BN254 `exp_by_neg_x(...)` recipe now lives in `crates/wrapper-circuits/src/bn254/final_exp_chain.rs` and is consumed by both host/reference code and the circuit path; keep that module canonical
@@ -350,6 +354,7 @@ Interpretation guidance:
 - `miller loop narrow` now measures the real fixed single-pair BN254 optimal-ate Miller traversal, not the earlier synthetic schedule
 - `final exponentiation` measures the narrow single-pair BN254 final-exponentiation sanity circuit over a Miller-loop output, not a verifier-facing full pairing API
 - `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `13884` rows / `k=14` for the easy part and `690782` rows / `k=20` for the hard part, so future optimization work should focus overwhelmingly on the hard part
+- `docs/groth16-optimization-summary.md` is the canonical narrative summary of completed optimization phases and consolidated before/after metrics; keep it updated when a new optimization materially changes the bottleneck story
 - `pairing check` should always be described as the narrow verifier-shaped product-check slice with one shared final exponentiation, not as a full pairing engine or Groth16 verifier
 - as of the current repo state, local accumulator-square rewrites that only swap formulas inside the existing Fp12 tower did not beat the generic `miller accumulator square` cost; future square optimization likely needs a more structural/cross-step design rather than a small algebraic rewrite, so do not keep partial `square_optimized` experiments in the tree unless they measurably win in `wrapper-cli doctor`
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
@@ -411,6 +416,7 @@ Current test expectations for the primitive layer:
 - `profile-layout` output is TSV and intended to be redirected to a file for before/after diffs.
 - The `groth16`, `pairing-terms`, and `all` profiling families are intentionally heavier than `blocks` and `public-inputs`; let them finish before inspecting the output file, or the TSV may appear empty/incomplete.
 - The `blocks` profiling family now includes `bn254_final_exponentiation_easy_part`, `bn254_final_exponentiation_hard_part`, and total `bn254_final_exponentiation`; use those rows before changing the final-exponentiation chain.
+- The current `pairing-terms` profiling family models one variable proof-like G2 term and the remaining terms as prepared constant verifier-key-style G2 terms, so it is intended as a Groth16-relevant scaling proxy rather than an all-variable pairing benchmark.
 
 Current benchmark entry points include:
 

@@ -284,6 +284,62 @@ fn pairing_check_two_term_inverse_cancellation_matches_arkworks() {
 
 #[test]
 #[ignore = "slow pairing-core"]
+fn pairing_check_with_prepared_constant_terms_matches_arkworks() {
+  let g2 = ArkG2Affine::generator();
+  let g1 = ArkG1Affine::generator();
+  let neg_g1 = (-ArkG1Projective::generator()).into_affine();
+  let terms = [(g1, g2), (neg_g1, g2)];
+  assert!(ark_bn254_pairing_check(&terms));
+
+  let variable_terms =
+    vec![((ark_to_midnight_fq(g1.x), ark_to_midnight_fq(g1.y)), ark_to_assigned_g2_coords(g2))];
+  let prepared_terms = vec![(
+    (ark_to_midnight_fq(neg_g1.x), ark_to_midnight_fq(neg_g1.y)),
+    PreparedConstantG2Miller::from_affine_constant(ark_to_assigned_g2_coords(g2)),
+  )];
+
+  assert_satisfied(&PairingCheckCircuit::new_with_prepared_constant_terms(
+    &variable_terms,
+    &prepared_terms,
+    true,
+  ));
+}
+
+#[test]
+#[ignore = "slow pairing-core"]
+fn pairing_check_four_term_prepared_vk_style_matches_arkworks() {
+  let g2 = ArkG2Affine::generator();
+  let g1 = ArkG1Affine::generator();
+  let neg_g1 = (-ArkG1Projective::generator()).into_affine();
+  let terms = [(g1, g2), (neg_g1, g2), (g1, g2), (neg_g1, g2)];
+  assert!(ark_bn254_pairing_check(&terms));
+
+  let variable_terms =
+    vec![((ark_to_midnight_fq(g1.x), ark_to_midnight_fq(g1.y)), ark_to_assigned_g2_coords(g2))];
+  let prepared_terms = vec![
+    (
+      (ark_to_midnight_fq(neg_g1.x), ark_to_midnight_fq(neg_g1.y)),
+      PreparedConstantG2Miller::from_affine_constant(ark_to_assigned_g2_coords(g2)),
+    ),
+    (
+      (ark_to_midnight_fq(g1.x), ark_to_midnight_fq(g1.y)),
+      PreparedConstantG2Miller::from_affine_constant(ark_to_assigned_g2_coords(g2)),
+    ),
+    (
+      (ark_to_midnight_fq(neg_g1.x), ark_to_midnight_fq(neg_g1.y)),
+      PreparedConstantG2Miller::from_affine_constant(ark_to_assigned_g2_coords(g2)),
+    ),
+  ];
+
+  assert_satisfied(&PairingCheckCircuit::new_with_prepared_constant_terms(
+    &variable_terms,
+    &prepared_terms,
+    true,
+  ));
+}
+
+#[test]
+#[ignore = "slow pairing-core"]
 fn pairing_check_two_term_negative_matches_arkworks() {
   let g2 = ArkG2Affine::generator();
   let g1 = ArkG1Affine::generator();

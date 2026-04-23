@@ -6,6 +6,9 @@ current narrow Groth16 BN254 verifier slice.
 The goal is reproducible measurement for optimization work, not a new
 benchmarking framework.
 
+For the consolidated history of completed optimization phases and their
+before/after impact, see `docs/groth16-optimization-summary.md`.
+
 ## What Was Added
 
 - a `wrapper-cli profile-layout` command
@@ -33,6 +36,17 @@ Groth16-specific blocks:
   Measures an isolated 4-term pairing-check proxy circuit that matches the
   current Groth16 term count.
 
+The current Groth16 verifier path now precomputes Miller-step line
+coefficients off-circuit for constant verifier-key G2 terms:
+
+- `beta_g2`
+- `gamma_g2`
+- `delta_g2`
+
+This is valid because those G2 points are fixed verifier-key data, not proof
+witnesses. The tradeoff is a larger prepared verifier-key representation in host
+memory and orchestration code in exchange for lower circuit cost.
+
 ### 2. `pairing-terms`
 
 These rows isolate how the narrow pairing-check circuit scales as the number of
@@ -44,6 +58,9 @@ pairing terms grows:
 - `4`
 
 This is intentionally term-count profiling, not a generalized verifier API.
+The current profile models one variable proof-like G2 term and the remaining
+terms as prepared constant verifier-key-style G2 terms, which matches the
+current Groth16 verifier shape more closely than an all-variable proxy.
 
 ### 3. `public-inputs`
 
@@ -68,6 +85,7 @@ already available:
 - final exponentiation easy part
 - final exponentiation hard part
 - final exponentiation
+- pairing check groth16-style (1 variable + 3 prepared)
 - pairing check primitive sample
 
 ## What It Does Not Measure Yet
@@ -159,6 +177,11 @@ Important workflow note:
   exponentiation directly.
 - for final-exponentiation-specific decomposition, operation counts, and
   follow-up targets, read `docs/final-exponentiation-audit.md`
+- `bn254_pairing_check_groth16_style` is the current optimized verifier-shaped
+  pairing-core snapshot:
+  one variable proof term plus three prepared constant verifier-key terms
+- `bn254_pairing_check_sample_2_terms` remains a lower-level primitive sample
+  and should not be read as the optimized Groth16 structure
 
 ## Suggested Baseline Workflow
 

@@ -35,8 +35,9 @@ pub use g2::{
   G2ProjectiveFromAffineCircuit, G2ProjectiveIdentityCircuit, G2ProjectiveNegCircuit,
   MillerAccumulatorMulByLineCircuit, MillerAccumulatorMulByLineSparseCircuit,
   MillerAccumulatorSquareCircuit, MillerLoopCircuit, MillerStep, MillerStepConstant,
-  PairingCheckCircuit, PairingFinalExponentiationCircuit, PreparedG2Miller, bn254_ate_loop_count,
-  final_exponentiation, g2_curve_coeff_b, miller_loop, multi_miller_loop, pairing_check,
+  PairingCheckCircuit, PairingFinalExponentiationCircuit, PreparedConstantG2Miller,
+  PreparedG2Miller, bn254_ate_loop_count, final_exponentiation, g2_curve_coeff_b, miller_loop,
+  multi_miller_loop, pairing_check, pairing_check_with_prepared_terms,
 };
 pub(crate) use metrics::measure_layout;
 pub use metrics::{

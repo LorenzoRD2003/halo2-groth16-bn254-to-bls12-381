@@ -16,6 +16,7 @@ use wrapper_circuits::{
   groth16_pairing_block_final_exponentiation_hard_part_layout_metrics,
   groth16_pairing_block_final_exponentiation_layout_metrics,
   groth16_pairing_block_miller_loop_layout_metrics,
+  groth16_pairing_block_pairing_check_groth16_style_layout_metrics,
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
   groth16_public_input_count_layout_metrics, primitive_definitions,
 };
@@ -258,6 +259,14 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         term_count: None,
         public_input_count: None,
         layout: groth16_pairing_block_final_exponentiation_layout_metrics(),
+      },
+      LayoutProfileRow {
+        family: "blocks",
+        id: "bn254_pairing_check_groth16_style".to_owned(),
+        label: "bn254 pairing check groth16-style (1 variable + 3 prepared)",
+        term_count: Some(4),
+        public_input_count: Some(1),
+        layout: groth16_pairing_block_pairing_check_groth16_style_layout_metrics(),
       },
       LayoutProfileRow {
         family: "blocks",

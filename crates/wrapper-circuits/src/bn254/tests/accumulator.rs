@@ -1,5 +1,18 @@
 use super::*;
 
+fn assert_mul_by_line_matches_both_paths(
+  line: G2LineCoeffsConstantValue,
+  g1_point: ArkG1Affine,
+  expected: ArkFq12,
+) {
+  let g1_x = ark_to_midnight_fq(g1_point.x);
+  let g1_y = ark_to_midnight_fq(g1_point.y);
+  let expected = ark_to_midnight_fq12(&expected);
+
+  assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(line, g1_x, g1_y, &expected));
+  assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(line, g1_x, g1_y, &expected));
+}
+
 #[test]
 fn g2_line_coeff_evaluation_matches_sparse_fp12_embedding() {
   let (_, g1_point, _, line, expected) = ark_generator_double_line_fixture();
@@ -85,13 +98,7 @@ fn miller_accumulator_mul_by_line_matches_arkworks_reference() {
 #[test]
 fn miller_accumulator_mul_by_line_baseline_and_sparse_match_fixed_fixture() {
   let (_, g1_point, _, line, expected) = ark_generator_double_line_fixture();
-  let line = ark_to_line_coeffs_constant(line);
-  let g1_x = ark_to_midnight_fq(g1_point.x);
-  let g1_y = ark_to_midnight_fq(g1_point.y);
-  let expected = ark_to_midnight_fq12(&expected);
-
-  assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(line, g1_x, g1_y, &expected));
-  assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(line, g1_x, g1_y, &expected));
+  assert_mul_by_line_matches_both_paths(ark_to_line_coeffs_constant(line), g1_point, expected);
 }
 
 #[test]
@@ -107,13 +114,7 @@ fn miller_accumulator_mul_by_line_baseline_and_sparse_match_randomized_fixtures(
 
     let (_, line) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
     let expected = ark_line_evaluation(line, g1_point);
-    let line = ark_to_line_coeffs_constant(line);
-    let g1_x = ark_to_midnight_fq(g1_point.x);
-    let g1_y = ark_to_midnight_fq(g1_point.y);
-    let expected = ark_to_midnight_fq12(&expected);
-
-    assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(line, g1_x, g1_y, &expected));
-    assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(line, g1_x, g1_y, &expected));
+    assert_mul_by_line_matches_both_paths(ark_to_line_coeffs_constant(line), g1_point, expected);
   }
 }
 
@@ -122,17 +123,10 @@ fn mixed_add_with_line_then_accumulate_matches_arkworks_reference() {
   let mut rng = ChaCha20Rng::from_seed([63_u8; 32]);
 
   for _ in 0..8 {
-    let seed_point = ArkG2Projective::rand(&mut rng).into_affine();
-    let addend = ArkG2Projective::rand(&mut rng).into_affine();
+    let (_seed_point, addend, doubled_state) = random_supported_mixed_add_fixture(&mut rng);
     let g1_point = ArkG1Projective::rand(&mut rng).into_affine();
 
-    if seed_point.is_zero() || addend.is_zero() || g1_point.is_zero() {
-      continue;
-    }
-
-    let doubled_state = ark_double_with_line(ark_miller_point_from_affine(seed_point)).0;
-    let current_affine = ark_miller_point_to_affine(doubled_state);
-    if addend == current_affine || addend == -current_affine {
+    if g1_point.is_zero() {
       continue;
     }
 
@@ -154,13 +148,7 @@ fn miller_accumulator_sparse_and_generic_mul_by_line_paths_match_same_reference(
   let g1_point = ArkG1Affine::generator();
   let (_, line) = ark_double_with_line(ark_miller_point_from_affine(g2_point));
   let expected = ark_line_evaluation(line, g1_point);
-  let expected = ark_to_midnight_fq12(&expected);
-  let line = ark_to_line_coeffs_constant(line);
-  let g1_x = ark_to_midnight_fq(g1_point.x);
-  let g1_y = ark_to_midnight_fq(g1_point.y);
-
-  assert_satisfied(&MillerAccumulatorMulByLineCircuit::new(line, g1_x, g1_y, &expected));
-  assert_satisfied(&MillerAccumulatorMulByLineSparseCircuit::new(line, g1_x, g1_y, &expected));
+  assert_mul_by_line_matches_both_paths(ark_to_line_coeffs_constant(line), g1_point, expected);
 }
 
 #[test]

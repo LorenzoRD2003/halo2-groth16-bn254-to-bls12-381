@@ -639,6 +639,62 @@ impl PreparedG2Miller {
   }
 }
 
+/// Host-side prepared Miller schedule for a fixed affine G2 point.
+///
+/// This is the constant-term companion to [`PreparedG2Miller`]. It stores the
+/// exact per-step line-coefficient sequence for the fixed BN254 Miller schedule
+/// so the circuit can consume those lines directly without performing G2
+/// doubling / mixed-addition on constant verifier-key terms.
+#[derive(Clone, Debug, Default)]
+pub struct PreparedConstantG2Miller {
+  /// Expanded Miller traversal steps, aligned with [`Bn254MillerSchedule::bn254()`].
+  pub steps: Vec<MillerStepConstant>,
+}
+
+impl PreparedConstantG2Miller {
+  /// Builds prepared constant Miller data from explicit schedule steps.
+  #[must_use]
+  pub fn new(steps: Vec<MillerStepConstant>) -> Self {
+    Self { steps }
+  }
+
+  /// Prepares a fixed affine BN254 G2 point off-circuit.
+  #[must_use]
+  pub fn from_affine_constant(point: G2AffineConstant) -> Self {
+    Self::new(bn254_prepared_miller_steps_constant(point))
+  }
+
+  fn validate_against_schedule(&self) -> Result<(), Error> {
+    let schedule = Bn254MillerSchedule::bn254();
+    if self.steps.len() != schedule.steps.len() {
+      return Err(Error::Synthesis(format!(
+        "prepared G2 schedule length mismatch: expected {}, got {}",
+        schedule.steps.len(),
+        self.steps.len()
+      )));
+    }
+
+    for (index, (expected_step, prepared_step)) in
+      schedule.steps.iter().zip(self.steps.iter()).enumerate()
+    {
+      let kinds_match = matches!(
+        (expected_step, prepared_step),
+        (Bn254MillerScheduleStep::Double, MillerStepConstant::Double(_))
+          | (Bn254MillerScheduleStep::Add(_), MillerStepConstant::Add(_))
+      );
+
+      if !kinds_match {
+        return Err(Error::Synthesis(format!(
+          "prepared G2 schedule kind mismatch at step {}",
+          index
+        )));
+      }
+    }
+
+    Ok(())
+  }
+}
+
 /// Runs the narrow Miller accumulation slice over a fixed prepared schedule.
 ///
 /// This is intentionally only the accumulation over extracted line
@@ -670,7 +726,7 @@ pub fn miller_loop(
 }
 
 #[derive(Clone, Debug)]
-struct AssignedMultiMillerTerm {
+struct AssignedVariableMultiMillerTerm {
   point: AssignedG1Point,
   current: AssignedG2MillerPoint,
   base: AssignedG2Affine,
@@ -679,7 +735,7 @@ struct AssignedMultiMillerTerm {
   frobenius_q2_neg_y: AssignedG2Affine,
 }
 
-impl AssignedMultiMillerTerm {
+impl AssignedVariableMultiMillerTerm {
   fn initialize(
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
@@ -729,10 +785,85 @@ impl AssignedMultiMillerTerm {
   }
 }
 
+#[derive(Clone, Debug)]
+struct AssignedPreparedConstantMultiMillerTerm {
+  point: AssignedG1Point,
+  prepared: PreparedConstantG2Miller,
+  next_step: usize,
+}
+
+impl AssignedPreparedConstantMultiMillerTerm {
+  fn initialize(
+    point: &AssignedG1Point,
+    prepared: &PreparedConstantG2Miller,
+  ) -> Result<Self, Error> {
+    prepared.validate_against_schedule()?;
+    Ok(Self { point: point.clone(), prepared: prepared.clone(), next_step: 0 })
+  }
+
+  fn advance_step(
+    &mut self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    step: Bn254MillerScheduleStep,
+  ) -> Result<AssignedG2LineCoeffs, Error> {
+    let prepared_step = self.prepared.steps.get(self.next_step).ok_or_else(|| {
+      Error::Synthesis(format!("prepared G2 line sequence exhausted at step {}", self.next_step))
+    })?;
+    self.next_step += 1;
+
+    let line = match (step, prepared_step) {
+      (Bn254MillerScheduleStep::Double, MillerStepConstant::Double(line))
+      | (Bn254MillerScheduleStep::Add(_), MillerStepConstant::Add(line)) => line,
+      _ => {
+        return Err(Error::Synthesis(format!(
+          "prepared G2 line kind mismatch at step {}",
+          self.next_step - 1
+        )));
+      }
+    };
+
+    AssignedG2LineCoeffs::assign(
+      chip,
+      layouter,
+      (Value::known(line.0.0), Value::known(line.0.1)),
+      (Value::known(line.1.0), Value::known(line.1.1)),
+      (Value::known(line.2.0), Value::known(line.2.1)),
+    )
+  }
+}
+
+#[derive(Clone, Debug)]
+enum AssignedInterleavedMultiMillerTerm {
+  Variable(AssignedVariableMultiMillerTerm),
+  Prepared(AssignedPreparedConstantMultiMillerTerm),
+}
+
+impl AssignedInterleavedMultiMillerTerm {
+  fn advance_step(
+    &mut self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    step: Bn254MillerScheduleStep,
+  ) -> Result<AssignedG2LineCoeffs, Error> {
+    match self {
+      Self::Variable(term) => term.advance_step(chip, layouter, step),
+      Self::Prepared(term) => term.advance_step(chip, layouter, step),
+    }
+  }
+
+  fn point(&self) -> &AssignedG1Point {
+    match self {
+      Self::Variable(term) => &term.point,
+      Self::Prepared(term) => &term.point,
+    }
+  }
+}
+
 fn run_interleaved_multi_miller_schedule(
   chip: &Bn254FieldChip,
   layouter: &mut impl Layouter<NativeField>,
-  terms: &mut [AssignedMultiMillerTerm],
+  terms: &mut [AssignedInterleavedMultiMillerTerm],
 ) -> Result<AssignedFp12, Error> {
   let mut accumulator = AssignedMillerAccumulator::one(chip, layouter)?;
 
@@ -743,7 +874,7 @@ fn run_interleaved_multi_miller_schedule(
 
     for term in terms.iter_mut() {
       let line = term.advance_step(chip, layouter, *step)?;
-      accumulator.mul_by_line(chip, layouter, &line, &term.point)?;
+      accumulator.mul_by_line(chip, layouter, &line, term.point())?;
     }
   }
 
@@ -767,7 +898,34 @@ pub fn multi_miller_loop(
 
   let mut initialized_terms = Vec::with_capacity(terms.len());
   for (g1, g2) in terms {
-    initialized_terms.push(AssignedMultiMillerTerm::initialize(chip, layouter, g1, g2)?);
+    initialized_terms.push(AssignedInterleavedMultiMillerTerm::Variable(
+      AssignedVariableMultiMillerTerm::initialize(chip, layouter, g1, g2)?,
+    ));
+  }
+
+  run_interleaved_multi_miller_schedule(chip, layouter, &mut initialized_terms)
+}
+
+pub fn multi_miller_loop_with_prepared_terms(
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+  variable_terms: &[(&AssignedG1Point, &AssignedG2Affine)],
+  prepared_terms: &[(&AssignedG1Point, &PreparedConstantG2Miller)],
+) -> Result<AssignedFp12, Error> {
+  if variable_terms.is_empty() && prepared_terms.is_empty() {
+    return AssignedFp12::one(chip, layouter);
+  }
+
+  let mut initialized_terms = Vec::with_capacity(variable_terms.len() + prepared_terms.len());
+  for (g1, g2) in variable_terms {
+    initialized_terms.push(AssignedInterleavedMultiMillerTerm::Variable(
+      AssignedVariableMultiMillerTerm::initialize(chip, layouter, g1, g2)?,
+    ));
+  }
+  for (g1, prepared) in prepared_terms {
+    initialized_terms.push(AssignedInterleavedMultiMillerTerm::Prepared(
+      AssignedPreparedConstantMultiMillerTerm::initialize(g1, prepared)?,
+    ));
   }
 
   run_interleaved_multi_miller_schedule(chip, layouter, &mut initialized_terms)
@@ -977,6 +1135,32 @@ pub fn pairing_check(
   terms: &[(&AssignedG1Point, &AssignedG2Affine)],
 ) -> Result<AssignedBool, Error> {
   let total_miller = multi_miller_loop(chip, layouter, terms)?;
+  let gt = final_exponentiation(chip, layouter, &total_miller)?;
+  let c0_0 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c0, ForeignField::ONE)?;
+  let c0_1 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c1, ForeignField::ZERO)?;
+  let c0_2 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c0, ForeignField::ZERO)?;
+  let c0_3 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c1, ForeignField::ZERO)?;
+  let c0_4 = chip.is_equal_to_fixed(layouter, &gt.c0.c2.c0, ForeignField::ZERO)?;
+  let c0_5 = chip.is_equal_to_fixed(layouter, &gt.c0.c2.c1, ForeignField::ZERO)?;
+  let c1_0 = chip.is_equal_to_fixed(layouter, &gt.c1.c0.c0, ForeignField::ZERO)?;
+  let c1_1 = chip.is_equal_to_fixed(layouter, &gt.c1.c0.c1, ForeignField::ZERO)?;
+  let c1_2 = chip.is_equal_to_fixed(layouter, &gt.c1.c1.c0, ForeignField::ZERO)?;
+  let c1_3 = chip.is_equal_to_fixed(layouter, &gt.c1.c1.c1, ForeignField::ZERO)?;
+  let c1_4 = chip.is_equal_to_fixed(layouter, &gt.c1.c2.c0, ForeignField::ZERO)?;
+  let c1_5 = chip.is_equal_to_fixed(layouter, &gt.c1.c2.c1, ForeignField::ZERO)?;
+
+  bool_chip.and(layouter, &[c0_0, c0_1, c0_2, c0_3, c0_4, c0_5, c1_0, c1_1, c1_2, c1_3, c1_4, c1_5])
+}
+
+pub fn pairing_check_with_prepared_terms(
+  chip: &Bn254FieldChip,
+  bool_chip: &Bn254BoolChip,
+  layouter: &mut impl Layouter<NativeField>,
+  variable_terms: &[(&AssignedG1Point, &AssignedG2Affine)],
+  prepared_terms: &[(&AssignedG1Point, &PreparedConstantG2Miller)],
+) -> Result<AssignedBool, Error> {
+  let total_miller =
+    multi_miller_loop_with_prepared_terms(chip, layouter, variable_terms, prepared_terms)?;
   let gt = final_exponentiation(chip, layouter, &total_miller)?;
   let c0_0 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c0, ForeignField::ONE)?;
   let c0_1 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c1, ForeignField::ZERO)?;
@@ -2132,11 +2316,14 @@ impl PairingFinalExponentiationCircuit {
 }
 
 type PairingTermValue = ((Value<ForeignField>, Value<ForeignField>), G2AffineValue);
+type PreparedPairingTermValue =
+  ((Value<ForeignField>, Value<ForeignField>), PreparedConstantG2Miller);
 
 /// Small circuit that exercises the narrow BN254 multi-pairing product check.
 #[derive(Clone, Debug)]
 pub struct PairingCheckCircuit {
-  terms: Vec<PairingTermValue>,
+  variable_terms: Vec<PairingTermValue>,
+  prepared_terms: Vec<PreparedPairingTermValue>,
   expected: bool,
 }
 
@@ -2151,7 +2338,7 @@ impl PairingCheckCircuit {
   #[must_use]
   pub fn new(terms: &[((ForeignField, ForeignField), G2AffineConstant)], expected: bool) -> Self {
     Self {
-      terms: terms
+      variable_terms: terms
         .iter()
         .map(|term| {
           (
@@ -2162,6 +2349,35 @@ impl PairingCheckCircuit {
             ),
           )
         })
+        .collect(),
+      prepared_terms: Vec::new(),
+      expected,
+    }
+  }
+
+  /// Builds a pairing-product-check circuit with variable and prepared constant G2 terms.
+  #[must_use]
+  pub fn new_with_prepared_constant_terms(
+    variable_terms: &[((ForeignField, ForeignField), G2AffineConstant)],
+    prepared_terms: &[((ForeignField, ForeignField), PreparedConstantG2Miller)],
+    expected: bool,
+  ) -> Self {
+    Self {
+      variable_terms: variable_terms
+        .iter()
+        .map(|term| {
+          (
+            (Value::known((term.0).0), Value::known((term.0).1)),
+            (
+              (Value::known(((term.1).0).0), Value::known(((term.1).0).1)),
+              (Value::known(((term.1).1).0), Value::known(((term.1).1).1)),
+            ),
+          )
+        })
+        .collect(),
+      prepared_terms: prepared_terms
+        .iter()
+        .map(|term| ((Value::known((term.0).0), Value::known((term.0).1)), term.1.clone()))
         .collect(),
       expected,
     }
@@ -2190,8 +2406,8 @@ impl Circuit<NativeField> for PairingCheckCircuit {
 
   fn without_witnesses(&self) -> Self {
     Self {
-      terms: self
-        .terms
+      variable_terms: self
+        .variable_terms
         .iter()
         .map(|_| {
           (
@@ -2199,6 +2415,11 @@ impl Circuit<NativeField> for PairingCheckCircuit {
             ((Value::unknown(), Value::unknown()), (Value::unknown(), Value::unknown())),
           )
         })
+        .collect(),
+      prepared_terms: self
+        .prepared_terms
+        .iter()
+        .map(|term| ((Value::unknown(), Value::unknown()), term.1.clone()))
         .collect(),
       expected: self.expected,
     }
@@ -2219,16 +2440,31 @@ impl Circuit<NativeField> for PairingCheckCircuit {
   ) -> Result<(), Error> {
     let chip = Bn254FieldChip::new(&config.field);
     let bool_chip = Bn254BoolChip::new(&config.bools);
-    let mut assigned_terms = Vec::with_capacity(self.terms.len());
+    let mut assigned_variable_terms = Vec::with_capacity(self.variable_terms.len());
+    let mut assigned_prepared_terms = Vec::with_capacity(self.prepared_terms.len());
 
-    for (g1, g2) in &self.terms {
+    for (g1, g2) in &self.variable_terms {
       let assigned_g1 = AssignedG1Point::assign(&chip, &mut layouter, g1.0, g1.1)?;
       let assigned_g2 = AssignedG2Affine::assign(&chip, &mut layouter, g2.0, g2.1)?;
-      assigned_terms.push((assigned_g1, assigned_g2));
+      assigned_variable_terms.push((assigned_g1, assigned_g2));
     }
 
-    let borrowed_terms: Vec<_> = assigned_terms.iter().map(|term| (&term.0, &term.1)).collect();
-    let result = pairing_check(&chip, &bool_chip, &mut layouter, &borrowed_terms)?;
+    for (g1, prepared) in &self.prepared_terms {
+      let assigned_g1 = AssignedG1Point::assign(&chip, &mut layouter, g1.0, g1.1)?;
+      assigned_prepared_terms.push((assigned_g1, prepared.clone()));
+    }
+
+    let borrowed_variable_terms: Vec<_> =
+      assigned_variable_terms.iter().map(|term| (&term.0, &term.1)).collect();
+    let borrowed_prepared_terms: Vec<_> =
+      assigned_prepared_terms.iter().map(|term| (&term.0, &term.1)).collect();
+    let result = pairing_check_with_prepared_terms(
+      &chip,
+      &bool_chip,
+      &mut layouter,
+      &borrowed_variable_terms,
+      &borrowed_prepared_terms,
+    )?;
     bool_chip.assert_equal_to_fixed(&mut layouter, &result, self.expected)?;
     chip.load(&mut layouter)?;
     bool_chip.load(&mut layouter)
