@@ -54,7 +54,7 @@ impl CapabilityMatrix {
         (ProjectCapability::BackendSkeleton, ImplementationStatus::Scaffolded),
         (ProjectCapability::ForeignFieldArithmetic, ImplementationStatus::Experimental),
         (ProjectCapability::EccGadgets, ImplementationStatus::Experimental),
-        (ProjectCapability::PairingGadgets, ImplementationStatus::NotImplemented),
+        (ProjectCapability::PairingGadgets, ImplementationStatus::Experimental),
         (ProjectCapability::Groth16Verifier, ImplementationStatus::NotImplemented),
       ],
     }

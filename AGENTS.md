@@ -22,10 +22,10 @@ Implemented in scope today:
 - Circuit-backed BN254 `fp12` support represented as `c0 + c1 * w`
 - `AssignedFp12` over two `AssignedFp6` coordinates with `new`, assignment, `zero`, `one`, `add`, `sub`, `neg`, `mul`, `square`, and equality helpers
 - Shared internal field/circuit traits in `wrapper-circuits/src/bn254/traits.rs`
-- Shared host-side constant/reference arithmetic in `wrapper-circuits/src/bn254/host.rs`
+- Shared host-side constant/reference arithmetic in `wrapper-circuits/src/bn254/host/`
 - `AssignedFieldExt` now captures the common `zero` / `one` / `add` / `sub` / `neg` / equality surface across `AssignedFp`, `AssignedFp2`, `AssignedFp6`, and `AssignedFp12`
 - `AssignedCircuitValue` plus shared unary/binary synthesize helpers now back the small `Fp2*Circuit`, `Fp6*Circuit`, and `Fp12*Circuit` wrappers
-- Host-side reference formulas and arkworks/Midnight conversion helpers are centralized in `wrapper-circuits/src/bn254/test_support.rs`
+- Host-side reference formulas and arkworks/Midnight conversion helpers are centralized in `wrapper-circuits/src/bn254/tests/support.rs`
 - Minimal BN254 G1 support backed by Midnight foreign ECC chips
 - Circuit-backed G1 addition
 - Coordinate-to-point construction with on-curve enforcement
@@ -66,16 +66,17 @@ When you need to build context quickly, read in this order:
 
 1. `crates/wrapper-circuits/src/bn254/mod.rs`
 2. `crates/wrapper-circuits/src/bn254/traits.rs`
-3. `crates/wrapper-circuits/src/bn254/host.rs`
+3. `crates/wrapper-circuits/src/bn254/host/mod.rs`
 4. `crates/wrapper-circuits/src/bn254/fp2.rs`, `fp6.rs`, `fp12.rs`
 5. `crates/wrapper-circuits/src/bn254/g2/mod.rs`
 6. `crates/wrapper-circuits/src/bn254/g2/affine.rs`
 7. `crates/wrapper-circuits/src/bn254/g2/jacobian.rs`
 8. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
-9. `crates/wrapper-circuits/src/bn254/test_support.rs`
-10. `crates/wrapper-circuits/src/bn254/tests.rs`
-11. `crates/wrapper-circuits/src/bn254/metrics.rs`, `crates/wrapper-circuits/src/planning.rs`
-12. `crates/wrapper-cli/src/main.rs`
+9. `crates/wrapper-circuits/src/bn254/tests/mod.rs`
+10. `crates/wrapper-circuits/src/bn254/tests/support.rs`
+11. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
+12. `crates/wrapper-circuits/src/bn254/metrics.rs`, `crates/wrapper-circuits/src/planning.rs`
+13. `crates/wrapper-cli/src/main.rs`
 
 This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
 
@@ -107,9 +108,21 @@ This is the highest-signal order for understanding the current primitive surface
 - Keeps the active BN254 primitive implementation under `src/bn254/`, split by concern instead of one monolithic file.
 - The current `g2/` subtree is split by model:
   `g2/affine.rs`, `g2/jacobian.rs`, `g2/miller.rs`, with `g2/mod.rs` holding shared aliases, constants, helpers, and re-exports.
-- Reuse `bn254/host.rs` before duplicating tuple-based host/reference arithmetic across `fp2.rs`, `fp6.rs`, `fp12.rs`, or `g2/mod.rs`.
+- The current host-side support is split by concern under `bn254/host/`:
+  `host/mod.rs` for the shared tower surface,
+  `host/g2_host.rs` for G2/Jacobian/Miller host constants,
+  `host/pairing_host.rs` for final-exponentiation host formulas.
+- Reuse `bn254/host/` before duplicating tuple-based host/reference arithmetic across `fp2.rs`, `fp6.rs`, `fp12.rs`, or `g2/mod.rs`.
 - Reuse `bn254/traits.rs` before adding more tiny wrapper-specific circuit boilerplate in `fp2.rs`, `fp6.rs`, or `fp12.rs`.
-- Reuse `bn254/test_support.rs` before adding new arkworks/Midnight conversion helpers or duplicating host-side reference formulas in `tests.rs`.
+- The current BN254 test tree is split by concern under `bn254/tests/`:
+  `tests/mod.rs` as the root,
+  `tests/support.rs` for shared arkworks/Midnight helpers and test fixtures,
+  `tests/field_and_tower.rs` for field/Fp2/Fp6/Fp12 coverage,
+  `tests/curve.rs` for G1/G2/projective/line-extraction coverage,
+  `tests/accumulator.rs` for accumulator/sparse-line/mixed-add-consumption coverage,
+  `tests/pairing.rs` for the pairing-core lane.
+- Reuse `bn254/tests/support.rs` before adding new arkworks/Midnight conversion helpers or duplicating host-side reference formulas in test modules.
+- Keep expensive pairing-core assertions in `tests/pairing.rs` and cheaper primitive/G2 coverage in `tests/field_and_tower.rs`, `tests/curve.rs`, and `tests/accumulator.rs` so the slow lane remains explicit.
 - Prefer short public methods over formula-heavy bodies: keep APIs as orchestration layers and move algebraic steps into internal helpers with explicit names.
 - Should depend on `wrapper-core`.
 - Must not absorb artifact parsing or backend-specific concerns.
@@ -235,7 +248,7 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `miller accumulator mul_by_line sparse`: 2790 rows / 58 queries, `k=12`
 - `miller loop narrow`: 503854 rows / 58 queries, `k=19`
 - `final exponentiation`: 1215080 rows / 58 queries, `k=21`
-- `pairing check`: measured via `wrapper-cli doctor` when needed; expect it to reflect the real shared-final-exponentiation product-check circuit rather than per-term final exponentiation
+- `pairing check`: 2644684 rows / 94 queries, `k=22`
 
 Interpretation guidance:
 
@@ -276,6 +289,11 @@ Interpretation guidance:
 - Keep randomized tests deterministic via fixed seeds unless there is a strong reason not to.
 - Use `wrapper-tests` for shared fixtures, integration coverage, and benchmark entry points.
 - Do not add tests that imply pairing or verifier support before those stages exist.
+- Keep the default local test lane practical. Expensive pairing-core `MockProver` tests in `tests/pairing.rs` should be marked `#[ignore = "slow pairing-core"]` unless they are truly cheap smoke coverage.
+- The intended split is:
+  - always-run: field arithmetic, narrow G1/G2 primitives, Miller-step / accumulator tests, and cheap host-side pairing-core structure checks
+  - slow pairing-core: real Miller-loop, final-exponentiation, and pairing-check `MockProver` end-to-end tests
+- To run the slow pairing-core lane explicitly, use `cargo test -p wrapper-circuits -- --ignored`.
 
 Current test expectations for the primitive layer:
 
@@ -287,8 +305,8 @@ Current test expectations for the primitive layer:
 - Miller-path G2 tests should cover `double_with_line`, `mixed_add_with_line`, sparse `Fp12` embedding, and explicitly unsupported exceptional cases such as `P = Q`
 - for the current narrow Miller slice, keep a few stable fixed fixtures alongside deterministic randomized checks: generator-based `double_with_line`, generator-based `double + add`, baseline-vs-sparse `mul_by_line` cross-checks, and at least one longer deterministic prepared schedule
 - explicitly keep unsupported Miller mixed-add cases documented by tests for both `P = Q` and `P = -Q`; do not silently widen support claims just because randomized tests pass
-- if a test needs a host-side reference formula, put the logic in `test_support.rs` and keep `tests.rs` focused on cases/assertions
-- if a test-local helper becomes shared across multiple test groups, move it into `test_support.rs` in the same refactor rather than leaving partial duplicates behind
+- if a test needs a host-side reference formula, put the logic in `tests/support.rs` and keep the domain files focused on cases/assertions
+- if a test-local helper becomes shared across multiple test groups, move it into `tests/support.rs` in the same refactor rather than leaving partial duplicates behind
 
 ## Benchmarking Standards
 
@@ -342,7 +360,7 @@ Benchmark/metrics integration rules that have already bitten this repo:
 When refactoring `wrapper-circuits/src/bn254/`:
 
 - keep the public API stable through `bn254/mod.rs` re-exports when possible
-- prefer splitting by concept, for example `types.rs`, `field.rs`, `fp2.rs`, `g2/mod.rs`, `g2/affine.rs`, `g2/jacobian.rs`, `g2/miller.rs`, `metrics.rs`, `tests.rs`
+- prefer splitting by concept, for example `types.rs`, `field.rs`, `fp2.rs`, `g2/mod.rs`, `g2/affine.rs`, `g2/jacobian.rs`, `g2/miller.rs`, `host/mod.rs`, `host/pairing_host.rs`, `metrics.rs`, `tests/mod.rs`, `tests/pairing.rs`
 - if docs mention the primitive path, keep them pointed at `src/bn254/`, not the old deleted `src/bn254.rs`
 - if primitive metadata, measured labels, or bench-info output changes, update the canonical registry in `wrapper-circuits/src/planning.rs` first and derive downstream surfaces from it
 - after any structural refactor, update `AGENTS.md` in the same turn so it reflects the new module boundaries, reuse points, and context-loading order

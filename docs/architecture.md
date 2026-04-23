@@ -69,7 +69,7 @@ Current properties:
 - circuit-backed `add`, `sub`, `neg`, `mul`, and `square`
 - circuit-backed BN254 Fp2 values represented as `(c0, c1)` for `c0 + c1 * u`
 - Fp2 `add`, `sub`, `neg`, `mul`, and specialized `square` expressed through the existing `AssignedFp` layer
-- tuple-based host/reference arithmetic shared across the BN254 tower now lives in `wrapper-circuits/src/bn254/host.rs` instead of being redefined in each extension-field or G2 module
+- tuple-based host/reference arithmetic shared across the BN254 tower now lives under `wrapper-circuits/src/bn254/host/` instead of being redefined in each extension-field or G2 module
 - real row and layout measurements via `midnight_proofs::dev::cost_model`
 - arkworks-backed randomized correctness tests
 

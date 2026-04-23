@@ -12,8 +12,6 @@ mod traits;
 mod types;
 
 #[cfg(test)]
-mod test_support;
-#[cfg(test)]
 mod tests;
 
 pub use ecc::{G1AddCircuit, G1OnCurveCircuit};

@@ -118,7 +118,7 @@ fn print_cost_line_with_lookups(name: &str, layout: LayoutMetrics) {
 }
 
 fn print_primitive_costs(primitive_costs: &PrimitiveCostTable) {
-  println!("Week 1 / Week 3 primitive estimates:");
+  println!("Current Stage 1 / Week 4 primitive estimates:");
   let entries = primitive_costs.entries();
   print_cost_group(PrimitiveCostLayer::Field, entries);
   print_cost_group(PrimitiveCostLayer::Curve, entries);

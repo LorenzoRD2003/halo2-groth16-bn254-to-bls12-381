@@ -3,18 +3,19 @@ use ark_bn254::{
   Fq12 as ArkFq12, G1Affine as ArkG1Affine, G2Affine as ArkG2Affine, g2,
 };
 use ark_ec::{
-  AdditiveGroup, AffineRepr, models::bn::G2Prepared as ArkPreparedG2,
+  AdditiveGroup, AffineRepr, CurveGroup, models::bn::G2Prepared as ArkPreparedG2,
   models::short_weierstrass::SWCurveConfig, pairing::Pairing,
 };
-use ark_ff::{BigInteger, Field as ArkField, PrimeField};
+use ark_ff::{BigInteger, Field as ArkField, PrimeField, UniformRand};
 use ff::PrimeField as HaloPrimeField;
 use halo2curves::group::Group;
 use midnight_circuits::midnight_proofs::{circuit::Value, plonk::Circuit};
 use midnight_curves::{CurveAffine, bn256::G1Affine};
 use midnight_proofs::dev::MockProver;
+use rand::RngCore;
 
-use super::metrics::measure_layout;
 use super::*;
+use crate::bn254::metrics::measure_layout;
 
 pub(crate) type Fp2AssignedValue = (Value<ForeignField>, Value<ForeignField>);
 pub(crate) type Fp6ConstantValue =
@@ -26,6 +27,8 @@ pub(crate) type G2MillerPointConstantValue =
   ((ForeignField, ForeignField), (ForeignField, ForeignField), (ForeignField, ForeignField));
 pub(crate) type G2LineCoeffsConstantValue =
   ((ForeignField, ForeignField), (ForeignField, ForeignField), (ForeignField, ForeignField));
+pub(crate) type PairingTermConstantValue =
+  ((ForeignField, ForeignField), ((ForeignField, ForeignField), (ForeignField, ForeignField)));
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ArkG2MillerPoint {
@@ -255,6 +258,35 @@ pub(crate) fn ark_bn254_pairing_product(terms: &[(ArkG1Affine, ArkG2Affine)]) ->
 
 pub(crate) fn ark_bn254_pairing_check(terms: &[(ArkG1Affine, ArkG2Affine)]) -> bool {
   ark_bn254_pairing_product(terms) == ArkFq12::ONE
+}
+
+pub(crate) fn random_nonzero_g1_affine(rng: &mut impl RngCore) -> ArkG1Affine {
+  loop {
+    let candidate = ark_bn254::G1Projective::rand(rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  }
+}
+
+pub(crate) fn random_nonzero_g2_affine(rng: &mut impl RngCore) -> ArkG2Affine {
+  loop {
+    let candidate = ark_bn254::G2Projective::rand(rng).into_affine();
+    if !candidate.is_zero() {
+      break candidate;
+    }
+  }
+}
+
+pub(crate) fn ark_pairing_terms_to_constants(
+  terms: &[(ArkG1Affine, ArkG2Affine)],
+) -> Vec<PairingTermConstantValue> {
+  terms
+    .iter()
+    .map(|(g1, g2)| {
+      ((ark_to_midnight_fq(g1.x), ark_to_midnight_fq(g1.y)), ark_to_assigned_g2_coords(*g2))
+    })
+    .collect()
 }
 
 pub(crate) fn ark_generator_double_line_fixture()

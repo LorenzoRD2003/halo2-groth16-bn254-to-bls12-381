@@ -43,7 +43,7 @@ impl ProjectStatusReport {
         "no subgroup checks beyond the selected g1 construction path".to_owned(),
         "g2 support is still limited to affine checks, narrow Jacobian from_affine/neg/double/add primitives, and Miller-path double_with_line/mixed_add_with_line steps"
           .to_owned(),
-        "no pairings".to_owned(),
+        "pairing support is currently limited to the narrow pairing-core slice: real Miller loop, final exponentiation, and verifier-shaped pairing checks".to_owned(),
         "no Groth16 verifier logic".to_owned(),
         "no wrapper verifier circuit beyond the narrow primitive layer".to_owned(),
       ],

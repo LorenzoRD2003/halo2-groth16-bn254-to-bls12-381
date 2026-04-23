@@ -1488,6 +1488,39 @@ impl MillerStepValue {
   }
 }
 
+fn miller_step_value_from_constant(step: MillerStepConstant) -> MillerStepValue {
+  match step {
+    MillerStepConstant::Double(line) => MillerStepValue::Double((
+      (Value::known(line.0.0), Value::known(line.0.1)),
+      (Value::known(line.1.0), Value::known(line.1.1)),
+      (Value::known(line.2.0), Value::known(line.2.1)),
+    )),
+    MillerStepConstant::Add(line) => MillerStepValue::Add((
+      (Value::known(line.0.0), Value::known(line.0.1)),
+      (Value::known(line.1.0), Value::known(line.1.1)),
+      (Value::known(line.2.0), Value::known(line.2.1)),
+    )),
+  }
+}
+
+fn bn254_miller_output_constant(
+  g1: (ForeignField, ForeignField),
+  g2: G2AffineConstant,
+) -> Fp12Constant {
+  bn254_prepared_miller_steps_constant(g2).into_iter().fold(
+    fp12_one_constant(),
+    |accumulator, step| match step {
+      MillerStepConstant::Double(line) => fp12_mul_constant(
+        &fp12_square_constant(&accumulator),
+        &g2_line_evaluation_constant(line, g1),
+      ),
+      MillerStepConstant::Add(line) => {
+        fp12_mul_constant(&accumulator, &g2_line_evaluation_constant(line, g1))
+      }
+    },
+  )
+}
+
 /// Small circuit that exercises the narrow Miller-loop accumulation driver.
 #[derive(Clone, Debug)]
 pub struct MillerLoopCircuit {
@@ -1507,18 +1540,7 @@ impl MillerLoopCircuit {
   ) -> Self {
     let steps = bn254_prepared_miller_steps_constant(g2)
       .into_iter()
-      .map(|step| match step {
-        MillerStepConstant::Double(line) => MillerStepValue::Double((
-          (Value::known(line.0.0), Value::known(line.0.1)),
-          (Value::known(line.1.0), Value::known(line.1.1)),
-          (Value::known(line.2.0), Value::known(line.2.1)),
-        )),
-        MillerStepConstant::Add(line) => MillerStepValue::Add((
-          (Value::known(line.0.0), Value::known(line.0.1)),
-          (Value::known(line.1.0), Value::known(line.1.1)),
-          (Value::known(line.2.0), Value::known(line.2.1)),
-        )),
-      })
+      .map(miller_step_value_from_constant)
       .collect();
 
     Self {
@@ -1545,36 +1567,14 @@ impl MillerLoopCircuit {
   pub fn sample() -> Self {
     let g1 = g1_generator_constant();
     let generator = g2_generator();
-    let expected = bn254_prepared_miller_steps_constant(generator).into_iter().fold(
-      fp12_one_constant(),
-      |accumulator, step| match step {
-        MillerStepConstant::Double(line) => fp12_mul_constant(
-          &fp12_square_constant(&accumulator),
-          &g2_line_evaluation_constant(line, g1),
-        ),
-        MillerStepConstant::Add(line) => {
-          fp12_mul_constant(&accumulator, &g2_line_evaluation_constant(line, g1))
-        }
-      },
-    );
+    let expected = bn254_miller_output_constant(g1, generator);
 
     Self {
       g1: (Value::known(g1.0), Value::known(g1.1)),
       g2: generator,
       steps: bn254_prepared_miller_steps_constant(generator)
         .into_iter()
-        .map(|step| match step {
-          MillerStepConstant::Double(line) => MillerStepValue::Double((
-            (Value::known(line.0.0), Value::known(line.0.1)),
-            (Value::known(line.1.0), Value::known(line.1.1)),
-            (Value::known(line.2.0), Value::known(line.2.1)),
-          )),
-          MillerStepConstant::Add(line) => MillerStepValue::Add((
-            (Value::known(line.0.0), Value::known(line.0.1)),
-            (Value::known(line.1.0), Value::known(line.1.1)),
-            (Value::known(line.2.0), Value::known(line.2.1)),
-          )),
-        })
+        .map(miller_step_value_from_constant)
         .collect(),
       expected: (
         (
@@ -1699,18 +1699,7 @@ impl FinalExponentiationCircuit {
   pub fn sample() -> Self {
     let g1 = g1_generator_constant();
     let g2 = g2_generator();
-    let miller_input = bn254_prepared_miller_steps_constant(g2).into_iter().fold(
-      fp12_one_constant(),
-      |accumulator, step| match step {
-        MillerStepConstant::Double(line) => fp12_mul_constant(
-          &fp12_square_constant(&accumulator),
-          &g2_line_evaluation_constant(line, g1),
-        ),
-        MillerStepConstant::Add(line) => {
-          fp12_mul_constant(&accumulator, &g2_line_evaluation_constant(line, g1))
-        }
-      },
-    );
+    let miller_input = bn254_miller_output_constant(g1, g2);
     let expected = bn254_final_exponentiation_constant(&miller_input);
     Self::new(&miller_input, &expected)
   }
@@ -1813,18 +1802,7 @@ impl PairingFinalExponentiationCircuit {
   pub fn sample() -> Self {
     let g1 = g1_generator_constant();
     let g2 = g2_generator();
-    let miller = bn254_prepared_miller_steps_constant(g2).into_iter().fold(
-      fp12_one_constant(),
-      |accumulator, step| match step {
-        MillerStepConstant::Double(line) => fp12_mul_constant(
-          &fp12_square_constant(&accumulator),
-          &g2_line_evaluation_constant(line, g1),
-        ),
-        MillerStepConstant::Add(line) => {
-          fp12_mul_constant(&accumulator, &g2_line_evaluation_constant(line, g1))
-        }
-      },
-    );
+    let miller = bn254_miller_output_constant(g1, g2);
     let expected = bn254_final_exponentiation_constant(&miller);
     Self::new(g1, g2, &expected)
   }
