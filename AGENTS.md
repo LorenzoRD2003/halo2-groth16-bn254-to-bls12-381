@@ -306,6 +306,7 @@ Concrete BN254 conventions already in use:
 - the narrow pairing-check path computes each real Miller loop, multiplies the Miller outputs in `Fp12`, applies exactly one final exponentiation, and checks equality with the `Fp12` multiplicative identity
 - the current final-exponentiation code now exposes `final_exponentiation_easy_part(...)` and `final_exponentiation_hard_part(...)` as audit-friendly internal helpers without changing semantics
 - the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/final-exponentiation-audit.md` before changing it so you inherit the current chain shape, measured split, and next optimization targets
+- the fixed BN254 `exp_by_neg_x(...)` recipe now lives in `crates/wrapper-circuits/src/bn254/final_exp_chain.rs` and is consumed by both host/reference code and the circuit path; keep that module canonical
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
   `Fq2(19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)`
@@ -323,6 +324,7 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `fp12 add`: 480 rows / 58 queries, `k=9`
 - `fp12 mul`: 4538 rows / 58 queries, `k=13`
 - `fp12 square`: 3056 rows / 58 queries, `k=12`
+- `fp12 cyclotomic square`: 1994 rows / 58 queries, `k=11`
 - `g1 add`: 319 rows / 105 queries, `k=9`
 - `g2 on_curve`: 400 rows / 58 queries, `k=9`
 - `g2 neg`: 930 rows / 58 queries, `k=10`
@@ -335,18 +337,19 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `miller accumulator mul_by_line`: 4710 rows / 58 queries, `k=13`
 - `miller accumulator mul_by_line sparse`: 2790 rows / 58 queries, `k=12`
 - `miller loop narrow`: 503854 rows / 58 queries, `k=19`
-- `final exponentiation`: 1215080 rows / 58 queries, `k=21`
-- `pairing check`: 2383144 rows / 94 queries, `k=22`
+- `final exponentiation`: 705596 rows / 58 queries, `k=20`
+- `pairing check`: 1873660 rows / 94 queries, `k=21`
 
 Interpretation guidance:
 
 - `g2 neg` is not a measure of a raw sign flip alone; the current benchmark circuit includes assignment, on-curve checks, negation, and equality against the expected output
 - `fp12 mul` and `fp12 square` are measurements of the actual sanity circuits over the implemented tower, not optimized pairing-ready kernels
+- `fp12 cyclotomic square` is a subgroup-only specialization for the final-exponentiation hard part; it must not be treated as a general Fp12 square
 - `g2 double_with_line` and `g2 mixed_add_with_line` are measurements of the actual Miller-step sanity circuits, not a full Miller loop
 - `miller accumulator mul_by_line` is the generic baseline path, while `miller accumulator mul_by_line sparse` is the optimized public accumulator path for the current BN254 D-twist `(ell_0, ell_w, ell_vw)` layout
 - `miller loop narrow` now measures the real fixed single-pair BN254 optimal-ate Miller traversal, not the earlier synthetic schedule
 - `final exponentiation` measures the narrow single-pair BN254 final-exponentiation sanity circuit over a Miller-loop output, not a verifier-facing full pairing API
-- `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `13884` rows / `k=14` for the easy part and `1190996` rows / `k=21` for the hard part, so future optimization work should focus overwhelmingly on the hard part
+- `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `13884` rows / `k=14` for the easy part and `690782` rows / `k=20` for the hard part, so future optimization work should focus overwhelmingly on the hard part
 - `pairing check` should always be described as the narrow verifier-shaped product-check slice with one shared final exponentiation, not as a full pairing engine or Groth16 verifier
 - as of the current repo state, local accumulator-square rewrites that only swap formulas inside the existing Fp12 tower did not beat the generic `miller accumulator square` cost; future square optimization likely needs a more structural/cross-step design rather than a small algebraic rewrite, so do not keep partial `square_optimized` experiments in the tree unless they measurably win in `wrapper-cli doctor`
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds

@@ -778,67 +778,101 @@ fn exp_by_neg_x(
   layouter: &mut impl Layouter<NativeField>,
   value: &AssignedFp12,
 ) -> Result<AssignedFp12, Error> {
-  const BN254_X_ABS: u64 = 4_965_661_367_192_848_881;
+  use crate::bn254::{
+    BN254_EXP_BY_X_CHAIN_START, BN254_EXP_BY_X_CHAIN_STEPS, BN254_X_ABS, Bn254ExpByXWindow,
+  };
 
-  fn square_6_times(
+  fn cyclotomic_square_6_times(
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
     value: &AssignedFp12,
   ) -> Result<AssignedFp12, Error> {
-    let value = value.square(chip, layouter)?;
-    let value = value.square(chip, layouter)?;
-    let value = value.square(chip, layouter)?;
-    let value = value.square(chip, layouter)?;
-    let value = value.square(chip, layouter)?;
-    value.square(chip, layouter)
+    let value = value.cyclotomic_square(chip, layouter)?;
+    let value = value.cyclotomic_square(chip, layouter)?;
+    let value = value.cyclotomic_square(chip, layouter)?;
+    let value = value.cyclotomic_square(chip, layouter)?;
+    let value = value.cyclotomic_square(chip, layouter)?;
+    value.cyclotomic_square(chip, layouter)
   }
 
-  fn square_7_times(
+  fn cyclotomic_square_7_times(
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
     value: &AssignedFp12,
   ) -> Result<AssignedFp12, Error> {
-    let value = square_6_times(chip, layouter, value)?;
-    value.square(chip, layouter)
+    let value = cyclotomic_square_6_times(chip, layouter, value)?;
+    value.cyclotomic_square(chip, layouter)
   }
 
-  fn square_8_times(
+  fn cyclotomic_square_8_times(
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
     value: &AssignedFp12,
   ) -> Result<AssignedFp12, Error> {
-    let value = square_7_times(chip, layouter, value)?;
-    value.square(chip, layouter)
+    let value = cyclotomic_square_7_times(chip, layouter, value)?;
+    value.cyclotomic_square(chip, layouter)
   }
 
-  fn square_10_times(
+  fn cyclotomic_square_10_times(
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,
     value: &AssignedFp12,
   ) -> Result<AssignedFp12, Error> {
-    let value = square_8_times(chip, layouter, value)?;
-    let value = value.square(chip, layouter)?;
-    value.square(chip, layouter)
+    let value = cyclotomic_square_8_times(chip, layouter, value)?;
+    let value = value.cyclotomic_square(chip, layouter)?;
+    value.cyclotomic_square(chip, layouter)
+  }
+
+  fn cyclotomic_square_n_times(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    value: &AssignedFp12,
+    square_count: u8,
+  ) -> Result<AssignedFp12, Error> {
+    match square_count {
+      6 => cyclotomic_square_6_times(chip, layouter, value),
+      7 => cyclotomic_square_7_times(chip, layouter, value),
+      8 => cyclotomic_square_8_times(chip, layouter, value),
+      10 => cyclotomic_square_10_times(chip, layouter, value),
+      _ => unreachable!("unsupported BN254 exp-by-x square block"),
+    }
+  }
+
+  fn exp_by_x_window<'a>(
+    x17: &'a AssignedFp12,
+    x25: &'a AssignedFp12,
+    x29: &'a AssignedFp12,
+    x39: &'a AssignedFp12,
+    x41: &'a AssignedFp12,
+    x43: &'a AssignedFp12,
+    x49: &'a AssignedFp12,
+    window: Bn254ExpByXWindow,
+  ) -> &'a AssignedFp12 {
+    match window {
+      Bn254ExpByXWindow::X17 => x17,
+      Bn254ExpByXWindow::X25 => x25,
+      Bn254ExpByXWindow::X29 => x29,
+      Bn254ExpByXWindow::X39 => x39,
+      Bn254ExpByXWindow::X41 => x41,
+      Bn254ExpByXWindow::X43 => x43,
+      Bn254ExpByXWindow::X49 => x49,
+    }
   }
 
   // Compute value^x for the BN254 parameter
   // x = 0x44e992b44a6909f1 = 4965661367192848881.
   //
-  // This uses a fixed handcrafted chain:
-  // x = ((((((((17 << 7) + 29) << 7) + 25) << 8) + 43) << 6) + 17) << 8
-  //    + 41) << 6 + 41) << 10 + 39) << 6 + 49.
-  //
-  // We precompute only the odd windows that this decomposition needs and then
-  // apply the fixed square blocks directly. Compared with generic
-  // square-and-multiply for this exponent, this replaces 62 squares + 27 muls
-  // with 63 squares + 16 muls, which is a meaningful win because Fp12 mul is
-  // much more expensive than Fp12 square in this circuit.
+  // The shift-and-add recipe itself lives in `bn254/final_exp_chain.rs` so the
+  // host/reference path and the circuit path cannot silently diverge. Every
+  // call in the hard part starts from a cyclotomic-subgroup element, so the
+  // repeated square blocks below use cyclotomic_square(...) rather than the
+  // generic Fp12 square(...).
   debug_assert_eq!(BN254_X_ABS, 0x44e9_92b4_4a69_09f1);
-  let x2 = value.square(chip, layouter)?;
-  let x4 = x2.square(chip, layouter)?;
-  let x8 = x4.square(chip, layouter)?;
-  let x16 = x8.square(chip, layouter)?;
-  let x32 = x16.square(chip, layouter)?;
+  let x2 = value.cyclotomic_square(chip, layouter)?;
+  let x4 = x2.cyclotomic_square(chip, layouter)?;
+  let x8 = x4.cyclotomic_square(chip, layouter)?;
+  let x16 = x8.cyclotomic_square(chip, layouter)?;
+  let x32 = x16.cyclotomic_square(chip, layouter)?;
 
   let x10 = x8.mul(chip, layouter, &x2)?;
   let x17 = x16.mul(chip, layouter, value)?;
@@ -849,23 +883,18 @@ fn exp_by_neg_x(
   let x43 = x41.mul(chip, layouter, &x2)?;
   let x49 = x32.mul(chip, layouter, &x17)?;
 
-  let mut exp = x17.clone();
-  exp = square_7_times(chip, layouter, &exp)?;
-  exp = exp.mul(chip, layouter, &x29)?;
-  exp = square_7_times(chip, layouter, &exp)?;
-  exp = exp.mul(chip, layouter, &x25)?;
-  exp = square_8_times(chip, layouter, &exp)?;
-  exp = exp.mul(chip, layouter, &x43)?;
-  exp = square_6_times(chip, layouter, &exp)?;
-  exp = exp.mul(chip, layouter, &x17)?;
-  exp = square_8_times(chip, layouter, &exp)?;
-  exp = exp.mul(chip, layouter, &x41)?;
-  exp = square_6_times(chip, layouter, &exp)?;
-  exp = exp.mul(chip, layouter, &x41)?;
-  exp = square_10_times(chip, layouter, &exp)?;
-  exp = exp.mul(chip, layouter, &x39)?;
-  exp = square_6_times(chip, layouter, &exp)?;
-  exp = exp.mul(chip, layouter, &x49)?;
+  let mut exp =
+    exp_by_x_window(&x17, &x25, &x29, &x39, &x41, &x43, &x49, BN254_EXP_BY_X_CHAIN_START).clone();
+
+  for (square_count, window) in BN254_EXP_BY_X_CHAIN_STEPS {
+    exp = cyclotomic_square_n_times(chip, layouter, &exp, *square_count)?;
+    exp = exp.mul(
+      chip,
+      layouter,
+      exp_by_x_window(&x17, &x25, &x29, &x39, &x41, &x43, &x49, *window),
+    )?;
+  }
+
   exp.unitary_inverse(chip, layouter)
 }
 
@@ -887,14 +916,18 @@ fn final_exponentiation_hard_part(
   layouter: &mut impl Layouter<NativeField>,
   value: &AssignedFp12,
 ) -> Result<AssignedFp12, Error> {
+  // The easy part maps the Miller output into the cyclotomic subgroup, and the
+  // hard-part multiplications and unitary inverses keep intermediates inside
+  // that subgroup. The explicit square sites here can therefore use
+  // cyclotomic_square(...).
   let r = value.clone();
 
   let y0 = exp_by_neg_x(chip, layouter, value)?;
-  let y1 = y0.square(chip, layouter)?;
-  let y2 = y1.square(chip, layouter)?;
+  let y1 = y0.cyclotomic_square(chip, layouter)?;
+  let y2 = y1.cyclotomic_square(chip, layouter)?;
   let mut y3 = y2.mul(chip, layouter, &y1)?;
   let y4 = exp_by_neg_x(chip, layouter, &y3)?;
-  let y5 = y4.square(chip, layouter)?;
+  let y5 = y4.cyclotomic_square(chip, layouter)?;
   let mut y6 = exp_by_neg_x(chip, layouter, &y5)?;
   y3 = y3.unitary_inverse(chip, layouter)?;
   y6 = y6.unitary_inverse(chip, layouter)?;
@@ -1806,17 +1839,14 @@ impl Circuit<NativeField> for MillerLoopCircuit {
   }
 }
 
-/// Small circuit that exercises BN254 final exponentiation on a fixed Fp12 input.
 #[derive(Clone, Debug)]
-pub struct FinalExponentiationCircuit {
+struct FixedFp12UnaryCircuitIo {
   input: Fp12Value,
   expected: Fp12Value,
 }
 
-impl FinalExponentiationCircuit {
-  /// Builds a final-exponentiation circuit from a fixed Fp12 input and expected output.
-  #[must_use]
-  pub fn new(input: &Fp12Constant, expected: &Fp12Constant) -> Self {
+impl FixedFp12UnaryCircuitIo {
+  fn new(input: &Fp12Constant, expected: &Fp12Constant) -> Self {
     Self {
       input: (
         (
@@ -1844,78 +1874,6 @@ impl FinalExponentiationCircuit {
       ),
     }
   }
-
-  /// Returns a deterministic sample circuit suitable for metrics and benches.
-  #[must_use]
-  pub fn sample() -> Self {
-    let g1 = g1_generator_constant();
-    let g2 = g2_generator();
-    let miller_input = bn254_miller_output_constant(g1, g2);
-    let expected = bn254_final_exponentiation_constant(&miller_input);
-    Self::new(&miller_input, &expected)
-  }
-}
-
-/// Small circuit that exercises only the easy part of BN254 final exponentiation.
-#[derive(Clone, Debug)]
-pub struct FinalExponentiationEasyPartCircuit {
-  input: Fp12Value,
-  expected: Fp12Value,
-}
-
-impl FinalExponentiationEasyPartCircuit {
-  /// Builds an easy-part circuit from a fixed Fp12 input and expected output.
-  #[must_use]
-  pub fn new(input: &Fp12Constant, expected: &Fp12Constant) -> Self {
-    Self {
-      input: (
-        (
-          (Value::known(input.0.0.0), Value::known(input.0.0.1)),
-          (Value::known(input.0.1.0), Value::known(input.0.1.1)),
-          (Value::known(input.0.2.0), Value::known(input.0.2.1)),
-        ),
-        (
-          (Value::known(input.1.0.0), Value::known(input.1.0.1)),
-          (Value::known(input.1.1.0), Value::known(input.1.1.1)),
-          (Value::known(input.1.2.0), Value::known(input.1.2.1)),
-        ),
-      ),
-      expected: (
-        (
-          (Value::known(expected.0.0.0), Value::known(expected.0.0.1)),
-          (Value::known(expected.0.1.0), Value::known(expected.0.1.1)),
-          (Value::known(expected.0.2.0), Value::known(expected.0.2.1)),
-        ),
-        (
-          (Value::known(expected.1.0.0), Value::known(expected.1.0.1)),
-          (Value::known(expected.1.1.0), Value::known(expected.1.1.1)),
-          (Value::known(expected.1.2.0), Value::known(expected.1.2.1)),
-        ),
-      ),
-    }
-  }
-
-  /// Returns a deterministic sample circuit suitable for metrics and profiling.
-  #[must_use]
-  pub fn sample() -> Self {
-    let g1 = g1_generator_constant();
-    let g2 = g2_generator();
-    let miller_input = bn254_miller_output_constant(g1, g2);
-    let expected = bn254_final_exponentiation_easy_part_constant(&miller_input);
-    Self::new(&miller_input, &expected)
-  }
-}
-
-impl Default for FinalExponentiationEasyPartCircuit {
-  fn default() -> Self {
-    Self::sample()
-  }
-}
-
-impl Circuit<NativeField> for FinalExponentiationEasyPartCircuit {
-  type Config = Bn254FieldConfig;
-  type FloorPlanner = SimpleFloorPlanner;
-  type Params = ();
 
   fn without_witnesses(&self) -> Self {
     Self {
@@ -1945,6 +1903,88 @@ impl Circuit<NativeField> for FinalExponentiationEasyPartCircuit {
       ),
     }
   }
+}
+
+fn synthesize_fixed_fp12_unary_circuit<L, Op>(
+  io: &FixedFp12UnaryCircuitIo,
+  config: Bn254FieldConfig,
+  mut layouter: L,
+  op: Op,
+) -> Result<(), Error>
+where
+  L: midnight_proofs::circuit::Layouter<NativeField>,
+  Op: FnOnce(&Bn254FieldChip, &mut L, &AssignedFp12) -> Result<AssignedFp12, Error>,
+{
+  let chip = Bn254FieldChip::new(&config);
+  let input = AssignedFp12::assign(&chip, &mut layouter, io.input.0, io.input.1)?;
+  let expected = AssignedFp12::assign(&chip, &mut layouter, io.expected.0, io.expected.1)?;
+  let actual = op(&chip, &mut layouter, &input)?;
+  actual.assert_equal(&chip, &mut layouter, &expected)?;
+  chip.load(&mut layouter)
+}
+
+/// Small circuit that exercises BN254 final exponentiation on a fixed Fp12 input.
+#[derive(Clone, Debug)]
+pub struct FinalExponentiationCircuit {
+  io: FixedFp12UnaryCircuitIo,
+}
+
+impl FinalExponentiationCircuit {
+  /// Builds a final-exponentiation circuit from a fixed Fp12 input and expected output.
+  #[must_use]
+  pub fn new(input: &Fp12Constant, expected: &Fp12Constant) -> Self {
+    Self { io: FixedFp12UnaryCircuitIo::new(input, expected) }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and benches.
+  #[must_use]
+  pub fn sample() -> Self {
+    let g1 = g1_generator_constant();
+    let g2 = g2_generator();
+    let miller_input = bn254_miller_output_constant(g1, g2);
+    let expected = bn254_final_exponentiation_constant(&miller_input);
+    Self::new(&miller_input, &expected)
+  }
+}
+
+/// Small circuit that exercises only the easy part of BN254 final exponentiation.
+#[derive(Clone, Debug)]
+pub struct FinalExponentiationEasyPartCircuit {
+  io: FixedFp12UnaryCircuitIo,
+}
+
+impl FinalExponentiationEasyPartCircuit {
+  /// Builds an easy-part circuit from a fixed Fp12 input and expected output.
+  #[must_use]
+  pub fn new(input: &Fp12Constant, expected: &Fp12Constant) -> Self {
+    Self { io: FixedFp12UnaryCircuitIo::new(input, expected) }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and profiling.
+  #[must_use]
+  pub fn sample() -> Self {
+    let g1 = g1_generator_constant();
+    let g2 = g2_generator();
+    let miller_input = bn254_miller_output_constant(g1, g2);
+    let expected = bn254_final_exponentiation_easy_part_constant(&miller_input);
+    Self::new(&miller_input, &expected)
+  }
+}
+
+impl Default for FinalExponentiationEasyPartCircuit {
+  fn default() -> Self {
+    Self::sample()
+  }
+}
+
+impl Circuit<NativeField> for FinalExponentiationEasyPartCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self { io: self.io.without_witnesses() }
+  }
 
   fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
     Bn254FieldConfig::configure(meta)
@@ -1953,54 +1993,25 @@ impl Circuit<NativeField> for FinalExponentiationEasyPartCircuit {
   fn synthesize(
     &self,
     config: Self::Config,
-    mut layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
+    layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
   ) -> Result<(), Error> {
-    let chip = Bn254FieldChip::new(&config);
-    let input = AssignedFp12::assign(&chip, &mut layouter, self.input.0, self.input.1)?;
-    let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
-    let actual = final_exponentiation_easy_part(&chip, &mut layouter, &input)?;
-    actual.assert_equal(&chip, &mut layouter, &expected)?;
-    chip.load(&mut layouter)
+    synthesize_fixed_fp12_unary_circuit(&self.io, config, layouter, |chip, layouter, input| {
+      final_exponentiation_easy_part(chip, layouter, input)
+    })
   }
 }
 
 /// Small circuit that exercises only the hard part of BN254 final exponentiation.
 #[derive(Clone, Debug)]
 pub struct FinalExponentiationHardPartCircuit {
-  input: Fp12Value,
-  expected: Fp12Value,
+  io: FixedFp12UnaryCircuitIo,
 }
 
 impl FinalExponentiationHardPartCircuit {
   /// Builds a hard-part circuit from a fixed easy-part input and expected output.
   #[must_use]
   pub fn new(input: &Fp12Constant, expected: &Fp12Constant) -> Self {
-    Self {
-      input: (
-        (
-          (Value::known(input.0.0.0), Value::known(input.0.0.1)),
-          (Value::known(input.0.1.0), Value::known(input.0.1.1)),
-          (Value::known(input.0.2.0), Value::known(input.0.2.1)),
-        ),
-        (
-          (Value::known(input.1.0.0), Value::known(input.1.0.1)),
-          (Value::known(input.1.1.0), Value::known(input.1.1.1)),
-          (Value::known(input.1.2.0), Value::known(input.1.2.1)),
-        ),
-      ),
-      expected: (
-        (
-          (Value::known(expected.0.0.0), Value::known(expected.0.0.1)),
-          (Value::known(expected.0.1.0), Value::known(expected.0.1.1)),
-          (Value::known(expected.0.2.0), Value::known(expected.0.2.1)),
-        ),
-        (
-          (Value::known(expected.1.0.0), Value::known(expected.1.0.1)),
-          (Value::known(expected.1.1.0), Value::known(expected.1.1.1)),
-          (Value::known(expected.1.2.0), Value::known(expected.1.2.1)),
-        ),
-      ),
-    }
+    Self { io: FixedFp12UnaryCircuitIo::new(input, expected) }
   }
 
   /// Returns a deterministic sample circuit suitable for metrics and profiling.
@@ -2027,32 +2038,7 @@ impl Circuit<NativeField> for FinalExponentiationHardPartCircuit {
   type Params = ();
 
   fn without_witnesses(&self) -> Self {
-    Self {
-      input: (
-        (
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-        ),
-        (
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-        ),
-      ),
-      expected: (
-        (
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-        ),
-        (
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-        ),
-      ),
-    }
+    Self { io: self.io.without_witnesses() }
   }
 
   fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
@@ -2062,14 +2048,11 @@ impl Circuit<NativeField> for FinalExponentiationHardPartCircuit {
   fn synthesize(
     &self,
     config: Self::Config,
-    mut layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
+    layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
   ) -> Result<(), Error> {
-    let chip = Bn254FieldChip::new(&config);
-    let input = AssignedFp12::assign(&chip, &mut layouter, self.input.0, self.input.1)?;
-    let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
-    let actual = final_exponentiation_hard_part(&chip, &mut layouter, &input)?;
-    actual.assert_equal(&chip, &mut layouter, &expected)?;
-    chip.load(&mut layouter)
+    synthesize_fixed_fp12_unary_circuit(&self.io, config, layouter, |chip, layouter, input| {
+      final_exponentiation_hard_part(chip, layouter, input)
+    })
   }
 }
 
@@ -2085,32 +2068,7 @@ impl Circuit<NativeField> for FinalExponentiationCircuit {
   type Params = ();
 
   fn without_witnesses(&self) -> Self {
-    Self {
-      input: (
-        (
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-        ),
-        (
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-        ),
-      ),
-      expected: (
-        (
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-        ),
-        (
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-          (Value::unknown(), Value::unknown()),
-        ),
-      ),
-    }
+    Self { io: self.io.without_witnesses() }
   }
 
   fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
@@ -2120,14 +2078,11 @@ impl Circuit<NativeField> for FinalExponentiationCircuit {
   fn synthesize(
     &self,
     config: Self::Config,
-    mut layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
+    layouter: impl midnight_proofs::circuit::Layouter<NativeField>,
   ) -> Result<(), Error> {
-    let chip = Bn254FieldChip::new(&config);
-    let input = AssignedFp12::assign(&chip, &mut layouter, self.input.0, self.input.1)?;
-    let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
-    let actual = final_exponentiation(&chip, &mut layouter, &input)?;
-    actual.assert_equal(&chip, &mut layouter, &expected)?;
-    chip.load(&mut layouter)
+    synthesize_fixed_fp12_unary_circuit(&self.io, config, layouter, |chip, layouter, input| {
+      final_exponentiation(chip, layouter, input)
+    })
   }
 }
 

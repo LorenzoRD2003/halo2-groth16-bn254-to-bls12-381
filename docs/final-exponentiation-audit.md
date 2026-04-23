@@ -121,9 +121,18 @@ x = ((((((((17 << 7) + 29) << 7) + 25) << 8) + 43) << 6) + 17) << 8
 That lets the code precompute the exact odd windows it needs and then apply
 fixed square blocks instead of a generic bit-walk.
 
+The shift-and-add recipe is now centralized in:
+
+- `crates/wrapper-circuits/src/bn254/final_exp_chain.rs`
+
+and consumed by both:
+
+- the circuit-side `exp_by_neg_x(...)`
+- the host/reference `fp12_exp_by_neg_x_constant(...)`
+
 Per call, the handcrafted `value^x` path now performs:
 
-- `63` squares
+- `63` cyclotomic squares
 - `16` multiplies
 
 Then `exp_by_neg_x(...)` adds:
@@ -132,14 +141,14 @@ Then `exp_by_neg_x(...)` adds:
 
 For comparison, the previous generic square-and-multiply path used:
 
-- `62` squares
+- `62` generic Fp12 squares
 - `27` multiplies
 - `1` `unitary_inverse`
 
 Since the hard part calls `exp_by_neg_x(...)` three times, the new helper
 contributes:
 
-- `189` squares
+- `189` cyclotomic squares
 - `48` multiplies
 - `3` `unitary_inverse`
 
@@ -150,7 +159,7 @@ That is one extra square but `33` fewer multiplies across the hard part.
 Adding the explicit hard-part operations to the three `exp_by_neg_x(...)`
 calls gives:
 
-- `square`: `192`
+- `cyclotomic_square`: `192`
 - `mul`: `58`
 - `frobenius_map`: `3`
 - `unitary_inverse`: `6`
@@ -169,24 +178,25 @@ cargo run -p wrapper-cli -- profile-layout --family blocks
 Current rows:
 
 - `bn254_final_exponentiation_easy_part`: `13884` rows, `k=14`
+- `bn254_final_exponentiation_hard_part`: `690782` rows, `k=20`
+- `bn254_final_exponentiation`: `705596` rows, `k=20`
+- `bn254_pairing_check_sample_2_terms`: `1873660` rows, `k=21`
+
+Previous baseline before the cyclotomic-squaring rewrite:
+
 - `bn254_final_exponentiation_hard_part`: `1037936` rows, `k=20`
 - `bn254_final_exponentiation`: `1053500` rows, `k=21`
 - `bn254_pairing_check_sample_2_terms`: `2221564` rows, `k=22`
-
-Previous baseline before the handcrafted `exp_by_neg_x(...)` chain:
-
-- `bn254_final_exponentiation_hard_part`: `1190996` rows, `k=21`
-- `bn254_final_exponentiation`: `1215080` rows, `k=21`
-- `bn254_pairing_check`: `2383144` rows, `k=22`
 
 Interpretation:
 
 - the easy part is tiny relative to the total
 - the hard part still accounts for essentially all final-exponentiation cost
-- the BN254-specific `exp_by_neg_x(...)` rewrite removed `153060` hard-part rows
-  and `161580` total final-exponentiation rows
+- the cyclotomic-squaring rewrite removed `347154` hard-part rows and
+  `347904` total final-exponentiation rows relative to the previous
+  fixed-chain baseline
 - the same local change also reduced the sample pairing-check block by
-  `161580` rows
+  `347904` rows
 - future optimization work should continue to focus almost entirely on the hard
   part unless a very cheap easy-part cleanup appears
 
@@ -250,38 +260,25 @@ The current final exponentiation is not expensive because of the easy part.
 
 It is expensive because the hard part still contains:
 
-- three nontrivial constant-exponentiation calls, even after the first
-  handcrafted-chain rewrite
-- a very large number of Fp12 squares and multiplies
-- enough structure to keep the total block above one million rows
+- three nontrivial constant-exponentiation calls, even after the fixed-chain
+  and cyclotomic-squaring rewrites
+- a substantial number of Fp12 multiplies around those exponentiation lanes
+- enough structure to keep the total block well above the easy-part cost
 
 ## Ranked Next Optimization Candidates
 
 These are candidates for a later targeted rewrite, not changes implemented in
 this audit.
 
-### 1. Introduce cyclotomic-squaring-aware hard-part rewriting
+### 1. Evaluate compressed squaring within the hard part
 
 Why it ranks high:
 
 - the hard part is square-heavy
-- if the relevant values are in the expected subgroup domain, specialized
-  squaring should have high leverage
+- cyclotomic squaring is now implemented, so compressed/cyclotomic-adjacent
+  square reductions are the next obvious square-focused lever
 
-Caveat:
-
-- this should be validated carefully against the exact values the current chain
-  produces; do not assume every intermediate can be replaced blindly
-
-### 2. Evaluate compressed squaring within the hard part
-
-Why it ranks high:
-
-- same reason as above: the hard part is dominated by repeated squaring
-- this is the other obvious square-focused structural lever after cyclotomic
-  squaring
-
-### 3. Rebuild the hard part around a better whole-hard-part chain
+### 2. Rebuild the hard part around a better whole-hard-part chain
 
 Why it matters:
 
@@ -289,11 +286,11 @@ Why it matters:
   part may still admit a better circuit-oriented arrangement of exponentiations
   and intermediate products
 
-### 4. Treat easy-part cleanup as low priority
+### 3. Treat easy-part cleanup as low priority
 
 Why it ranks low:
 
-- easy part is only `13884` rows versus `1037936` for the hard part
+- easy part is only `13884` rows versus `690782` for the hard part
 - unless a cleanup is nearly free, it is unlikely to move total verifier cost
   materially
 
@@ -322,8 +319,9 @@ cargo run -p wrapper-cli -- profile-layout --family blocks
 ## Caveats
 
 - this audit is layout-focused, not runtime-focused
-- the current `exp_by_neg_x(...)` helper is a local BN254-specific improvement,
-  not a full hard-part rewrite
+- the current hard part now includes both a BN254-specific `exp_by_neg_x(...)`
+  chain and subgroup-only cyclotomic squaring, but it is still not a full
+  hard-part rewrite
 - this note does not claim the current chain is mathematically optimal in an
   abstract sense; it only records where the implemented circuit is now
   spending its cost

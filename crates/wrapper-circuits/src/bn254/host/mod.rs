@@ -326,6 +326,57 @@ pub(crate) fn fp12_square_constant(value: &Fp12Constant) -> Fp12Constant {
   (fp6_add_constant(a_sq, fp6_mul_by_nonresidue_constant(b_sq)), fp6_add_constant(ab, ab))
 }
 
+fn fp12_cyclotomic_square_pair_constant(
+  left: Fp2Constant,
+  right: Fp2Constant,
+) -> (Fp2Constant, Fp2Constant) {
+  let product = fp2_mul_constant(left, right);
+  let left_plus_right = fp2_add_constant(left, right);
+  let right_nr = fp2_mul_by_fp6_nonresidue_constant(right);
+  let left_plus_right_nr = fp2_add_constant(right_nr, left);
+  let product_nr = fp2_mul_by_fp6_nonresidue_constant(product);
+  let t0 = fp2_sub_constant(
+    fp2_sub_constant(fp2_mul_constant(left_plus_right, left_plus_right_nr), product),
+    product_nr,
+  );
+  let t1 = fp2_add_constant(product, product);
+
+  (t0, t1)
+}
+
+fn fp2_three_t_minus_two_z_constant(t: Fp2Constant, z: Fp2Constant) -> Fp2Constant {
+  let t_minus_z = fp2_sub_constant(t, z);
+  fp2_add_constant(fp2_add_constant(t_minus_z, t_minus_z), t)
+}
+
+fn fp2_three_t_plus_two_z_constant(t: Fp2Constant, z: Fp2Constant) -> Fp2Constant {
+  let t_plus_z = fp2_add_constant(t, z);
+  fp2_add_constant(fp2_add_constant(t_plus_z, t_plus_z), t)
+}
+
+/// Squares an Fp12 element under the assumption that it lies in the BN254
+/// cyclotomic subgroup reached after the easy part of final exponentiation.
+///
+/// This implements the Granger-Scott degree-12 cyclotomic squaring formula
+/// using the arkworks BN254 tower and must not be used for arbitrary Fp12
+/// elements.
+pub(crate) fn fp12_cyclotomic_square_constant(value: &Fp12Constant) -> Fp12Constant {
+  // arkworks / Granger-Scott coefficient order:
+  // z0 = c0.c0, z1 = c1.c1, z2 = c1.c0, z3 = c0.c2, z4 = c0.c1, z5 = c1.c2.
+  let (t0, t1) = fp12_cyclotomic_square_pair_constant(value.0.0, value.1.1);
+  let (t2, t3) = fp12_cyclotomic_square_pair_constant(value.1.0, value.0.2);
+  let (t4, t5) = fp12_cyclotomic_square_pair_constant(value.0.1, value.1.2);
+
+  let z0 = fp2_three_t_minus_two_z_constant(t0, value.0.0);
+  let z1 = fp2_three_t_plus_two_z_constant(t1, value.1.1);
+  let z2 = fp2_three_t_plus_two_z_constant(fp2_mul_by_fp6_nonresidue_constant(t5), value.1.0);
+  let z3 = fp2_three_t_minus_two_z_constant(t4, value.0.2);
+  let z4 = fp2_three_t_minus_two_z_constant(t2, value.0.1);
+  let z5 = fp2_three_t_plus_two_z_constant(t3, value.1.2);
+
+  ((z0, z4, z3), (z2, z1, z5))
+}
+
 pub(crate) fn fp12_conjugate_constant(value: &Fp12Constant) -> Fp12Constant {
   (value.0, fp6_sub_constant(fp6_zero_constant(), value.1))
 }

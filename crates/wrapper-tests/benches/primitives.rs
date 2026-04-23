@@ -20,6 +20,7 @@ criterion_group!(
   field::bench_fp6_mul,
   field::bench_fp6_square,
   field::bench_fp12_add,
+  field::bench_fp12_cyclotomic_square,
   field::bench_fp12_mul,
   field::bench_fp12_square,
   ecc::bench_g1_add,

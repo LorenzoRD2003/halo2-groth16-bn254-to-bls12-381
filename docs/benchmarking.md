@@ -11,7 +11,7 @@ Current status:
 
 - benchmark structure exists
 - benchmark commands work
-- the current primitive layer includes small Midnight-backed circuits for field add, field mul, fp2 add, fp2 mul, fp2 square, fp6 add, fp6 mul, fp6 square, fp12 add, fp12 mul, fp12 square, G1 add, G2 on-curve, G2 neg, G2 projective from-affine embedding, G2 projective doubling, G2 projective addition, G2 doubling-with-line, G2 mixed-add-with-line, Miller-accumulator square, Miller-accumulator mul-by-line, Miller-accumulator sparse mul-by-line, a narrow Miller-loop slice, narrow final exponentiation, and a narrow pairing-check slice
+- the current primitive layer includes small Midnight-backed circuits for field add, field mul, fp2 add, fp2 mul, fp2 square, fp6 add, fp6 mul, fp6 square, fp12 add, fp12 mul, fp12 square, fp12 cyclotomic square, G1 add, G2 on-curve, G2 neg, G2 projective from-affine embedding, G2 projective doubling, G2 projective addition, G2 doubling-with-line, G2 mixed-add-with-line, Miller-accumulator square, Miller-accumulator mul-by-line, Miller-accumulator sparse mul-by-line, a narrow Miller-loop slice, narrow final exponentiation, and a narrow pairing-check slice
 - benchmark coverage is still intentionally narrow
 
 No current benchmark should be interpreted as a production cryptographic performance claim.
@@ -91,6 +91,7 @@ Current benchmark entry points are:
 - `bench_fp12_add`
 - `bench_fp12_mul`
 - `bench_fp12_square`
+- `bench_fp12_cyclotomic_square`
 - `bench_g1_add`
 - `bench_g2_on_curve`
 - `bench_g2_neg`
@@ -118,4 +119,4 @@ Additional metrics may be added later if circuit shape, witness generation, or b
 
 ## Warning
 
-Current benchmarks exercise small Midnight-backed BN254 primitive circuits. The Miller-loop benchmarks cover the current narrow accumulation slice over extracted lines, `bench_final_exponentiation` covers the current narrow final-exponentiation slice on top of an Fp12 Miller output, and `bench_pairing_check` covers the narrow multi-pairing product-check slice with one shared final exponentiation. `bench_miller_accumulator_mul_by_line` is retained as the generic baseline path, while `bench_miller_accumulator_mul_by_line_sparse` measures the optimized sparse-specialized line-consumption path used by the public accumulator API. These do not measure subgroup checks, scalar multiplication, a broad verifier-facing pairing API, Groth16 verification, or a production wrapper circuit.
+Current benchmarks exercise small Midnight-backed BN254 primitive circuits. The field lane now includes both the generic `bench_fp12_square` sanity circuit and the subgroup-only `bench_fp12_cyclotomic_square` sanity circuit used in the final-exponentiation hard part. The Miller-loop benchmarks cover the current narrow accumulation slice over extracted lines, `bench_final_exponentiation` covers the current narrow final-exponentiation slice on top of an Fp12 Miller output, and `bench_pairing_check` covers the narrow multi-pairing product-check slice with one shared final exponentiation. `bench_miller_accumulator_mul_by_line` is retained as the generic baseline path, while `bench_miller_accumulator_mul_by_line_sparse` measures the optimized sparse-specialized line-consumption path used by the public accumulator API. These do not measure subgroup checks, scalar multiplication, a broad verifier-facing pairing API, Groth16 verification, or a production wrapper circuit.

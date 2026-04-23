@@ -142,48 +142,9 @@ impl Circuit<NativeField> for MillerAccumulatorMulByEvaluatedLineCircuit {
     mut layouter: impl Layouter<NativeField>,
   ) -> Result<(), Error> {
     let chip = Bn254FieldChip::new(&config);
-    let initial = AssignedFp12::assign(
-      &chip,
-      &mut layouter,
-      (
-        (Value::known(self.initial.0.0.0), Value::known(self.initial.0.0.1)),
-        (Value::known(self.initial.0.1.0), Value::known(self.initial.0.1.1)),
-        (Value::known(self.initial.0.2.0), Value::known(self.initial.0.2.1)),
-      ),
-      (
-        (Value::known(self.initial.1.0.0), Value::known(self.initial.1.0.1)),
-        (Value::known(self.initial.1.1.0), Value::known(self.initial.1.1.1)),
-        (Value::known(self.initial.1.2.0), Value::known(self.initial.1.2.1)),
-      ),
-    )?;
-    let evaluated_line = AssignedFp12::assign(
-      &chip,
-      &mut layouter,
-      (
-        (Value::known(self.evaluated_line.0.0.0), Value::known(self.evaluated_line.0.0.1)),
-        (Value::known(self.evaluated_line.0.1.0), Value::known(self.evaluated_line.0.1.1)),
-        (Value::known(self.evaluated_line.0.2.0), Value::known(self.evaluated_line.0.2.1)),
-      ),
-      (
-        (Value::known(self.evaluated_line.1.0.0), Value::known(self.evaluated_line.1.0.1)),
-        (Value::known(self.evaluated_line.1.1.0), Value::known(self.evaluated_line.1.1.1)),
-        (Value::known(self.evaluated_line.1.2.0), Value::known(self.evaluated_line.1.2.1)),
-      ),
-    )?;
-    let expected = AssignedFp12::assign(
-      &chip,
-      &mut layouter,
-      (
-        (Value::known(self.expected.0.0.0), Value::known(self.expected.0.0.1)),
-        (Value::known(self.expected.0.1.0), Value::known(self.expected.0.1.1)),
-        (Value::known(self.expected.0.2.0), Value::known(self.expected.0.2.1)),
-      ),
-      (
-        (Value::known(self.expected.1.0.0), Value::known(self.expected.1.0.1)),
-        (Value::known(self.expected.1.1.0), Value::known(self.expected.1.1.1)),
-        (Value::known(self.expected.1.2.0), Value::known(self.expected.1.2.1)),
-      ),
-    )?;
+    let initial = assign_fixed_fp12(&chip, &mut layouter, self.initial)?;
+    let evaluated_line = assign_fixed_fp12(&chip, &mut layouter, self.evaluated_line)?;
+    let expected = assign_fixed_fp12(&chip, &mut layouter, self.expected)?;
 
     let mut accumulator = AssignedMillerAccumulator::new(initial);
     accumulator.mul_by_evaluated_line(&chip, &mut layouter, &evaluated_line)?;

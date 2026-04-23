@@ -15,6 +15,7 @@ use midnight_proofs::dev::MockProver;
 use rand::RngCore;
 
 use super::*;
+use crate::bn254::host::Fp12Value;
 use crate::bn254::metrics::measure_layout;
 
 pub(crate) type Fp2AssignedValue = (Value<ForeignField>, Value<ForeignField>);
@@ -85,6 +86,30 @@ pub(crate) fn ark_to_midnight_fq6(value: ArkFq6) -> Fp6ConstantValue {
 
 pub(crate) fn ark_to_midnight_fq12(value: &ArkFq12) -> Fp12ConstantValue {
   (ark_to_midnight_fq6(value.c0), ark_to_midnight_fq6(value.c1))
+}
+
+pub(crate) fn fp12_constant_witness(value: Fp12ConstantValue) -> Fp12Value {
+  (
+    (
+      (Value::known(value.0.0.0), Value::known(value.0.0.1)),
+      (Value::known(value.0.1.0), Value::known(value.0.1.1)),
+      (Value::known(value.0.2.0), Value::known(value.0.2.1)),
+    ),
+    (
+      (Value::known(value.1.0.0), Value::known(value.1.0.1)),
+      (Value::known(value.1.1.0), Value::known(value.1.1.1)),
+      (Value::known(value.1.2.0), Value::known(value.1.2.1)),
+    ),
+  )
+}
+
+pub(crate) fn assign_fixed_fp12(
+  chip: &Bn254FieldChip,
+  layouter: &mut impl Layouter<NativeField>,
+  value: Fp12ConstantValue,
+) -> Result<AssignedFp12, Error> {
+  let witness = fp12_constant_witness(value);
+  AssignedFp12::assign(chip, layouter, witness.0, witness.1)
 }
 
 pub(crate) fn ark_zero_fq2() -> ArkFq2 {

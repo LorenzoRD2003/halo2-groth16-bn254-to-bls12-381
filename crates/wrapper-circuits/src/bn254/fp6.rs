@@ -89,7 +89,7 @@ impl AssignedFp6 {
     <Self as AssignedFieldExt>::one(chip, layouter)
   }
 
-  fn mul_by_nonresidue_fp2(
+  pub(crate) fn mul_by_nonresidue_fp2(
     value: &AssignedFp2,
     chip: &Bn254FieldChip,
     layouter: &mut impl Layouter<NativeField>,

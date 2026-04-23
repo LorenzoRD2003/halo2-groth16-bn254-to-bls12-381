@@ -67,17 +67,7 @@ impl Circuit<NativeField> for MultiMillerLoopCircuit {
 
     let borrowed_terms: Vec<_> = assigned_terms.iter().map(|term| (&term.0, &term.1)).collect();
     let actual = multi_miller_loop(&chip, &mut layouter, &borrowed_terms)?;
-    let expected_c0 = (
-      (Value::known((self.expected.0).0.0), Value::known((self.expected.0).0.1)),
-      (Value::known((self.expected.0).1.0), Value::known((self.expected.0).1.1)),
-      (Value::known((self.expected.0).2.0), Value::known((self.expected.0).2.1)),
-    );
-    let expected_c1 = (
-      (Value::known((self.expected.1).0.0), Value::known((self.expected.1).0.1)),
-      (Value::known((self.expected.1).1.0), Value::known((self.expected.1).1.1)),
-      (Value::known((self.expected.1).2.0), Value::known((self.expected.1).2.1)),
-    );
-    let expected = AssignedFp12::assign(&chip, &mut layouter, expected_c0, expected_c1)?;
+    let expected = assign_fixed_fp12(&chip, &mut layouter, self.expected)?;
     actual.assert_equal(&chip, &mut layouter, &expected)?;
     chip.load(&mut layouter)
   }

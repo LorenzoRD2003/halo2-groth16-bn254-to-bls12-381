@@ -8,17 +8,17 @@ use crate::{
   CostEstimate, LayoutMetrics, final_exponentiation_layout_metrics, fp_add_layout_metrics,
   fp_mul_layout_metrics, fp2_add_layout_metrics, fp2_mul_layout_metrics, fp2_square_layout_metrics,
   fp6_add_layout_metrics, fp6_mul_layout_metrics, fp6_square_layout_metrics,
-  fp12_add_layout_metrics, fp12_mul_layout_metrics, fp12_square_layout_metrics,
-  g1_add_layout_metrics, g2_double_with_line_layout_metrics, g2_mixed_add_with_line_layout_metrics,
-  g2_neg_layout_metrics, g2_on_curve_layout_metrics, g2_proj_add_layout_metrics,
-  g2_proj_double_layout_metrics, g2_proj_from_affine_layout_metrics,
+  fp12_add_layout_metrics, fp12_cyclotomic_square_layout_metrics, fp12_mul_layout_metrics,
+  fp12_square_layout_metrics, g1_add_layout_metrics, g2_double_with_line_layout_metrics,
+  g2_mixed_add_with_line_layout_metrics, g2_neg_layout_metrics, g2_on_curve_layout_metrics,
+  g2_proj_add_layout_metrics, g2_proj_double_layout_metrics, g2_proj_from_affine_layout_metrics,
   miller_accumulator_mul_by_line_layout_metrics,
   miller_accumulator_mul_by_line_sparse_layout_metrics, miller_accumulator_square_layout_metrics,
   miller_loop_layout_metrics, pairing_check_layout_metrics,
 };
 
 /// Number of currently measured primitive circuits.
-pub const PRIMITIVE_COUNT: usize = 25;
+pub const PRIMITIVE_COUNT: usize = 26;
 
 /// High-level layer for a measured primitive cost entry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -169,6 +169,15 @@ const PRIMITIVE_DEFINITIONS: [PrimitiveDefinition; PRIMITIVE_COUNT] = [
     bench_name: "bench_fp12_square",
     show_lookups: false,
     measure_layout: fp12_square_layout_metrics,
+  },
+  PrimitiveDefinition {
+    key: "fp12_cyclotomic_square",
+    label: "fp12 cyclotomic square",
+    layer: PrimitiveCostLayer::Field,
+    bench_module: "field",
+    bench_name: "bench_fp12_cyclotomic_square",
+    show_lookups: false,
+    measure_layout: fp12_cyclotomic_square_layout_metrics,
   },
   PrimitiveDefinition {
     key: "g1_add",

@@ -4,10 +4,11 @@ use midnight_circuits::midnight_proofs::{
 };
 
 use super::{
-  AssignedCircuitValue, AssignedFieldExt, AssignedFp6, Bn254FieldChip, Bn254FieldConfig,
-  ForeignField, NativeField,
+  AssignedCircuitValue, AssignedFieldExt, AssignedFp2, AssignedFp6, Bn254FieldChip,
+  Bn254FieldConfig, ForeignField, NativeField,
   host::{
-    Fp6Constant, Fp6Value, Fp12Constant, Fp12Value, fp12_add_constant, fp12_frobenius_map_constant,
+    Fp6Constant, Fp6Value, Fp12Constant, Fp12Value, bn254_final_exponentiation_easy_part_constant,
+    fp12_add_constant, fp12_cyclotomic_square_constant, fp12_frobenius_map_constant,
     fp12_inv_constant, fp12_mul_constant, fp12_nonresidue_constant, fp12_square_constant,
   },
   synthesize_binary_value_circuit, synthesize_unary_value_circuit,
@@ -65,6 +66,53 @@ fn fp12_value_witness(value: Value<Fp12Constant>) -> Fp12Value {
 }
 
 impl AssignedFp12 {
+  fn cyclotomic_square_pair(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    left: &AssignedFp2,
+    right: &AssignedFp2,
+  ) -> Result<(AssignedFp2, AssignedFp2), Error> {
+    // Squares the quadratic element left + right * y where y^2 = (9 + u).
+    // This is the Granger-Scott building block reused three times in the full
+    // Fp12 cyclotomic square.
+    let product = left.mul(chip, layouter, right)?;
+    let left_plus_right = left.add(chip, layouter, right)?;
+    let right_nr = AssignedFp6::mul_by_nonresidue_fp2(right, chip, layouter)?;
+    let left_plus_right_nr = right_nr.add(chip, layouter, left)?;
+    let product_nr = AssignedFp6::mul_by_nonresidue_fp2(&product, chip, layouter)?;
+    let t0 = left_plus_right
+      .mul(chip, layouter, &left_plus_right_nr)?
+      .sub(chip, layouter, &product)?
+      .sub(chip, layouter, &product_nr)?;
+    let t1 = product.add(chip, layouter, &product)?;
+
+    Ok((t0, t1))
+  }
+
+  fn fp2_three_t_minus_two_z(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    t: &AssignedFp2,
+    z: &AssignedFp2,
+  ) -> Result<AssignedFp2, Error> {
+    let t_minus_z = t.sub(chip, layouter, z)?;
+    let two_t_minus_two_z = t_minus_z.add(chip, layouter, &t_minus_z)?;
+
+    two_t_minus_two_z.add(chip, layouter, t)
+  }
+
+  fn fp2_three_t_plus_two_z(
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+    t: &AssignedFp2,
+    z: &AssignedFp2,
+  ) -> Result<AssignedFp2, Error> {
+    let t_plus_z = t.add(chip, layouter, z)?;
+    let two_t_plus_two_z = t_plus_z.add(chip, layouter, &t_plus_z)?;
+
+    two_t_plus_two_z.add(chip, layouter, t)
+  }
+
   /// Builds an assigned Fp12 value from its two assigned Fp6 coordinates.
   #[must_use]
   pub fn new(c0: AssignedFp6, c1: AssignedFp6) -> Self {
@@ -194,6 +242,39 @@ impl AssignedFp12 {
     let two_ab = ab.add(chip, layouter, &ab)?;
 
     Ok(Self::new(a_sq.add(chip, layouter, &b_sq_nr)?, two_ab))
+  }
+
+  /// Squares this Fp12 value under the assumption that it lies in the
+  /// cyclotomic subgroup reached after the easy part of BN254 final
+  /// exponentiation.
+  ///
+  /// This implements the Granger-Scott degree-12 cyclotomic formula directly
+  /// in the current BN254 tower and must not be used for arbitrary Fp12
+  /// elements.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any underlying Fp2/Fp6 operation fails.
+  pub(crate) fn cyclotomic_square(
+    &self,
+    chip: &Bn254FieldChip,
+    layouter: &mut impl Layouter<NativeField>,
+  ) -> Result<Self, Error> {
+    // arkworks / Granger-Scott coefficient order:
+    // z0 = c0.c0, z1 = c1.c1, z2 = c1.c0, z3 = c0.c2, z4 = c0.c1, z5 = c1.c2.
+    let (t0, t1) = Self::cyclotomic_square_pair(chip, layouter, &self.c0.c0, &self.c1.c1)?;
+    let (t2, t3) = Self::cyclotomic_square_pair(chip, layouter, &self.c1.c0, &self.c0.c2)?;
+    let (t4, t5) = Self::cyclotomic_square_pair(chip, layouter, &self.c0.c1, &self.c1.c2)?;
+
+    let z0 = Self::fp2_three_t_minus_two_z(chip, layouter, &t0, &self.c0.c0)?;
+    let z1 = Self::fp2_three_t_plus_two_z(chip, layouter, &t1, &self.c1.c1)?;
+    let t5_nr = AssignedFp6::mul_by_nonresidue_fp2(&t5, chip, layouter)?;
+    let z2 = Self::fp2_three_t_plus_two_z(chip, layouter, &t5_nr, &self.c1.c0)?;
+    let z3 = Self::fp2_three_t_minus_two_z(chip, layouter, &t4, &self.c0.c2)?;
+    let z4 = Self::fp2_three_t_minus_two_z(chip, layouter, &t2, &self.c0.c1)?;
+    let z5 = Self::fp2_three_t_plus_two_z(chip, layouter, &t3, &self.c1.c2)?;
+
+    Ok(Self::new(AssignedFp6::new(z0, z4, z3), AssignedFp6::new(z2, z1, z5)))
   }
 
   pub(crate) fn value(&self) -> Value<Fp12Constant> {
@@ -647,6 +728,91 @@ impl Fp12SquareCircuit {
         (ForeignField::from(59_u64), ForeignField::from(60_u64)),
       ),
     ))
+  }
+}
+
+/// Small circuit that exercises a single BN254 Fp12 cyclotomic square.
+#[derive(Clone, Debug)]
+pub struct Fp12CyclotomicSquareCircuit {
+  value: Fp12Value,
+  expected: Fp12Constant,
+}
+
+impl Fp12CyclotomicSquareCircuit {
+  /// Builds a cyclotomic-square circuit from a known cyclotomic-subgroup input.
+  ///
+  /// The caller is responsible for only providing values that already lie in
+  /// the cyclotomic subgroup.
+  #[must_use]
+  pub fn new(value: Fp12Constant) -> Self {
+    Self {
+      value: (
+        (
+          (Value::known(value.0.0.0), Value::known(value.0.0.1)),
+          (Value::known(value.0.1.0), Value::known(value.0.1.1)),
+          (Value::known(value.0.2.0), Value::known(value.0.2.1)),
+        ),
+        (
+          (Value::known(value.1.0.0), Value::known(value.1.0.1)),
+          (Value::known(value.1.1.0), Value::known(value.1.1.1)),
+          (Value::known(value.1.2.0), Value::known(value.1.2.1)),
+        ),
+      ),
+      expected: fp12_cyclotomic_square_constant(&value),
+    }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and benches.
+  #[must_use]
+  pub fn sample() -> Self {
+    let generic_sample = (
+      (
+        (ForeignField::from(49_u64), ForeignField::from(50_u64)),
+        (ForeignField::from(51_u64), ForeignField::from(52_u64)),
+        (ForeignField::from(53_u64), ForeignField::from(54_u64)),
+      ),
+      (
+        (ForeignField::from(55_u64), ForeignField::from(56_u64)),
+        (ForeignField::from(57_u64), ForeignField::from(58_u64)),
+        (ForeignField::from(59_u64), ForeignField::from(60_u64)),
+      ),
+    );
+
+    Self::new(bn254_final_exponentiation_easy_part_constant(&generic_sample))
+  }
+}
+
+impl Default for Fp12CyclotomicSquareCircuit {
+  fn default() -> Self {
+    Self::sample()
+  }
+}
+
+impl Circuit<NativeField> for Fp12CyclotomicSquareCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self { value: AssignedFp12::unknown_witness(&self.value), expected: self.expected }
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    layouter: impl Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    synthesize_unary_value_circuit::<AssignedFp12, _, _>(
+      &config,
+      layouter,
+      self.value,
+      self.expected,
+      AssignedFp12::cyclotomic_square,
+    )
   }
 }
 

@@ -390,6 +390,41 @@ fn fp12_randomized_squares_match_arkworks() {
 }
 
 #[test]
+fn fp12_cyclotomic_square_host_matches_generic_square_on_random_cyclotomic_elements() {
+  let mut rng = ChaCha20Rng::from_seed([74_u8; 32]);
+
+  for _ in 0..6 {
+    let g1 = random_nonzero_g1_affine(&mut rng);
+    let g2 = random_nonzero_g2_affine(&mut rng);
+    let miller_output = ark_bn254_miller_loop_accumulate(g2, g1);
+    let cyclotomic = super::super::host::bn254_final_exponentiation_easy_part_constant(
+      &ark_to_midnight_fq12(&miller_output),
+    );
+
+    assert_eq!(
+      super::super::host::fp12_cyclotomic_square_constant(&cyclotomic),
+      super::super::host::fp12_square_constant(&cyclotomic),
+    );
+  }
+}
+
+#[test]
+fn fp12_cyclotomic_square_circuit_matches_host_on_random_cyclotomic_elements() {
+  let mut rng = ChaCha20Rng::from_seed([75_u8; 32]);
+
+  for _ in 0..6 {
+    let g1 = random_nonzero_g1_affine(&mut rng);
+    let g2 = random_nonzero_g2_affine(&mut rng);
+    let miller_output = ark_bn254_miller_loop_accumulate(g2, g1);
+    let cyclotomic = super::super::host::bn254_final_exponentiation_easy_part_constant(
+      &ark_to_midnight_fq12(&miller_output),
+    );
+
+    assert_satisfied(&Fp12CyclotomicSquareCircuit::new(cyclotomic));
+  }
+}
+
+#[test]
 fn fp12_structured_cases_match_arkworks() {
   let c0_only = ArkFq12::new(
     ArkFq6::new(
@@ -442,11 +477,20 @@ fn fp12_layout_metrics_are_real_and_nonzero() {
   let add_metrics = fp12_add_layout_metrics();
   let mul_metrics = fp12_mul_layout_metrics();
   let square_metrics = fp12_square_layout_metrics();
+  let cyclotomic_square_metrics = fp12_cyclotomic_square_layout_metrics();
 
   assert!(add_metrics.rows > 0);
   assert!(mul_metrics.rows > 0);
   assert!(square_metrics.rows > 0);
+  assert!(cyclotomic_square_metrics.rows > 0);
   assert!(add_metrics.column_queries > 0);
   assert!(mul_metrics.column_queries > 0);
   assert!(square_metrics.column_queries > 0);
+  assert!(cyclotomic_square_metrics.column_queries > 0);
+  assert!(cyclotomic_square_metrics.rows < square_metrics.rows);
+
+  println!(
+    "cyclotomic_square: {} rows vs generic_square: {} rows",
+    cyclotomic_square_metrics.rows, square_metrics.rows
+  );
 }

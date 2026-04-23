@@ -5,9 +5,9 @@ use midnight_proofs::dev::MockProver;
 use midnight_proofs::plonk::Circuit;
 use wrapper_circuits::{
   Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit,
-  Fp12AddCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit, FpMulCircuit, NativeField,
-  fp_add_k, fp_mul_k, fp2_add_k, fp2_mul_k, fp2_square_k, fp6_add_k, fp6_mul_k, fp6_square_k,
-  fp12_add_k, fp12_mul_k, fp12_square_k,
+  Fp12AddCircuit, Fp12CyclotomicSquareCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit,
+  FpMulCircuit, NativeField, fp_add_k, fp_mul_k, fp2_add_k, fp2_mul_k, fp2_square_k, fp6_add_k,
+  fp6_mul_k, fp6_square_k, fp12_add_k, fp12_cyclotomic_square_k, fp12_mul_k, fp12_square_k,
 };
 
 fn verify_sample_circuit<CircuitT>(circuit: &CircuitT, k: u32, build_error: &str)
@@ -80,6 +80,14 @@ fn run_fp12_square_circuit() {
   );
 }
 
+fn run_fp12_cyclotomic_square_circuit() {
+  verify_sample_circuit(
+    &Fp12CyclotomicSquareCircuit::sample(),
+    fp12_cyclotomic_square_k(),
+    "fp12 cyclotomic square circuit should build",
+  );
+}
+
 /// Benchmarks the current Midnight-backed BN254 foreign-field addition circuit.
 pub fn bench_fp_add(criterion: &mut Criterion) {
   bench_verified_sample(criterion, "bench_fp_add", run_fp_add_circuit);
@@ -133,4 +141,13 @@ pub fn bench_fp12_mul(criterion: &mut Criterion) {
 /// Benchmarks the current Midnight-backed BN254 Fp12 square circuit.
 pub fn bench_fp12_square(criterion: &mut Criterion) {
   bench_verified_sample(criterion, "bench_fp12_square", run_fp12_square_circuit);
+}
+
+/// Benchmarks the current Midnight-backed BN254 Fp12 cyclotomic-square circuit.
+pub fn bench_fp12_cyclotomic_square(criterion: &mut Criterion) {
+  bench_verified_sample(
+    criterion,
+    "bench_fp12_cyclotomic_square",
+    run_fp12_cyclotomic_square_circuit,
+  );
 }
