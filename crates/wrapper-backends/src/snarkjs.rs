@@ -171,14 +171,11 @@ fn parse_affine_g2(
 }
 
 /// Parses a snarkjs Groth16 proof plus public-input array into the narrow verifier proof type.
-pub fn parse_groth16_bn254_proof_with_public_inputs(
+pub fn parse_groth16_bn254_proof(
   proof_json: &[u8],
-  public_json: &[u8],
 ) -> Result<Groth16Bn254Proof, SnarkjsGroth16ParseError> {
   let proof: SnarkjsProofJson = serde_json::from_slice(proof_json)
     .map_err(|source| SnarkjsGroth16ParseError::Json { artifact: "proof", source })?;
-  let public_inputs: Vec<String> = serde_json::from_slice(public_json)
-    .map_err(|source| SnarkjsGroth16ParseError::Json { artifact: "public-input", source })?;
 
   ensure_groth16_bn254(&proof.protocol, &proof.curve)?;
 
@@ -186,11 +183,17 @@ pub fn parse_groth16_bn254_proof_with_public_inputs(
     a: parse_g1_point("proof.pi_a", &proof.pi_a)?,
     b: parse_affine_g2("proof.pi_b", &proof.pi_b)?,
     c: parse_g1_point("proof.pi_c", &proof.pi_c)?,
-    public_inputs: public_inputs
-      .iter()
-      .map(|value| parse_native_field(value))
-      .collect::<Result<Vec<_>, _>>()?,
   })
+}
+
+/// Parses a snarkjs public-input JSON array into the narrow verifier statement values.
+pub fn parse_groth16_bn254_public_inputs(
+  public_json: &[u8],
+) -> Result<Vec<NativeField>, SnarkjsGroth16ParseError> {
+  let public_inputs: Vec<String> = serde_json::from_slice(public_json)
+    .map_err(|source| SnarkjsGroth16ParseError::Json { artifact: "public-input", source })?;
+
+  public_inputs.iter().map(|value| parse_native_field(value)).collect::<Result<Vec<_>, _>>()
 }
 
 /// Parses a snarkjs Groth16 verification key into the narrow verifier VK type.
@@ -221,45 +224,47 @@ pub fn parse_groth16_bn254_verifying_key(
 #[cfg(test)]
 mod tests {
   use super::{
-    SnarkjsGroth16ParseError, parse_groth16_bn254_proof_with_public_inputs,
+    SnarkjsGroth16ParseError, parse_groth16_bn254_proof, parse_groth16_bn254_public_inputs,
     parse_groth16_bn254_verifying_key,
   };
-  use ff::{Field, PrimeField};
-  use wrapper_circuits::{ForeignField, Groth16Bn254G1Point, NativeField};
-
-  const PROOF_JSON: &[u8] =
-    include_bytes!("../../wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json");
-  const PUBLIC_JSON: &[u8] =
-    include_bytes!("../../wrapper-tests/fixtures/groth16/circom_multiplier2/public.json");
-  const VK_JSON: &[u8] =
-    include_bytes!("../../wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json");
+  use ff::Field;
+  use wrapper_circuits::{
+    ForeignField, Groth16Bn254G1Point, groth16_fixture_raw, groth16_fixture_typed,
+  };
 
   #[test]
-  fn parses_real_snarkjs_fixture() {
-    let proof = parse_groth16_bn254_proof_with_public_inputs(PROOF_JSON, PUBLIC_JSON)
+  fn parses_real_snarkjs_fixture_structure() {
+    let proof = parse_groth16_bn254_proof(groth16_fixture_raw::proof_json())
       .expect("fixture proof should parse");
-    let vk = parse_groth16_bn254_verifying_key(VK_JSON).expect("fixture vk should parse");
+    let public_inputs =
+      parse_groth16_bn254_public_inputs(groth16_fixture_raw::public_inputs_json())
+        .expect("fixture public inputs should parse");
+    let vk = parse_groth16_bn254_verifying_key(groth16_fixture_raw::verification_key_json())
+      .expect("fixture vk should parse");
 
-    assert_eq!(proof.public_inputs, vec![NativeField::from(33_u64)]);
     assert_eq!(vk.ic.len(), 2);
-    assert_eq!(
-      proof.a,
-      Groth16Bn254G1Point::affine(
-        ForeignField::from_str_vartime(
-          "1653059996313124324802471924921847871597694627520170958366082551667472867283",
-        )
-        .expect("fixture field element should parse"),
-        ForeignField::from_str_vartime(
-          "18696001991600901277024406088643158760693146181579651313528816019951170530131",
-        )
-        .expect("fixture field element should parse"),
-      )
-    );
+    assert_eq!(vk.ic[0], Groth16Bn254G1Point::Identity);
     assert_eq!(
       vk.alpha_g1,
       Groth16Bn254G1Point::affine(ForeignField::ONE, ForeignField::from(2_u64))
     );
-    assert_eq!(vk.ic[0], Groth16Bn254G1Point::Identity);
+    assert_eq!(public_inputs.len(), 1);
+    assert_eq!(proof.a, groth16_fixture_typed::proof().a);
+  }
+
+  #[test]
+  fn parsed_real_snarkjs_fixture_matches_canonical_typed_fixture() {
+    let proof = parse_groth16_bn254_proof(groth16_fixture_raw::proof_json())
+      .expect("fixture proof should parse");
+    let public_inputs =
+      parse_groth16_bn254_public_inputs(groth16_fixture_raw::public_inputs_json())
+        .expect("fixture public inputs should parse");
+    let vk = parse_groth16_bn254_verifying_key(groth16_fixture_raw::verification_key_json())
+      .expect("fixture vk should parse");
+
+    assert_eq!(proof, groth16_fixture_typed::proof());
+    assert_eq!(public_inputs, groth16_fixture_typed::public_inputs());
+    assert_eq!(vk, groth16_fixture_typed::verifying_key());
   }
 
   #[test]
@@ -272,8 +277,7 @@ mod tests {
       "pi_c":["1","2","1"]
     }"#;
 
-    let error = parse_groth16_bn254_proof_with_public_inputs(malformed, br#"["33"]"#)
-      .expect_err("malformed proof should fail");
+    let error = parse_groth16_bn254_proof(malformed).expect_err("malformed proof should fail");
 
     assert!(matches!(
       error,
@@ -298,5 +302,13 @@ mod tests {
       parse_groth16_bn254_verifying_key(malformed).expect_err("bad IC length should fail");
 
     assert!(matches!(error, SnarkjsGroth16ParseError::InvalidIcLength { .. }));
+  }
+
+  #[test]
+  fn rejects_malformed_public_inputs() {
+    let error = parse_groth16_bn254_public_inputs(br#"{"not":"an array"}"#)
+      .expect_err("malformed public input json should fail");
+
+    assert!(matches!(error, SnarkjsGroth16ParseError::Json { artifact: "public-input", .. }));
   }
 }

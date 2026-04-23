@@ -18,16 +18,25 @@ pub use layout::{LayoutComponentKind, LayoutDescriptor, LayoutNode};
 pub use metadata::{
   NormalizedProofArtifact, NormalizedVerificationKey, ProofSystemDescriptor, ProofSystemKind,
 };
-pub use phase::{ProjectPhase, ProjectStatusReport};
+pub use phase::{ProjectOverview, ProjectPhase, ProjectStatusReport};
 
 #[cfg(test)]
 mod tests {
-  use super::{ProjectConfig, ProjectPhase};
+  use super::{ProjectConfig, ProjectPhase, ProjectStatusReport};
 
   #[test]
   fn default_config_uses_stage1_phase() {
     let config = ProjectConfig::default();
 
     assert_eq!(config.phase, ProjectPhase::Stage1);
+  }
+
+  #[test]
+  fn project_overview_mentions_week5_verifier_slice() {
+    let overview = ProjectStatusReport::overview();
+
+    assert!(overview.phase_label.contains("week 5"));
+    assert!(overview.current_implementation.contains("Groth16 BN254 verifier"));
+    assert!(overview.not_implemented.contains("proof generation"));
   }
 }

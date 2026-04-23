@@ -30,7 +30,49 @@ pub struct ProjectStatusReport {
   pub limitations: Vec<String>,
 }
 
+/// Short human-facing overview for the current repository state.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProjectOverview {
+  /// Human-readable current phase summary.
+  pub phase_label: String,
+  /// Stable short project purpose line.
+  pub purpose: String,
+  /// High-level implemented surface summary.
+  pub current_implementation: String,
+  /// Honest list of still-missing major areas.
+  pub not_implemented: String,
+}
+
 impl ProjectStatusReport {
+  fn current_implementation_items() -> &'static [&'static str] {
+    &[
+      "architecture, docs, config models",
+      "Midnight-backed BN254 fp/fp2/fp6/fp12 arithmetic",
+      "minimal G1 add/on-curve checks",
+      "narrow G2 affine assign/on-curve/neg",
+      "Jacobian projective from_affine/add/double/neg",
+      "real optimal-ate Miller-path G2 prep/loop",
+      "narrow final exponentiation",
+      "narrow multi-pairing product check",
+      "the first narrow Groth16 BN254 verifier path",
+      "CLI, and sanity-check benches",
+    ]
+  }
+
+  fn not_implemented_items() -> &'static [&'static str] {
+    &[
+      "G2 subgroup checks",
+      "broad public scalar-multiplication APIs beyond the verifier-only IC path",
+      "generalized verifier frameworks",
+      "proof generation",
+      "production wrapper verifier circuits",
+    ]
+  }
+
+  fn join_items(items: &[&str]) -> String {
+    items.join(", ")
+  }
+
   /// Returns the current repository status report.
   #[must_use]
   pub fn scaffold() -> Self {
@@ -47,6 +89,20 @@ impl ProjectStatusReport {
         "Groth16 verification is currently limited to the first narrow BN254 slice: snarkjs fixture parsing, IC accumulation, and one product-check verification path".to_owned(),
         "there is still no broad wrapper-verifier orchestration, subgroup coverage, or production serialization ecosystem support".to_owned(),
       ],
+    }
+  }
+
+  /// Returns a short canonical overview for CLI/about-style reporting.
+  #[must_use]
+  pub fn overview() -> ProjectOverview {
+    ProjectOverview {
+      phase_label: "stage 1 / week 5 (first end-to-end Groth16 BN254 verifier slice)".to_owned(),
+      purpose: "stage a serious multi-crate codebase for Halo2 wrapper research.".to_owned(),
+      current_implementation: format!(
+        "{}.",
+        Self::join_items(Self::current_implementation_items())
+      ),
+      not_implemented: format!("{}.", Self::join_items(Self::not_implemented_items())),
     }
   }
 }

@@ -21,6 +21,11 @@ use crate::bn254::{
   NativeField, pairing_check,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixtures;
+#[cfg(any(test, feature = "test-support"))]
+pub mod reference;
+
 type G2AffineCoordinates = ((ForeignField, ForeignField), (ForeignField, ForeignField));
 
 /// Narrow BN254 G1 point encoding for the Week 5 Groth16 verifier slice.
@@ -54,8 +59,6 @@ pub struct Groth16Bn254Proof {
   pub b: G2AffineCoordinates,
   /// Groth16 proof element `C` in BN254 G1 affine coordinates.
   pub c: Groth16Bn254G1Point,
-  /// Public inputs consumed by the verifier-side IC linear combination.
-  pub public_inputs: Vec<NativeField>,
 }
 
 /// Narrow BN254 Groth16 verification key material.
@@ -87,14 +90,6 @@ pub enum Groth16VerifierError {
   /// The verification key is malformed for this narrow slice.
   #[error("verification key must contain at least the constant IC point")]
   EmptyIcTable,
-  /// The current pairing path intentionally excludes infinity inputs.
-  #[error(
-    "the current narrow Groth16 verifier slice does not support {term} evaluating to the identity point"
-  )]
-  IdentityTerm {
-    /// Human-readable label for the unsupported identity-valued verifier term.
-    term: &'static str,
-  },
   /// Underlying Halo2 / Midnight synthesis error.
   #[error(transparent)]
   Circuit(#[from] Error),
@@ -137,7 +132,6 @@ fn assert_non_identity(
   bool_chip: &Bn254BoolChip,
   layouter: &mut impl Layouter<NativeField>,
   point: &AssignedG1,
-  _term: &'static str,
 ) -> Result<(), Groth16VerifierError> {
   let is_identity = g1_chip.is_identity(layouter, point)?;
   bool_chip.assert_equal_to_fixed(layouter, &is_identity, false)?;
@@ -205,18 +199,19 @@ pub fn groth16_verify(
   layouter: &mut impl Layouter<NativeField>,
   vk: &Groth16Bn254VerifyingKey,
   proof: &Groth16Bn254Proof,
+  public_inputs: &[NativeField],
 ) -> Result<AssignedBool, Groth16VerifierError> {
-  validate_public_input_shape(vk, &proof.public_inputs)?;
+  validate_public_input_shape(vk, public_inputs)?;
 
   let proof_a = assign_g1_affine(g1_chip, layouter, proof.a)?;
   let proof_c = assign_g1_affine(g1_chip, layouter, proof.c)?;
   let alpha_g1 = assign_g1_affine(g1_chip, layouter, vk.alpha_g1)?;
-  let vk_x = groth16_accumulate_ic(g1_chip, layouter, vk, &proof.public_inputs)?;
+  let vk_x = groth16_accumulate_ic(g1_chip, layouter, vk, public_inputs)?;
 
-  assert_non_identity(g1_chip, bool_chip, layouter, &proof_a, "proof.A")?;
-  assert_non_identity(g1_chip, bool_chip, layouter, &proof_c, "proof.C")?;
-  assert_non_identity(g1_chip, bool_chip, layouter, &alpha_g1, "vk.alpha_g1")?;
-  assert_non_identity(g1_chip, bool_chip, layouter, &vk_x, "vk_x")?;
+  assert_non_identity(g1_chip, bool_chip, layouter, &proof_a)?;
+  assert_non_identity(g1_chip, bool_chip, layouter, &proof_c)?;
+  assert_non_identity(g1_chip, bool_chip, layouter, &alpha_g1)?;
+  assert_non_identity(g1_chip, bool_chip, layouter, &vk_x)?;
 
   let neg_alpha = g1_chip.negate(layouter, &alpha_g1)?;
   let neg_vk_x = g1_chip.negate(layouter, &vk_x)?;
@@ -254,14 +249,20 @@ pub struct Groth16VerifierConfig {
 pub struct Groth16Bn254VerifierCircuit {
   proof: Groth16Bn254Proof,
   vk: Groth16Bn254VerifyingKey,
+  public_inputs: Vec<NativeField>,
   expected: bool,
 }
 
 impl Groth16Bn254VerifierCircuit {
   /// Builds a Groth16 verifier circuit with a known expected result.
   #[must_use]
-  pub fn new(vk: Groth16Bn254VerifyingKey, proof: Groth16Bn254Proof, expected: bool) -> Self {
-    Self { proof, vk, expected }
+  pub fn new(
+    vk: Groth16Bn254VerifyingKey,
+    proof: Groth16Bn254Proof,
+    public_inputs: Vec<NativeField>,
+    expected: bool,
+  ) -> Self {
+    Self { proof, vk, public_inputs, expected }
   }
 }
 
@@ -272,13 +273,9 @@ impl Circuit<NativeField> for Groth16Bn254VerifierCircuit {
 
   fn without_witnesses(&self) -> Self {
     Self {
-      proof: Groth16Bn254Proof {
-        a: self.proof.a,
-        b: self.proof.b,
-        c: self.proof.c,
-        public_inputs: vec![NativeField::ZERO; self.proof.public_inputs.len()],
-      },
+      proof: self.proof.clone(),
       vk: self.vk.clone(),
+      public_inputs: vec![NativeField::ZERO; self.public_inputs.len()],
       expected: self.expected,
     }
   }
@@ -301,12 +298,19 @@ impl Circuit<NativeField> for Groth16Bn254VerifierCircuit {
     let bool_chip = Bn254BoolChip::new(&config.bools);
     let g1_chip = Bn254G1Chip::new(&config.g1);
 
-    let result =
-      groth16_verify(&field_chip, &bool_chip, &g1_chip, &mut layouter, &self.vk, &self.proof)
-        .map_err(|error| match error {
-          Groth16VerifierError::Circuit(inner) => inner,
-          _ => Error::Synthesis(error.to_string()),
-        })?;
+    let result = groth16_verify(
+      &field_chip,
+      &bool_chip,
+      &g1_chip,
+      &mut layouter,
+      &self.vk,
+      &self.proof,
+      &self.public_inputs,
+    )
+    .map_err(|error| match error {
+      Groth16VerifierError::Circuit(inner) => inner,
+      _ => Error::Synthesis(error.to_string()),
+    })?;
 
     bool_chip.assert_equal_to_fixed(&mut layouter, &result, self.expected)?;
     field_chip.load(&mut layouter)?;

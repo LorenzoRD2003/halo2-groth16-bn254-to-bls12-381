@@ -7,6 +7,6 @@ pub mod snarkjs;
 pub use loader::{ArtifactLoader, ArtifactLoaderError, LoaderSummary};
 pub use registry::{BackendDescriptor, BackendRegistry};
 pub use snarkjs::{
-  SnarkjsGroth16ParseError, parse_groth16_bn254_proof_with_public_inputs,
+  SnarkjsGroth16ParseError, parse_groth16_bn254_proof, parse_groth16_bn254_public_inputs,
   parse_groth16_bn254_verifying_key,
 };

@@ -13,15 +13,11 @@ categories = ["development-tools::testing", "cryptography"]
 
 [dependencies]
 wrapper-backends = { path = "../wrapper-backends" }
-wrapper-circuits = { path = "../wrapper-circuits" }
+wrapper-circuits = { path = "../wrapper-circuits", features = ["test-support"] }
 wrapper-core = { path = "../wrapper-core" }
 
 [dev-dependencies]
-ark-bn254.workspace = true
-ark-ec.workspace = true
-ark-ff.workspace = true
 criterion.workspace = true
-ff.workspace = true
 midnight-proofs.workspace = true
 
 [[bench]]

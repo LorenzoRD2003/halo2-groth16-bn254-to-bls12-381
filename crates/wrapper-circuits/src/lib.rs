@@ -49,6 +49,13 @@ pub use bn254::{
   miller_loop_k, miller_loop_layout_metrics, multi_miller_loop, pairing_check, pairing_check_k,
   pairing_check_layout_metrics,
 };
+#[cfg(feature = "test-support")]
+pub use groth16::fixtures::{raw as groth16_fixture_raw, typed as groth16_fixture_typed};
+#[cfg(feature = "test-support")]
+pub use groth16::reference::{
+  ark_to_midnight_g1, groth16_g1_to_ark, groth16_g2_to_ark, host_pairing_product,
+  host_public_input_accumulator, host_verify, midnight_to_ark_fq, midnight_to_ark_fr,
+};
 pub use groth16::{
   Groth16Bn254G1Point, Groth16Bn254Proof, Groth16Bn254VerifierCircuit, Groth16Bn254VerifyingKey,
   Groth16IcAccumulatorCircuit, Groth16VerifierError, groth16_accumulate_ic, groth16_verify,

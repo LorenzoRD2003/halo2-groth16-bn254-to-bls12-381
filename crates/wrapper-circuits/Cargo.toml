@@ -13,8 +13,12 @@ categories = ["cryptography"]
 [features]
 default = []
 halo2 = []
+test-support = ["dep:ark-bn254", "dep:ark-ec", "dep:ark-ff"]
 
 [dependencies]
+ark-bn254 = { workspace = true, optional = true }
+ark-ec = { workspace = true, optional = true }
+ark-ff = { workspace = true, optional = true }
 ff.workspace = true
 halo2curves.workspace = true
 midnight-circuits.workspace = true

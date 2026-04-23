@@ -193,13 +193,10 @@ fn run_validate_config(path: &PathBuf) -> Result<()> {
 
 fn run_about() {
   info!("printing project overview");
+  let overview = ProjectStatusReport::overview();
   println!("Project: Halo2 wrapper workspace");
-  println!("Phase: stage 1 / week 5 (first end-to-end Groth16 BN254 verifier slice)");
-  println!("Purpose: stage a serious multi-crate codebase for Halo2 wrapper research.");
-  println!(
-    "Current implementation: architecture, docs, config models, Midnight-backed BN254 fp/fp2/fp6/fp12 arithmetic, minimal G1 add/on-curve checks, narrow G2 affine assign/on-curve/neg, Jacobian projective from_affine/add/double/neg, real optimal-ate Miller-path G2 prep/loop, narrow final exponentiation, narrow multi-pairing product check, the first narrow Groth16 BN254 verifier path, CLI, and sanity-check benches."
-  );
-  println!(
-    "Not implemented: G2 subgroup checks, broad public scalar-multiplication APIs beyond the verifier-only IC path, generalized verifier frameworks, proof generation, and production wrapper verifier circuits."
-  );
+  println!("Phase: {}", overview.phase_label);
+  println!("Purpose: {}", overview.purpose);
+  println!("Current implementation: {}", overview.current_implementation);
+  println!("Not implemented: {}", overview.not_implemented);
 }
