@@ -45,9 +45,16 @@ Implemented in scope today:
 - narrow Groth16 BN254 verifier types in `wrapper-circuits/src/groth16.rs`
 - verifier-only BN254 G1 IC accumulation using fixed public-input scalars over the existing Midnight G1 chip
 - real snarkjs Groth16 BN254 JSON parsing in `wrapper-backends/src/snarkjs.rs`
+- generic snarkjs Groth16 BN254 artifact-set loading in `wrapper-backends/src/groth16.rs`
+- domain-level wrapper-job planning in `wrapper-core/src/job.rs`
+- serializable wrapper execution packages in `wrapper-core/src/package.rs`
+- expected outer Groth16 BLS12-381 output-artifact modeling in `wrapper-core/src/output.rs`
+- stub wrapper execution results in `wrapper-core/src/execution.rs`
 - verifier-equation reduction to one multi-pairing product check using `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`
 - a real Circom/snarkjs fixture under `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/`
+- a real Semaphore Groth16 BN254 fixture under `crates/wrapper-tests/fixtures/groth16/semaphore/`
 - end-to-end valid / invalid Groth16 verifier tests on top of the existing pairing core
+- bundle -> job -> package -> stub-execution validation on top of the Semaphore fixture
 - Real layout and row visibility through the Halo2/Midnight cost model
 - Deterministic arkworks-backed tests for `Fp`, `Fp2`, `Fp6`, `Fp12`, G1, and the current narrow G2 affine / Jacobian / Miller-step behavior
 - Criterion sanity benchmarks for the currently implemented primitive circuits
@@ -73,6 +80,10 @@ Week 5 verifier-memory notes:
 - snarkjs G1 points in that fixture use projective `[x, y, z]`; the parser accepts affine `z = 1` plus the snarkjs G1 identity encoding `[0, 1, 0]`
 - the current Groth16 pairing reduction is `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`
 - the current IC accumulation path is verifier-only and uses fixed public-input scalars over the existing Midnight G1 chip; it is not a broad public MSM API
+- the current generic artifact-set path is `snarkjs artifacts -> Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage -> WrapperExecutionResult`
+- the current target wrapper experiment is planned as `Groth16Bn254 -> Groth16Bls12_381`, but only as metadata / planning / stub execution; no outer proof is synthesized yet
+- the current expected outer artifact model is intentionally `snarkjs`-like: proof keys such as `pi_a/pi_b/pi_c`, verification-key keys such as `nPublic` / `IC`, and JSON decimal-string encodings are modeled explicitly even though the real outer backend is not implemented yet
+- the current CLI surfaces for that lane are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, and `execute-wrapper-stub`
 
 ## Quick Context Routes
 
@@ -91,6 +102,22 @@ If you need Groth16 verifier context:
 2. `crates/wrapper-backends/src/snarkjs.rs`
 3. `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/README.md`
 4. `crates/wrapper-circuits/src/groth16/profiling.rs`
+
+If you need wrapper planning / execution-package context:
+
+1. `crates/wrapper-backends/src/groth16.rs`
+2. `crates/wrapper-core/src/job.rs`
+3. `crates/wrapper-core/src/package.rs`
+4. `crates/wrapper-core/src/output.rs`
+5. `crates/wrapper-core/src/execution.rs`
+6. `crates/wrapper-cli/src/main.rs`
+
+If you need the current Semaphore migration fixture context:
+
+1. `crates/wrapper-tests/fixtures/groth16/semaphore/README.md`
+2. `crates/wrapper-tests/src/lib.rs`
+3. `crates/wrapper-backends/src/groth16.rs`
+4. `crates/wrapper-cli/src/main.rs`
 
 If you need pairing-core / final-exponentiation context:
 
@@ -142,9 +169,11 @@ When you need to build context quickly, read in this order:
 13. `crates/wrapper-circuits/src/bn254/tests/support.rs`
 14. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
 15. `crates/wrapper-circuits/src/groth16/profiling.rs`
-16. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
-17. `docs/profiling.md`
-18. `docs/final-exponentiation-audit.md`
+16. `crates/wrapper-backends/src/groth16.rs`
+17. `crates/wrapper-core/src/job.rs`, `package.rs`, `output.rs`, `execution.rs`
+18. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
+19. `docs/profiling.md`
+20. `docs/final-exponentiation-audit.md`
 
 This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
 
@@ -165,9 +194,9 @@ future agents know when to read it.
 
 ## Repository Map
 
-- `crates/wrapper-core`: domain models, traits, config, errors, metadata, capability/status reporting
+- `crates/wrapper-core`: domain models, traits, config, errors, metadata, capability/status reporting, wrapper-job planning, execution packages, expected output-artifact shapes, and stub execution results
 - `crates/wrapper-circuits`: Halo2-facing code, Midnight-backed BN254 primitive layer, planning, layout reporting
-- `crates/wrapper-backends`: backend adapter placeholders, artifact parsing entry points, future ecosystem integrations
+- `crates/wrapper-backends`: backend adapter placeholders, artifact parsing entry points, generic Groth16 artifact-set loading, and bundle-to-wrapper planning adapters
 - `crates/wrapper-cli`: developer commands and diagnostics
 - `crates/wrapper-tests`: shared fixtures, benchmark entry points, and integration helpers
 - `docs/architecture.md`: intended layering and current primitive boundaries
@@ -184,6 +213,7 @@ future agents know when to read it.
 - Must remain mostly domain-oriented.
 - Prefer no Halo2 dependency unless a boundary cannot be expressed otherwise.
 - Own shared enums, traits, config structs, metadata, capabilities, and stable public concepts.
+- Own wrapper-job planning, execution-package, expected-output, and stub-execution concepts when they can stay proving-system-agnostic.
 - Must not absorb chip-specific or region-specific logic.
 
 `wrapper-circuits`
@@ -218,7 +248,8 @@ future agents know when to read it.
 - Own parsing, loaders, serialization adapters, and future ecosystem bridges.
 - Should depend on `wrapper-core`.
 - Must not define circuit semantics independently of `wrapper-circuits`.
-- It is still mostly placeholder territory in the current repo state.
+- It now owns the generic `ArtifactSetLoader` contract plus the current `snarkjs` Groth16 BN254 bundle loader.
+- It may adapt parsed bundles into domain-level wrapper jobs/packages, but should not absorb application-specific public-input naming.
 
 `wrapper-cli`
 
@@ -227,6 +258,7 @@ future agents know when to read it.
 - Should expose measured primitive status without overstating what is implemented.
 - The current narrow optimization-baseline surface is `profile-layout`, which emits TSV layout metrics for Groth16, pairing-term scaling, public-input scaling, and existing pairing-core blocks.
 - Treat `profile-layout` as layout/constraint profiling, not runtime benchmarking.
+- The current planning/export surfaces for wrapper experiments are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, and `execute-wrapper-stub`.
 
 `wrapper-tests`
 
@@ -483,6 +515,7 @@ When refactoring `wrapper-circuits/src/bn254/`:
 
 - Do not collapse crates for convenience.
 - Do not place Halo2-specific concerns in `wrapper-core` without strong justification.
+- Do not move application-specific public-input naming such as Semaphore field labels into generic backend parsing.
 - Do not implement broad verifier-facing full pairings, multi-pairings beyond the narrow product-check slice, or Groth16 verifier logic unless the task explicitly asks for that stage.
 - Do not jump from minimal G2 affine support to G2 arithmetic or subgroup logic unless the task explicitly asks for it.
 - Do not write placeholder code that pretends proofs are verified.

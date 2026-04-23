@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 pub enum ProofSystemKind {
   /// Groth16 over BN254 is a future target of this repository.
   Groth16Bn254,
+  /// Groth16 over BLS12-381 is the current outer-proof target for migration experiments.
+  Groth16Bls12_381,
   /// Placeholder for future outer proof systems.
   Halo2Outer,
 }

@@ -18,17 +18,20 @@ pub fn example_config() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-  use wrapper_backends::BackendRegistry;
   use wrapper_backends::{
-    parse_groth16_bn254_proof, parse_groth16_bn254_public_inputs, parse_groth16_bn254_verifying_key,
+    ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle,
+    SnarkjsGroth16Bn254ArtifactSetLoader,
+    parse_snarkjs_groth16_bn254_bundle_with_names,
   };
+  use wrapper_core::{NamedPublicInput, NamedPublicInputs, ProjectConfig};
   use wrapper_circuits::{
-    CircuitPlanningView, Groth16Bn254Proof, Groth16Bn254VerifyingKey, NativeField,
-    groth16_fixture_raw, groth16_fixture_typed, host_verify,
+    CircuitPlanningView, NativeField, groth16_fixture_raw, groth16_fixture_typed, host_verify,
   };
-  use wrapper_core::ProjectConfig;
 
   use super::example_config;
+
+  const SEMAPHORE_PUBLIC_INPUT_NAMES: [&str; 4] =
+    ["merkle_root", "nullifier", "message_hash", "scope_hash"];
 
   #[test]
   fn example_config_parses() {
@@ -45,16 +48,43 @@ mod tests {
     assert_eq!(registry.entries().len(), 2);
   }
 
-  fn load_groth16_fixture() -> (Groth16Bn254VerifyingKey, Groth16Bn254Proof, Vec<NativeField>) {
-    let vk = parse_groth16_bn254_verifying_key(groth16_fixture_raw::verification_key_json())
-      .expect("fixture vk should parse");
-    let proof = parse_groth16_bn254_proof(groth16_fixture_raw::proof_json())
-      .expect("fixture proof should parse");
-    let public_inputs =
-      parse_groth16_bn254_public_inputs(groth16_fixture_raw::public_inputs_json())
-        .expect("fixture public inputs should parse");
+  fn load_groth16_fixture() -> Groth16Bn254ArtifactBundle {
+    let loader = SnarkjsGroth16Bn254ArtifactSetLoader;
 
-    (vk, proof, public_inputs)
+    loader
+      .load_artifact_set(
+        "circom-multiplier2",
+        groth16_fixture_raw::proof_json(),
+        groth16_fixture_raw::public_inputs_json(),
+        groth16_fixture_raw::verification_key_json(),
+      )
+      .expect("fixture bundle should parse")
+  }
+
+  fn load_semaphore_fixture() -> Groth16Bn254ArtifactBundle {
+    let loader = SnarkjsGroth16Bn254ArtifactSetLoader;
+
+    loader
+      .load_artifact_set(
+        "semaphore-depth-10",
+        include_bytes!("../fixtures/groth16/semaphore/proof.json"),
+        include_bytes!("../fixtures/groth16/semaphore/public.json"),
+        include_bytes!("../fixtures/groth16/semaphore/verification_key.json"),
+      )
+      .expect("Semaphore fixture bundle should parse")
+  }
+
+  fn load_named_semaphore_public_inputs() -> NamedPublicInputs {
+    parse_snarkjs_groth16_bn254_bundle_with_names(
+      "semaphore-depth-10",
+      include_bytes!("../fixtures/groth16/semaphore/proof.json"),
+      include_bytes!("../fixtures/groth16/semaphore/public.json"),
+      include_bytes!("../fixtures/groth16/semaphore/verification_key.json"),
+      &SEMAPHORE_PUBLIC_INPUT_NAMES,
+    )
+    .expect("named Semaphore bundle should parse")
+    .named_public_inputs
+    .expect("named Semaphore bundle should expose named public inputs")
   }
 
   fn assert_canonical_fixture_public_inputs(public_inputs: &[NativeField]) {
@@ -63,17 +93,80 @@ mod tests {
 
   #[test]
   fn groth16_real_snarkjs_fixture_is_accepted_end_to_end() {
-    let (vk, proof, public_inputs) = load_groth16_fixture();
-    assert_canonical_fixture_public_inputs(&public_inputs);
+    let bundle = load_groth16_fixture();
+    assert_canonical_fixture_public_inputs(&bundle.public_inputs);
 
-    assert!(host_verify(&vk, &proof, &public_inputs));
+    assert!(host_verify(
+      &bundle.verification_key,
+      &bundle.proof,
+      &bundle.public_inputs,
+    ));
   }
 
   #[test]
   fn groth16_mutated_public_input_is_rejected_end_to_end() {
-    let (vk, proof, mut public_inputs) = load_groth16_fixture();
+    let bundle = load_groth16_fixture();
+    let mut public_inputs = bundle.public_inputs.clone();
     public_inputs[0] = NativeField::from(34_u64);
 
-    assert!(!host_verify(&vk, &proof, &public_inputs));
+    assert!(!host_verify(
+      &bundle.verification_key,
+      &bundle.proof,
+      &public_inputs,
+    ));
+  }
+
+  #[test]
+  fn semaphore_snarkjs_fixture_is_accepted_end_to_end() {
+    let bundle = load_semaphore_fixture();
+
+    assert_eq!(bundle.public_inputs.len(), 4);
+    assert_eq!(bundle.verification_key.ic.len(), 5);
+    assert!(host_verify(
+      &bundle.verification_key,
+      &bundle.proof,
+      &bundle.public_inputs,
+    ));
+  }
+
+  #[test]
+  fn semaphore_mutated_public_input_is_rejected_end_to_end() {
+    let bundle = load_semaphore_fixture();
+    let mut public_inputs = bundle.public_inputs.clone();
+    public_inputs[1] += NativeField::from(1_u64);
+
+    assert!(!host_verify(
+      &bundle.verification_key,
+      &bundle.proof,
+      &public_inputs,
+    ));
+  }
+
+  #[test]
+  fn semaphore_fixture_public_inputs_can_be_named_at_fixture_layer() {
+    let named = load_named_semaphore_public_inputs();
+
+    assert_eq!(named.field_order(), SEMAPHORE_PUBLIC_INPUT_NAMES);
+    assert_eq!(
+      named,
+      NamedPublicInputs::new(vec![
+        NamedPublicInput::new(
+          "merkle_root",
+          "4990292586352433503726012711155167179034286198473030768981544541070532815155",
+        ),
+        NamedPublicInput::new(
+          "nullifier",
+          "17540473064543782218297133630279824063352907908315494138425986188962403570231",
+        ),
+        NamedPublicInput::new(
+          "message_hash",
+          "8665846418922331996225934941481656421248110469944536651334918563951783029",
+        ),
+        NamedPublicInput::new(
+          "scope_hash",
+          "170164770795872309789133717676167925425155944778337387941930839678899666300",
+        ),
+      ])
+    );
   }
 }

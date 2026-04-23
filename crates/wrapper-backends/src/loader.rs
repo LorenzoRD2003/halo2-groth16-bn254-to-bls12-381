@@ -13,6 +13,8 @@ pub struct LoaderSummary {
   pub proof_loading_available: bool,
   /// Whether verification-key loading is implemented.
   pub vk_loading_available: bool,
+  /// Whether complete artifact-set loading is implemented.
+  pub artifact_set_loading_available: bool,
 }
 
 /// Error raised by placeholder loaders.
@@ -65,4 +67,28 @@ pub trait ArtifactLoader {
   fn load_vk(&self, _input: &[u8]) -> Result<NormalizedVerificationKey, ArtifactLoaderError> {
     Err(ArtifactLoaderError::not_implemented("verification-key loading"))
   }
+}
+
+/// Backend loader contract for complete artifact sets.
+pub trait ArtifactSetLoader {
+  /// Concrete parsed artifact-set type.
+  type ArtifactSet;
+  /// Loader-specific error type.
+  type Error;
+
+  /// Returns a short summary of the loader state.
+  fn summary(&self) -> LoaderSummary;
+
+  /// Loads a complete artifact set.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the backend cannot parse the supplied artifact set.
+  fn load_artifact_set(
+    &self,
+    identifier: &str,
+    proof_json: &[u8],
+    public_json: &[u8],
+    verification_key_json: &[u8],
+  ) -> Result<Self::ArtifactSet, Self::Error>;
 }

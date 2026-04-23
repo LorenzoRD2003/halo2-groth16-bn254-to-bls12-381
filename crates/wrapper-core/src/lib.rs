@@ -7,18 +7,31 @@
 pub mod capabilities;
 pub mod config;
 pub mod error;
+pub mod execution;
+pub mod job;
 pub mod layout;
 pub mod metadata;
+pub mod output;
+pub mod package;
 pub mod phase;
+pub mod statement;
 
 pub use capabilities::{CapabilityMatrix, ImplementationStatus, ProjectCapability};
 pub use config::{ProjectConfig, ProjectPaths, WrapperFlavor, WrapperParameters};
 pub use error::{ConfigError, WrapperError};
+pub use execution::{WrapperExecutionResult, WrapperExecutionStatus};
+pub use job::WrapperJob;
 pub use layout::{LayoutComponentKind, LayoutDescriptor, LayoutNode};
 pub use metadata::{
   NormalizedProofArtifact, NormalizedVerificationKey, ProofSystemDescriptor, ProofSystemKind,
 };
+pub use output::{
+  ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
+  ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts,
+};
+pub use package::{WrapperExecutionPackage, WrapperStatement, WrapperWitnessInput};
 pub use phase::{ProjectOverview, ProjectPhase, ProjectStatusReport};
+pub use statement::{NamedPublicInput, NamedPublicInputs};
 
 #[cfg(test)]
 mod tests {

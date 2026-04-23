@@ -30,6 +30,14 @@ The expected long-term flow is:
 
 The current implementation includes enough BN254 arithmetic and verifier wiring to validate the first real Groth16 BN254 wrapper-verifier slice, while still stopping well short of a broad or production-ready wrapper verifier.
 
+The current repository state also includes a generic planning lane above raw
+artifact parsing:
+
+`snarkjs artifacts -> Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage -> WrapperExecutionResult`
+
+That lane is still planning/stub-only. It does not synthesize or prove an outer
+Groth16 BLS12-381 proof yet.
+
 ## Why `wrapper-core` Stays Domain-Oriented
 
 `wrapper-core` is the anchor for stable concepts that should outlive changes in circuit frameworks or backend adapters. Keeping it mostly independent from Halo2 has several advantages:
@@ -38,6 +46,14 @@ The current implementation includes enough BN254 arithmetic and verifier wiring 
 - CLI validation and backend parsing can remain lightweight
 - tests can exercise core logic without requiring cryptographic crates
 - future rewrites of circuit internals do not force broad public API churn
+
+In the current repo state, `wrapper-core` now also owns:
+
+- named public-input views
+- wrapper-job planning types
+- wrapper execution-package types
+- expected wrapper output artifact shapes
+- stub wrapper execution results
 
 ## Why Circuits and Backends Are Separate
 
@@ -61,6 +77,26 @@ Circuit code and backend integration change for different reasons.
 - verification key ingestion
 - proof metadata parsing
 - compatibility adapters for other libraries and ecosystems
+
+Today it also owns:
+
+- generic `snarkjs` Groth16 BN254 artifact-set parsing
+- a dedicated `ArtifactSetLoader` contract for complete `proof + public + vk` bundles
+- bundle-to-wrapper-job / package adapters for planning and fixture-driven experiments
+
+The current expected outer-wrapper artifact model is intentionally
+`snarkjs`-like even though the real outer backend is still undecided. In
+particular, the planned Groth16 BLS12-381 output shape now records expected
+top-level proof keys `pi_a`, `pi_b`, `pi_c` and verification-key keys such as
+`nPublic` and `IC`, plus the expected point encodings for those fields.
+
+When an application wants semantic names for a `snarkjs` public-input array,
+that naming should stay at the domain or fixture layer. Backend parsing should
+remain generic over any Groth16 circuit artifact shape that is otherwise valid.
+
+The Semaphore fixture is the current application-shaped validation case for this
+rule: the backend stays generic, while the fixture layer assigns names such as
+`merkle_root`, `nullifier`, `message_hash`, and `scope_hash`.
 
 Separating these concerns prevents parser logic, serialization quirks, or artifact format churn from leaking into circuit modules.
 
@@ -236,8 +272,10 @@ The current skeleton defines:
 - repository configuration parsing and validation
 - layout descriptors for future circuit inspection
 - backend registry and artifact loader interfaces
+- backend artifact-set loader interfaces
 - BN254 field, Fp2, G1, and minimal G2 affine foundations with real layout visibility
 - a canonical primitive registry in `wrapper-circuits/src/planning.rs` that drives measured primitive metadata for CLI reporting and benchmark-info output
+- wrapper planning and export contracts for jobs, execution packages, expected output artifacts, and stub execution results
 
 These contracts are intentionally conservative and meant to support staged development rather than predict final cryptographic APIs in detail.
 

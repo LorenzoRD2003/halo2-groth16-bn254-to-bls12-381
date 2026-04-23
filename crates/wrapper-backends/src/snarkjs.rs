@@ -3,6 +3,7 @@
 use ff::PrimeField;
 use serde::Deserialize;
 use thiserror::Error;
+use wrapper_core::{NamedPublicInput, NamedPublicInputs};
 use wrapper_circuits::{
   ForeignField, Groth16Bn254G1Point, Groth16Bn254Proof, Groth16Bn254VerifyingKey, NativeField,
 };
@@ -52,6 +53,16 @@ pub enum SnarkjsGroth16ParseError {
     expected_ic_len: usize,
     /// The IC length actually present in the JSON artifact.
     actual_ic_len: usize,
+  },
+  /// A structured statement parser expected a fixed public-input count.
+  #[error("expected {context} to expose {expected} public inputs, got {actual}")]
+  InvalidPublicInputLength {
+    /// Which higher-level statement shape rejected the vector.
+    context: &'static str,
+    /// Expected number of public inputs.
+    expected: usize,
+    /// Actual number of parsed public inputs.
+    actual: usize,
   },
 }
 
@@ -196,6 +207,35 @@ pub fn parse_groth16_bn254_public_inputs(
   public_inputs.iter().map(|value| parse_native_field(value)).collect::<Result<Vec<_>, _>>()
 }
 
+/// Parses a snarkjs Groth16 public-input array into a caller-named shape.
+pub fn parse_groth16_bn254_public_inputs_with_names(
+  public_json: &[u8],
+  field_names: &[&str],
+) -> Result<NamedPublicInputs, SnarkjsGroth16ParseError> {
+  let public_inputs: Vec<String> = serde_json::from_slice(public_json)
+    .map_err(|source| SnarkjsGroth16ParseError::Json { artifact: "public-input", source })?;
+
+  if public_inputs.len() != field_names.len() {
+    return Err(SnarkjsGroth16ParseError::InvalidPublicInputLength {
+      context: "named Groth16 public-input vector",
+      expected: field_names.len(),
+      actual: public_inputs.len(),
+    });
+  }
+
+  for value in &public_inputs {
+    parse_native_field(value)?;
+  }
+
+  Ok(NamedPublicInputs::new(
+    field_names
+      .iter()
+      .zip(public_inputs)
+      .map(|(name, value)| NamedPublicInput::new(*name, value))
+      .collect(),
+  ))
+}
+
 /// Parses a snarkjs Groth16 verification key into the narrow verifier VK type.
 pub fn parse_groth16_bn254_verifying_key(
   vk_json: &[u8],
@@ -225,12 +265,25 @@ pub fn parse_groth16_bn254_verifying_key(
 mod tests {
   use super::{
     SnarkjsGroth16ParseError, parse_groth16_bn254_proof, parse_groth16_bn254_public_inputs,
-    parse_groth16_bn254_verifying_key,
+    parse_groth16_bn254_public_inputs_with_names, parse_groth16_bn254_verifying_key,
   };
-  use ff::Field;
+  use ff::{Field, PrimeField};
+  use wrapper_core::{NamedPublicInput, NamedPublicInputs};
   use wrapper_circuits::{
     ForeignField, Groth16Bn254G1Point, groth16_fixture_raw, groth16_fixture_typed,
   };
+
+  fn semaphore_proof_json() -> &'static [u8] {
+    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json")
+  }
+
+  fn semaphore_public_inputs_json() -> &'static [u8] {
+    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/public.json")
+  }
+
+  fn semaphore_verification_key_json() -> &'static [u8] {
+    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json")
+  }
 
   #[test]
   fn parses_real_snarkjs_fixture_structure() {
@@ -265,6 +318,70 @@ mod tests {
     assert_eq!(proof, groth16_fixture_typed::proof());
     assert_eq!(public_inputs, groth16_fixture_typed::public_inputs());
     assert_eq!(vk, groth16_fixture_typed::verifying_key());
+  }
+
+  #[test]
+  fn parses_semaphore_snarkjs_fixture_without_special_cases() {
+    let proof =
+      parse_groth16_bn254_proof(semaphore_proof_json()).expect("Semaphore proof should parse");
+    let public_inputs = parse_groth16_bn254_public_inputs(semaphore_public_inputs_json())
+      .expect("Semaphore public inputs should parse");
+    let vk = parse_groth16_bn254_verifying_key(semaphore_verification_key_json())
+      .expect("Semaphore VK should parse");
+
+    assert_eq!(public_inputs.len(), 4);
+    assert_eq!(vk.ic.len(), 5);
+    assert_eq!(
+      proof.a,
+      Groth16Bn254G1Point::affine(
+        ForeignField::from_str_vartime(
+          "2448901300518098096993075752654536134313649038239216706400667219963346227679"
+        )
+        .expect("Semaphore proof x-coordinate should parse"),
+        ForeignField::from_str_vartime(
+          "11383357624181217239434984412545229801919536849542936327488167664579097021171"
+        )
+        .expect("Semaphore proof y-coordinate should parse"),
+      )
+    );
+    assert_eq!(
+      public_inputs[0],
+      ff::PrimeField::from_str_vartime(
+        "4990292586352433503726012711155167179034286198473030768981544541070532815155"
+      )
+      .expect("Semaphore root public input should parse"),
+    );
+  }
+
+  #[test]
+  fn parses_public_inputs_into_caller_named_shape() {
+    let public_inputs = parse_groth16_bn254_public_inputs_with_names(
+      semaphore_public_inputs_json(),
+      &["merkle_root", "nullifier", "message_hash", "scope_hash"],
+    )
+    .expect("named public inputs should parse into structured form");
+
+    assert_eq!(
+      public_inputs,
+      NamedPublicInputs::new(vec![
+        NamedPublicInput::new(
+          "merkle_root",
+          "4990292586352433503726012711155167179034286198473030768981544541070532815155",
+        ),
+        NamedPublicInput::new(
+          "nullifier",
+          "17540473064543782218297133630279824063352907908315494138425986188962403570231",
+        ),
+        NamedPublicInput::new(
+          "message_hash",
+          "8665846418922331996225934941481656421248110469944536651334918563951783029",
+        ),
+        NamedPublicInput::new(
+          "scope_hash",
+          "170164770795872309789133717676167925425155944778337387941930839678899666300",
+        ),
+      ])
+    );
   }
 
   #[test]
@@ -310,5 +427,20 @@ mod tests {
       .expect_err("malformed public input json should fail");
 
     assert!(matches!(error, SnarkjsGroth16ParseError::Json { artifact: "public-input", .. }));
+  }
+
+  #[test]
+  fn rejects_named_public_inputs_with_wrong_arity() {
+    let error = parse_groth16_bn254_public_inputs_with_names(br#"["1","2","3"]"#, &["a", "b"])
+      .expect_err("mismatched named public-input vector should fail");
+
+    assert!(matches!(
+      error,
+      SnarkjsGroth16ParseError::InvalidPublicInputLength {
+        context: "named Groth16 public-input vector",
+        expected: 2,
+        actual: 3
+      }
+    ));
   }
 }

@@ -7,7 +7,10 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
-use wrapper_backends::BackendRegistry;
+use wrapper_backends::{
+  ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle, SnarkjsGroth16Bn254ArtifactSetLoader,
+  parse_snarkjs_groth16_bn254_bundle_with_names,
+};
 use wrapper_circuits::{
   CircuitPlanningView, LayoutMetrics, PAIRING_TERM_PROFILE_COUNTS, PUBLIC_INPUT_PROFILE_COUNTS,
   PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,
@@ -20,7 +23,9 @@ use wrapper_circuits::{
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
   groth16_public_input_count_layout_metrics, primitive_definitions,
 };
-use wrapper_core::{ProjectConfig, ProjectStatusReport};
+use wrapper_core::{
+  ProjectConfig, ProjectStatusReport, WrapperExecutionPackage, WrapperExecutionResult, WrapperJob,
+};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -46,6 +51,105 @@ enum Commands {
     #[arg(long, value_enum, default_value_t = ProfileFamily::All)]
     family: ProfileFamily,
   },
+  /// Parse and inspect a `snarkjs` Groth16 BN254 artifact bundle.
+  InspectGroth16Bundle {
+    /// Logical identifier for the artifact set.
+    #[arg(long, default_value = "artifact-bundle")]
+    id: String,
+    /// Path to `proof.json`.
+    #[arg(long)]
+    proof: PathBuf,
+    /// Path to `public.json`.
+    #[arg(long)]
+    public: PathBuf,
+    /// Path to `verification_key.json`.
+    #[arg(long)]
+    vk: PathBuf,
+    /// Optional semantic names for the ordered public-input vector.
+    #[arg(long = "public-input-name")]
+    public_input_names: Vec<String>,
+  },
+  /// Build and print a wrapper-job plan from a `snarkjs` Groth16 BN254 bundle.
+  PlanWrapperJob {
+    /// Logical identifier for the artifact set / job.
+    #[arg(long, default_value = "wrapper-job")]
+    id: String,
+    /// Path to `proof.json`.
+    #[arg(long)]
+    proof: PathBuf,
+    /// Path to `public.json`.
+    #[arg(long)]
+    public: PathBuf,
+    /// Path to `verification_key.json`.
+    #[arg(long)]
+    vk: PathBuf,
+    /// Optional semantic names for the ordered public-input vector.
+    #[arg(long = "public-input-name")]
+    public_input_names: Vec<String>,
+  },
+  /// Export a planned wrapper job as stable JSON.
+  ExportWrapperJob {
+    /// Logical identifier for the artifact set / job.
+    #[arg(long, default_value = "wrapper-job")]
+    id: String,
+    /// Path to `proof.json`.
+    #[arg(long)]
+    proof: PathBuf,
+    /// Path to `public.json`.
+    #[arg(long)]
+    public: PathBuf,
+    /// Path to `verification_key.json`.
+    #[arg(long)]
+    vk: PathBuf,
+    /// Optional semantic names for the ordered public-input vector.
+    #[arg(long = "public-input-name")]
+    public_input_names: Vec<String>,
+    /// Optional output path for the JSON manifest. Prints to stdout if omitted.
+    #[arg(long)]
+    output: Option<PathBuf>,
+  },
+  /// Export a serializable wrapper execution package as stable JSON.
+  ExportWrapperPackage {
+    /// Logical identifier for the artifact set / package.
+    #[arg(long, default_value = "wrapper-package")]
+    id: String,
+    /// Path to `proof.json`.
+    #[arg(long)]
+    proof: PathBuf,
+    /// Path to `public.json`.
+    #[arg(long)]
+    public: PathBuf,
+    /// Path to `verification_key.json`.
+    #[arg(long)]
+    vk: PathBuf,
+    /// Optional semantic names for the ordered public-input vector.
+    #[arg(long = "public-input-name")]
+    public_input_names: Vec<String>,
+    /// Optional output path for the JSON package. Prints to stdout if omitted.
+    #[arg(long)]
+    output: Option<PathBuf>,
+  },
+  /// Run the current stub wrapper executor over a package derived from artifacts.
+  ExecuteWrapperStub {
+    /// Logical identifier for the artifact set / package.
+    #[arg(long, default_value = "wrapper-package")]
+    id: String,
+    /// Path to `proof.json`.
+    #[arg(long)]
+    proof: PathBuf,
+    /// Path to `public.json`.
+    #[arg(long)]
+    public: PathBuf,
+    /// Path to `verification_key.json`.
+    #[arg(long)]
+    vk: PathBuf,
+    /// Optional semantic names for the ordered public-input vector.
+    #[arg(long = "public-input-name")]
+    public_input_names: Vec<String>,
+    /// Optional output path for the JSON execution result. Prints to stdout if omitted.
+    #[arg(long)]
+    output: Option<PathBuf>,
+  },
   /// Print the current placeholder layout for the future wrapper circuit.
   PrintLayout,
   /// Validate a TOML configuration file against the current project model.
@@ -66,6 +170,21 @@ fn main() -> Result<()> {
     Commands::Doctor => run_doctor(),
     Commands::BenchInfo => run_bench_info(),
     Commands::ProfileLayout { family } => run_profile_layout(family),
+    Commands::InspectGroth16Bundle { id, proof, public, vk, public_input_names } => {
+      run_inspect_groth16_bundle(&id, &proof, &public, &vk, &public_input_names)?
+    }
+    Commands::PlanWrapperJob { id, proof, public, vk, public_input_names } => {
+      run_plan_wrapper_job(&id, &proof, &public, &vk, &public_input_names)?
+    }
+    Commands::ExportWrapperJob { id, proof, public, vk, public_input_names, output } => {
+      run_export_wrapper_job(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?
+    }
+    Commands::ExportWrapperPackage { id, proof, public, vk, public_input_names, output } => {
+      run_export_wrapper_package(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?
+    }
+    Commands::ExecuteWrapperStub { id, proof, public, vk, public_input_names, output } => {
+      run_execute_wrapper_stub(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?
+    }
     Commands::PrintLayout => run_print_layout(),
     Commands::ValidateConfig { config } => run_validate_config(&config)?,
     Commands::About => run_about(),
@@ -353,6 +472,228 @@ fn run_print_layout() {
   println!("Layout: {}", layout.name);
   for node in layout.nodes {
     println!("  - {} [{}]", node.title, node.id);
+  }
+}
+
+fn load_groth16_bundle(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+) -> Result<Groth16Bn254ArtifactBundle> {
+  let proof_json = fs::read(proof_path)
+    .with_context(|| format!("failed to read proof file at {}", proof_path.display()))?;
+  let public_json = fs::read(public_path)
+    .with_context(|| format!("failed to read public-input file at {}", public_path.display()))?;
+  let verification_key_json = fs::read(vk_path)
+    .with_context(|| format!("failed to read verification-key file at {}", vk_path.display()))?;
+
+  if public_input_names.is_empty() {
+    let loader = SnarkjsGroth16Bn254ArtifactSetLoader;
+    loader
+      .load_artifact_set(identifier, &proof_json, &public_json, &verification_key_json)
+      .context("failed to parse Groth16 artifact bundle")
+  } else {
+    let field_names = public_input_names.iter().map(String::as_str).collect::<Vec<_>>();
+    parse_snarkjs_groth16_bn254_bundle_with_names(
+      identifier,
+      &proof_json,
+      &public_json,
+      &verification_key_json,
+      &field_names,
+    )
+    .context("failed to parse named Groth16 artifact bundle")
+  }
+}
+
+fn plan_wrapper_job_from_paths(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+) -> Result<WrapperJob> {
+  let bundle = load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
+  Ok(bundle.plan_bls12_381_wrapper_job())
+}
+
+fn build_wrapper_execution_package_from_paths(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+) -> Result<WrapperExecutionPackage> {
+  let bundle = load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
+  Ok(bundle.build_bls12_381_execution_package())
+}
+
+fn run_inspect_groth16_bundle(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+) -> Result<()> {
+  info!("inspecting groth16 bundle {}", identifier);
+  let bundle = load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
+
+  let loader = SnarkjsGroth16Bn254ArtifactSetLoader;
+  print_groth16_bundle_summary(&bundle, &loader);
+  Ok(())
+}
+
+fn print_groth16_bundle_summary(
+  bundle: &Groth16Bn254ArtifactBundle,
+  loader: &SnarkjsGroth16Bn254ArtifactSetLoader,
+) {
+  let summary = loader.summary();
+
+  println!("Bundle: {}", bundle.identifier);
+  println!("Loader: {}", summary.name);
+  println!("Artifact-set loading: {}", summary.artifact_set_loading_available);
+  println!("Public inputs: {}", bundle.public_input_count());
+  println!("VK IC points: {}", bundle.verification_key.ic.len());
+  println!("Named public inputs: {}", bundle.named_public_inputs.is_some());
+
+  if let Some(named) = &bundle.named_public_inputs {
+    println!("Public input names:");
+    for entry in &named.entries {
+      println!("  - {} = {}", entry.name, entry.value);
+    }
+  } else {
+    println!("Public input values:");
+    for (index, value) in bundle.public_inputs.iter().enumerate() {
+      println!("  - [{}] {:?}", index, value);
+    }
+  }
+}
+
+fn run_plan_wrapper_job(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+) -> Result<()> {
+  info!("planning wrapper job {}", identifier);
+  let job = plan_wrapper_job_from_paths(identifier, proof_path, public_path, vk_path, public_input_names)?;
+  print_wrapper_job_summary(&job);
+  Ok(())
+}
+
+fn run_export_wrapper_job(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+  output_path: Option<&PathBuf>,
+) -> Result<()> {
+  info!("exporting wrapper job {}", identifier);
+  let job = plan_wrapper_job_from_paths(identifier, proof_path, public_path, vk_path, public_input_names)?;
+  let manifest =
+    serde_json::to_string_pretty(&job).context("failed to serialize wrapper job as JSON")?;
+
+  if let Some(path) = output_path {
+    fs::write(path, format!("{manifest}\n"))
+      .with_context(|| format!("failed to write wrapper-job manifest to {}", path.display()))?;
+    println!("Wrote wrapper job manifest to {}", path.display());
+  } else {
+    println!("{manifest}");
+  }
+
+  Ok(())
+}
+
+fn run_export_wrapper_package(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+  output_path: Option<&PathBuf>,
+) -> Result<()> {
+  info!("exporting wrapper package {}", identifier);
+  let package = build_wrapper_execution_package_from_paths(
+    identifier,
+    proof_path,
+    public_path,
+    vk_path,
+    public_input_names,
+  )?;
+  let manifest =
+    serde_json::to_string_pretty(&package).context("failed to serialize wrapper package as JSON")?;
+
+  if let Some(path) = output_path {
+    fs::write(path, format!("{manifest}\n"))
+      .with_context(|| format!("failed to write wrapper package to {}", path.display()))?;
+    println!("Wrote wrapper package to {}", path.display());
+  } else {
+    println!("{manifest}");
+  }
+
+  Ok(())
+}
+
+fn run_execute_wrapper_stub(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+  output_path: Option<&PathBuf>,
+) -> Result<()> {
+  info!("running wrapper stub executor {}", identifier);
+  let package = build_wrapper_execution_package_from_paths(
+    identifier,
+    proof_path,
+    public_path,
+    vk_path,
+    public_input_names,
+  )?;
+  let result = package.execute_stub();
+  emit_execution_result(&result, output_path)
+}
+
+fn emit_execution_result(
+  result: &WrapperExecutionResult,
+  output_path: Option<&PathBuf>,
+) -> Result<()> {
+  let manifest =
+    serde_json::to_string_pretty(result).context("failed to serialize wrapper execution result as JSON")?;
+
+  if let Some(path) = output_path {
+    fs::write(path, format!("{manifest}\n"))
+      .with_context(|| format!("failed to write wrapper execution result to {}", path.display()))?;
+    println!("Wrote wrapper execution result to {}", path.display());
+  } else {
+    println!("{manifest}");
+  }
+
+  Ok(())
+}
+
+fn print_wrapper_job_summary(job: &WrapperJob) {
+  println!("Wrapper job: {}", job.identifier);
+  println!("Source proof system: {:?}", job.source.kind);
+  println!("Source loader: {}", job.source.source);
+  println!("Target proof system: {:?}", job.target.kind);
+  println!("Target planner: {}", job.target.source);
+  println!("Public inputs: {}", job.public_input_count);
+  println!("Named public inputs: {}", job.named_public_inputs.is_some());
+
+  if let Some(named) = &job.named_public_inputs {
+    println!("Planned public-input fields:");
+    for entry in &named.entries {
+      println!("  - {} = {}", entry.name, entry.value);
+    }
+  }
+
+  println!("Notes:");
+  for note in &job.notes {
+    println!("  - {}", note);
   }
 }
 

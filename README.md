@@ -19,6 +19,10 @@ What the repository currently contains:
 - Placeholder outer-wrapper planning and backend integration boundaries that are honest about what is still missing.
 - A narrow Week 4 pairing core: real Miller loop, final exponentiation, and verifier-shaped pairing check.
 - A first Week 5 Groth16 BN254 verifier slice with real `snarkjs` proof/VK/public-input parsing, verifier-only `vk_x` accumulation, and one end-to-end pairing-product-check path.
+- Generic `snarkjs` Groth16 BN254 artifact-set loading in `wrapper-backends`, including named public-input views when the caller supplies semantic names.
+- Domain-level wrapper planning and execution-package modeling in `wrapper-core`, including `WrapperJob`, `WrapperExecutionPackage`, expected outer artifact shapes, and stub execution results.
+- The expected outer artifact model now includes explicit `snarkjs`-like payload conventions for Groth16 BLS12-381 output artifacts, including planned `proof.json` keys `pi_a/pi_b/pi_c` and verification-key keys such as `nPublic` and `IC`.
+- A real Semaphore Groth16 BN254 fixture under `crates/wrapper-tests/fixtures/groth16/semaphore/` used to validate the artifact-set -> job -> package -> stub-execution lane on an ECC-heavy application circuit.
 - Contributor-oriented documentation covering architecture, roadmap, and initial design decisions.
 - A `wrapper-cli` binary with honest developer commands for environment inspection, configuration validation, primitive reporting, and narrow layout profiling.
 
@@ -28,6 +32,7 @@ What is explicitly not implemented yet:
 - Generalized Groth16 verifier frameworks beyond the first narrow BN254 slice
 - G2 subgroup checks or scalar multiplication
 - Broad backend adapters beyond the current narrow `snarkjs` BN254 parser path
+- Real outer Groth16 BLS12-381 proof generation
 - Cryptographic soundness claims of any kind
 
 This repository now includes the primitive BN254 foundation plus the first narrow Groth16 BN254 verifier slice, but it is still far from a broad or production-ready wrapper verifier.
@@ -38,6 +43,8 @@ Use the shortest route that matches the task:
 
 - Current repo snapshot: `README.md` -> `AGENTS.md` -> `docs/architecture.md`
 - Groth16 verifier slice: `crates/wrapper-circuits/src/groth16.rs` -> `crates/wrapper-backends/src/snarkjs.rs` -> `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/README.md`
+- Wrapper planning / package flow: `crates/wrapper-backends/src/groth16.rs` -> `crates/wrapper-core/src/job.rs` -> `crates/wrapper-core/src/package.rs` -> `crates/wrapper-core/src/output.rs` -> `crates/wrapper-core/src/execution.rs`
+- Semaphore migration fixture: `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `crates/wrapper-tests/src/lib.rs` -> `crates/wrapper-cli/src/main.rs`
 - Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/final-exponentiation-audit.md`
 - Layout profiling / optimization: `crates/wrapper-circuits/src/groth16/profiling.rs` -> `crates/wrapper-cli/src/main.rs` -> `docs/profiling.md`
 - Scope / stage boundaries: `AGENTS.md` `Current Phase and Scope Boundaries` -> `docs/roadmap.md`
@@ -55,8 +62,9 @@ Top-level doc roles:
 The intended shape of the project is:
 
 - `wrapper-core`: domain-oriented types, traits, config, errors, metadata, and public architectural contracts
+- `wrapper-core`: also owns wrapper-job planning, execution-package modeling, expected output-artifact shapes, and stub execution results
 - `wrapper-circuits`: Halo2-facing circuits, current Midnight-backed BN254 primitive layer, layout descriptions, and future gadget integration points
-- `wrapper-backends`: artifact loading, parser adapters, proof/VK material ingestion, and future external backend bridges
+- `wrapper-backends`: artifact loading, parser adapters, proof/VK material ingestion, generic Groth16 BN254 bundles, and future external backend bridges
 - `wrapper-cli`: developer-facing commands for validation, inspection, and future orchestration
 - `wrapper-tests`: shared fixtures, helpers, and future end-to-end integration coverage
 
@@ -233,6 +241,11 @@ cargo run -p wrapper-cli -- profile-layout
 cargo run -p wrapper-cli -- print-layout
 cargo run -p wrapper-cli -- validate-config --config crates/wrapper-tests/fixtures/example-config.toml
 cargo run -p wrapper-cli -- bench-info
+cargo run -p wrapper-cli -- inspect-groth16-bundle --proof ... --public ... --vk ...
+cargo run -p wrapper-cli -- plan-wrapper-job --proof ... --public ... --vk ...
+cargo run -p wrapper-cli -- export-wrapper-job --proof ... --public ... --vk ...
+cargo run -p wrapper-cli -- export-wrapper-package --proof ... --public ... --vk ...
+cargo run -p wrapper-cli -- execute-wrapper-stub --proof ... --public ... --vk ...
 ```
 
 ## Development Workflow
