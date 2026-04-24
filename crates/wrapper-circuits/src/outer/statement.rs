@@ -1,7 +1,7 @@
 use ff::Field;
 use wrapper_core::WrapperError;
 
-use crate::NativeField;
+use super::OuterHostField;
 
 /// Semantics currently supported by the outer wrapper statement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -18,7 +18,7 @@ pub struct OuterStatementInput {
   /// Ordered semantic field names.
   pub field_names: Vec<String>,
   /// Ordered public input values exposed by the outer circuit.
-  pub public_inputs: Vec<NativeField>,
+  pub public_inputs: Vec<OuterHostField>,
 }
 
 impl OuterStatementInput {
@@ -27,7 +27,7 @@ impl OuterStatementInput {
   pub fn new(
     semantics: OuterStatementSemantics,
     field_names: Vec<String>,
-    public_inputs: Vec<NativeField>,
+    public_inputs: Vec<OuterHostField>,
   ) -> Self {
     Self { semantics, field_names, public_inputs }
   }
@@ -38,7 +38,7 @@ impl OuterStatementInput {
     Self {
       semantics: self.semantics,
       field_names: self.field_names.clone(),
-      public_inputs: vec![NativeField::ZERO; self.public_inputs.len()],
+      public_inputs: vec![OuterHostField::ZERO; self.public_inputs.len()],
     }
   }
 
@@ -50,7 +50,7 @@ impl OuterStatementInput {
   /// mirror-statement contract is violated.
   pub fn validate_against_inner_inputs(
     &self,
-    inner_public_inputs: &[NativeField],
+    inner_public_inputs: &[OuterHostField],
   ) -> Result<(), WrapperError> {
     if self.field_names.len() != self.public_inputs.len() {
       return Err(WrapperError::InvalidInput {

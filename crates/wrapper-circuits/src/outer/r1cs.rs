@@ -1,22 +1,17 @@
 use thiserror::Error;
 use wrapper_core::WrapperError;
 
-use ark_bn254::{
-  Bn254 as ArkBn254, Fq as ArkFq, Fq2 as ArkFq2, Fq12 as ArkFq12, G1Affine as ArkG1Affine,
-  G2Affine as ArkG2Affine,
-};
-use ark_ec::{AffineRepr, CurveGroup, pairing::Pairing};
-use ark_ff::{Field as ArkField, PrimeField as ArkPrimeField};
+use ark_bn254::Fq12 as ArkFq12;
+use ark_ff::Field as ArkField;
 use ff::Field;
-use ff::PrimeField;
 
 use super::OuterWrapperCircuitInput;
-use crate::groth16::groth16_public_input_accumulator_constant;
-use crate::{ForeignField, Groth16Bn254Proof, Groth16Bn254VerifyingKey};
+use crate::groth16::{groth16_public_input_accumulator_constant, reference::host_pairing_product};
 use crate::{
   Groth16Bn254G1Point, Halo2CellLinearCombination, Halo2CellRef, Halo2Phase1R1csLowering,
   Halo2PublicInputRef, Halo2R1csMetadata, NativeField, R1csCircuit, VariableId,
 };
+use crate::{Groth16Bn254Proof, Groth16Bn254VerifyingKey};
 
 /// Deterministic canonical R1CS lowering for the explicit outer-statement exposure slice.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -289,22 +284,11 @@ pub fn build_outer_groth16_pairing_product_check_slice(
 ) -> Result<OuterGroth16PairingProductCheckSlice, OuterCanonicalR1csLoweringError> {
   input.validate()?;
 
-  let vk_x =
-    ark_host_public_input_accumulator(&input.inner_verification_key, &input.inner_public_inputs);
-  let product = [
-    (groth16_g1_to_ark(input.inner_proof.a), groth16_g2_to_ark(input.inner_proof.b)),
-    (
-      (-groth16_g1_to_ark(input.inner_verification_key.alpha_g1).into_group()).into_affine(),
-      groth16_g2_to_ark(input.inner_verification_key.beta_g2),
-    ),
-    ((-vk_x.into_group()).into_affine(), groth16_g2_to_ark(input.inner_verification_key.gamma_g2)),
-    (
-      (-groth16_g1_to_ark(input.inner_proof.c).into_group()).into_affine(),
-      groth16_g2_to_ark(input.inner_verification_key.delta_g2),
-    ),
-  ]
-  .into_iter()
-  .fold(ArkFq12::ONE, |acc, (g1, g2)| acc * ArkBn254::pairing(g1, g2).0);
+  let product = host_pairing_product(
+    &input.inner_verification_key,
+    &input.inner_proof,
+    &input.inner_public_inputs,
+  );
 
   Ok(OuterGroth16PairingProductCheckSlice {
     proof: input.inner_proof.clone(),
@@ -380,44 +364,4 @@ pub fn build_outer_wrapper_canonical_r1cs(
   }
 
   Err(OuterCanonicalR1csLoweringError::UnsupportedVerifierBodyLowering { pending_slices })
-}
-
-fn midnight_to_ark_fq(value: ForeignField) -> ArkFq {
-  ArkFq::from_le_bytes_mod_order(value.to_repr().as_ref())
-}
-
-fn midnight_to_ark_fr(value: NativeField) -> ark_bn254::Fr {
-  ark_bn254::Fr::from_le_bytes_mod_order(value.to_repr().as_ref())
-}
-
-fn groth16_g1_to_ark(point: Groth16Bn254G1Point) -> ArkG1Affine {
-  match point {
-    Groth16Bn254G1Point::Identity => ArkG1Affine::identity(),
-    Groth16Bn254G1Point::Affine { x, y } => {
-      ArkG1Affine::new_unchecked(midnight_to_ark_fq(x), midnight_to_ark_fq(y))
-    }
-  }
-}
-
-fn groth16_g2_to_ark(
-  point: ((ForeignField, ForeignField), (ForeignField, ForeignField)),
-) -> ArkG2Affine {
-  ArkG2Affine::new_unchecked(
-    ArkFq2::new(midnight_to_ark_fq((point.0).0), midnight_to_ark_fq((point.0).1)),
-    ArkFq2::new(midnight_to_ark_fq((point.1).0), midnight_to_ark_fq((point.1).1)),
-  )
-}
-
-fn ark_host_public_input_accumulator(
-  vk: &Groth16Bn254VerifyingKey,
-  public_inputs: &[NativeField],
-) -> ArkG1Affine {
-  let mut accumulator = groth16_g1_to_ark(vk.ic[0]).into_group();
-
-  for (scalar, ic_point) in public_inputs.iter().zip(vk.ic.iter().skip(1)) {
-    accumulator +=
-      groth16_g1_to_ark(*ic_point).mul_bigint(midnight_to_ark_fr(*scalar).into_bigint());
-  }
-
-  accumulator.into_affine()
 }

@@ -24,10 +24,13 @@ use crate::bn254::{
 
 pub mod fixtures;
 pub mod profiling;
-#[cfg(any(test, feature = "test"))]
-pub mod reference;
+pub(crate) mod reference;
 
 type G2AffineCoordinates = ((ForeignField, ForeignField), (ForeignField, ForeignField));
+pub(crate) type Groth16VariablePairingTermConstant =
+  ((ForeignField, ForeignField), G2AffineCoordinates);
+pub(crate) type Groth16PreparedPairingTermConstant =
+  ((ForeignField, ForeignField), PreparedConstantG2Miller);
 
 pub(crate) fn groth16_g1_affine_coordinates(
   point: Groth16Bn254G1Point,
@@ -74,6 +77,48 @@ pub(crate) fn groth16_public_input_accumulator_constant(
       "Groth16 public-input accumulator should remain non-identity for the canonical fixture",
     );
   Groth16Bn254G1Point::affine(*coordinates.x(), *coordinates.y())
+}
+
+pub(crate) fn groth16_verifier_pairing_term_constants(
+  vk: &Groth16Bn254VerifyingKey,
+  proof: &Groth16Bn254Proof,
+  public_inputs: &[NativeField],
+) -> (Vec<Groth16VariablePairingTermConstant>, Vec<Groth16PreparedPairingTermConstant>) {
+  let vk_x = groth16_public_input_accumulator_constant(vk, public_inputs);
+  let variable_terms = vec![(groth16_g1_affine_coordinates(proof.a), proof.b)];
+  let prepared_terms = vec![
+    (
+      groth16_g1_affine_coordinates(groth16_negate_g1(vk.alpha_g1)),
+      PreparedConstantG2Miller::from_affine_constant(vk.beta_g2),
+    ),
+    (
+      groth16_g1_affine_coordinates(groth16_negate_g1(vk_x)),
+      PreparedConstantG2Miller::from_affine_constant(vk.gamma_g2),
+    ),
+    (
+      groth16_g1_affine_coordinates(groth16_negate_g1(proof.c)),
+      PreparedConstantG2Miller::from_affine_constant(vk.delta_g2),
+    ),
+  ];
+
+  (variable_terms, prepared_terms)
+}
+
+pub(crate) fn groth16_split_first_variable_and_prepare_rest(
+  terms: &[Groth16VariablePairingTermConstant],
+) -> (Vec<Groth16VariablePairingTermConstant>, Vec<Groth16PreparedPairingTermConstant>) {
+  let mut variable_terms = Vec::new();
+  let mut prepared_terms = Vec::new();
+
+  for (index, (g1, g2)) in terms.iter().copied().enumerate() {
+    if index == 0 {
+      variable_terms.push((g1, g2));
+    } else {
+      prepared_terms.push((g1, PreparedConstantG2Miller::from_affine_constant(g2)));
+    }
+  }
+
+  (variable_terms, prepared_terms)
 }
 
 /// Narrow BN254 G1 point encoding for the Week 5 Groth16 verifier slice.
@@ -232,27 +277,6 @@ pub fn groth16_accumulate_ic(
 
   Ok(accumulator)
 }
-
-#[cfg(test)]
-fn groth16_accumulate_ic_legacy(
-  g1_chip: &Bn254G1Chip,
-  layouter: &mut impl Layouter<NativeField>,
-  vk: &Groth16Bn254VerifyingKey,
-  public_inputs: &[NativeField],
-) -> Result<AssignedG1, Groth16VerifierError> {
-  validate_public_input_shape(vk, public_inputs)?;
-
-  let mut accumulator = assign_g1_affine(g1_chip, layouter, vk.ic[0])?;
-
-  for (scalar, ic_point) in public_inputs.iter().zip(vk.ic.iter().skip(1)) {
-    let assigned_ic = assign_g1_affine(g1_chip, layouter, *ic_point)?;
-    let scaled = g1_chip.mul_by_scalar_constant(layouter, *scalar, &assigned_ic)?;
-    accumulator = g1_chip.add(layouter, &accumulator, &scaled)?;
-  }
-
-  Ok(accumulator)
-}
-
 /// Verifies one narrow BN254 Groth16 proof with the landed pairing core.
 ///
 /// The standard Groth16 verifier relation is

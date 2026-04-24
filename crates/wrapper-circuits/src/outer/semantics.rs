@@ -1,0 +1,73 @@
+//! Inner-verifier semantics owned by the canonical outer wrapper circuit.
+
+use midnight_circuits::midnight_proofs::{
+  circuit::Layouter,
+  plonk::{Column, Error, Instance},
+};
+
+use crate::{
+  Bn254BoolChip, Bn254BoolConfig,
+  bn254::{Bn254FieldChip, Bn254FieldConfig, Bn254G1Chip, Bn254G1Config},
+  groth16_verify,
+};
+
+use super::{OuterHostField, OuterWrapperCircuitInput};
+
+/// BN254 Groth16 verifier semantics configured as non-native logic inside the outer circuit.
+#[derive(Clone, Debug)]
+pub struct Bn254InnerVerifierConfig {
+  field: Bn254FieldConfig,
+  bools: Bn254BoolConfig,
+  g1: Bn254G1Config,
+}
+
+impl Bn254InnerVerifierConfig {
+  /// Configures the BN254 verifier semantics against one chosen host-lane
+  /// instance-column layout.
+  #[must_use]
+  pub fn configure(
+    meta: &mut midnight_circuits::midnight_proofs::plonk::ConstraintSystem<OuterHostField>,
+    instance_columns: &[Column<Instance>; 2],
+  ) -> Self {
+    Self {
+      field: Bn254FieldConfig::configure_with_instances(meta, instance_columns),
+      bools: Bn254BoolConfig::configure_with_instances(meta, instance_columns),
+      g1: Bn254G1Config::configure_with_instances(meta, instance_columns),
+    }
+  }
+
+  /// Synthesizes the BN254 Groth16 verifier semantics over the current host lane.
+  ///
+  /// # Errors
+  ///
+  /// Returns any verifier, assignment, or gate-loading failure raised while
+  /// proving the current BN254 inner verifier semantics.
+  pub fn synthesize(
+    &self,
+    layouter: &mut impl Layouter<OuterHostField>,
+    input: &OuterWrapperCircuitInput,
+  ) -> Result<(), Error> {
+    let field_chip = Bn254FieldChip::new(&self.field);
+    let bool_chip = Bn254BoolChip::new(&self.bools);
+    let g1_chip = Bn254G1Chip::new(&self.g1);
+
+    let result = groth16_verify(
+      &field_chip,
+      &bool_chip,
+      &g1_chip,
+      layouter,
+      &input.inner_verification_key,
+      &input.inner_proof,
+      &input.inner_public_inputs,
+    )
+    .map_err(|error| match error {
+      crate::Groth16VerifierError::Circuit(inner) => inner,
+      _ => Error::Synthesis(error.to_string()),
+    })?;
+
+    bool_chip.assert_equal_to_fixed(layouter, &result, true)?;
+    field_chip.load(layouter)?;
+    bool_chip.load(layouter)?;
+    g1_chip.load(layouter)
+  }
+}

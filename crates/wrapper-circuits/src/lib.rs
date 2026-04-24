@@ -33,7 +33,6 @@ pub mod metrics;
 pub mod outer;
 pub mod planning;
 pub mod r1cs;
-#[cfg(any(test, feature = "test"))]
 mod test_support;
 
 pub use bn254::{
@@ -84,10 +83,7 @@ pub use groth16::profiling::{
   groth16_public_input_count_layout_metrics, outer_wrapper_fixture_layout_metrics,
 };
 #[cfg(feature = "test")]
-pub use groth16::reference::{
-  ark_to_midnight_g1, groth16_g1_to_ark, groth16_g2_to_ark, host_pairing_product,
-  host_public_input_accumulator, host_verify, midnight_to_ark_fq, midnight_to_ark_fr,
-};
+pub use groth16::reference::host_verify;
 pub use groth16::{
   Groth16Bn254G1Point, Groth16Bn254Proof, Groth16Bn254VerifierCircuit, Groth16Bn254VerifyingKey,
   Groth16IcAccumulatorCircuit, Groth16VerifierError, groth16_accumulate_ic, groth16_verify,
@@ -95,11 +91,15 @@ pub use groth16::{
 pub use metrics::{CostEstimate, LayoutMetrics};
 use midnight_circuits::midnight_proofs::plonk::Circuit;
 pub use outer::{
-  CircuitBuildStatus, OuterCanonicalR1csLoweringError, OuterCanonicalR1csLoweringReport,
-  OuterCanonicalR1csSliceKind, OuterCanonicalR1csSliceReport, OuterCanonicalR1csSliceStatus,
-  OuterGroth16IcAccumulatorSlice, OuterGroth16PairingProductCheckSlice, OuterStatementExposureR1cs,
-  OuterStatementInput, OuterStatementSemantics, OuterVerifierResultAssertionSlice,
-  OuterWrapperCircuit, OuterWrapperCircuitInput, build_outer_groth16_ic_accumulator_slice,
+  CircuitBuildStatus, HostedOuterWrapperCircuit, InnerVerifierFlavor,
+  MidnightBls12_381HostConfigShell, MidnightBls12_381HostLane, MidnightBn254HostConfig,
+  MidnightBn254HostLane, OuterArtifactSerializationFlavor, OuterCanonicalR1csLoweringError,
+  OuterCanonicalR1csLoweringReport, OuterCanonicalR1csSliceKind, OuterCanonicalR1csSliceReport,
+  OuterCanonicalR1csSliceStatus, OuterGroth16IcAccumulatorSlice,
+  OuterGroth16PairingProductCheckSlice, OuterHostConfig, OuterHostField, OuterHostFlavor,
+  OuterHostLane, OuterStatementExposureR1cs, OuterStatementInput, OuterStatementSemantics,
+  OuterVerifierResultAssertionSlice, OuterWrapperCircuit, OuterWrapperCircuitInput,
+  OuterWrapperFlavorProfile, OuterWrapperHostConfig, build_outer_groth16_ic_accumulator_slice,
   build_outer_groth16_pairing_product_check_slice, build_outer_statement_exposure_r1cs,
   build_outer_verifier_result_assertion_slice, build_outer_wrapper_canonical_r1cs,
   build_outer_wrapper_circuit, inspect_outer_wrapper_canonical_r1cs,

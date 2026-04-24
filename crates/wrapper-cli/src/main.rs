@@ -12,6 +12,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 use wrapper_backends::{
   ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle, MidnightDirectOuterBackend,
+  MidnightDirectOuterBackendBls12Host, MidnightDirectOuterBackendBn254Host,
   OuterCircuitInputArtifacts, OuterProofBackend, SnarkjsGroth16Bn254ArtifactSetLoader,
   parse_snarkjs_groth16_bn254_bundle_with_names,
 };
@@ -175,6 +176,9 @@ enum Commands {
     /// Optional semantic names for the ordered public-input vector.
     #[arg(long = "public-input-name")]
     public_input_names: Vec<String>,
+    /// Direct outer backend / host lane to use.
+    #[arg(long, value_enum, default_value_t = DirectOuterBackendArg::MidnightBn254Host)]
+    backend: DirectOuterBackendArg,
     /// Optional output path for the JSON execution result. Prints to stdout if omitted.
     #[arg(long)]
     output: Option<PathBuf>,
@@ -214,8 +218,24 @@ fn main() -> Result<()> {
     Commands::ExecuteWrapperStub { id, proof, public, vk, public_input_names, output } => {
       run_execute_wrapper_stub(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?;
     }
-    Commands::ExecuteWrapperDirect { id, proof, public, vk, public_input_names, output } => {
-      run_execute_wrapper_direct(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?;
+    Commands::ExecuteWrapperDirect {
+      id,
+      proof,
+      public,
+      vk,
+      public_input_names,
+      backend,
+      output,
+    } => {
+      run_execute_wrapper_direct(
+        &id,
+        &proof,
+        &public,
+        &vk,
+        &public_input_names,
+        backend,
+        output.as_ref(),
+      )?;
     }
     Commands::PrintLayout => run_print_layout(),
     Commands::ValidateConfig { config } => run_validate_config(&config)?,
@@ -249,10 +269,17 @@ struct LayoutProfileRow {
 struct DirectWrapperExecutionResult {
   job_id: String,
   backend: String,
+  outer_host: String,
   setup_verification_key: wrapper_core::ProducedOuterVerificationKeyJson,
   produced_bundle: wrapper_core::ProducedOuterProofArtifactBundle,
   verification_ok: bool,
   notes: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum DirectOuterBackendArg {
+  MidnightBn254Host,
+  MidnightBls12381Host,
 }
 
 fn init_tracing() -> Result<()> {
@@ -531,6 +558,7 @@ fn semaphore_outer_end_to_end_layout_row() -> LayoutProfileRow {
       ),
     )
     .expect("Semaphore outer profiling circuit should build");
+  let hosted_circuit = circuit.hosted();
 
   LayoutProfileRow {
     family: "outer",
@@ -538,7 +566,7 @@ fn semaphore_outer_end_to_end_layout_row() -> LayoutProfileRow {
     label: "outer wrapper semaphore end-to-end",
     term_count: Some(4),
     public_input_count: Some(4),
-    layout: measure_native_circuit_layout(&circuit),
+    layout: measure_native_circuit_layout(&hosted_circuit),
   }
 }
 
@@ -758,6 +786,7 @@ fn run_execute_wrapper_direct(
   public_path: &PathBuf,
   vk_path: &PathBuf,
   public_input_names: &[String],
+  backend_arg: DirectOuterBackendArg,
   output_path: Option<&PathBuf>,
 ) -> Result<()> {
   info!("running direct wrapper executor {}", identifier);
@@ -776,28 +805,48 @@ fn run_execute_wrapper_direct(
     Some(proof_json.as_slice()),
     Some(verification_key_json.as_slice()),
   );
-  let backend = MidnightDirectOuterBackend;
+  let result = match backend_arg {
+    DirectOuterBackendArg::MidnightBn254Host => execute_wrapper_direct_with_backend(
+      &MidnightDirectOuterBackendBn254Host,
+      &package,
+      artifacts,
+    )?,
+    DirectOuterBackendArg::MidnightBls12381Host => execute_wrapper_direct_with_backend(
+      &MidnightDirectOuterBackendBls12Host,
+      &package,
+      artifacts,
+    )?,
+  };
+  emit_json(&result, output_path, "direct wrapper execution result")
+}
+
+fn execute_wrapper_direct_with_backend<B: OuterProofBackend>(
+  backend: &B,
+  package: &WrapperExecutionPackage,
+  artifacts: OuterCircuitInputArtifacts<'_>,
+) -> Result<DirectWrapperExecutionResult> {
   let setup_verification_key =
-    backend.setup(&package, artifacts).context("direct wrapper setup failed")?;
+    backend.setup(package, artifacts).context("direct wrapper setup failed")?;
   let produced_bundle =
-    backend.prove(&package, artifacts).context("direct wrapper proving failed")?;
+    backend.prove(package, artifacts).context("direct wrapper proving failed")?;
   let verification_ok = backend
-    .verify(&package, &produced_bundle, artifacts)
+    .verify(package, &produced_bundle, artifacts)
     .context("direct wrapper verification failed")?;
 
-  let result = DirectWrapperExecutionResult {
+  Ok(DirectWrapperExecutionResult {
     job_id: package.job.identifier.clone(),
     backend: backend.backend_id().to_owned(),
+    outer_host: backend.metadata().outer_host.id().to_owned(),
     setup_verification_key,
     produced_bundle,
     verification_ok,
     notes: vec![
-      "executed direct halo2/midnight outer wrapper path".to_owned(),
+      format!("executed direct outer wrapper path with backend {}", backend.backend_id()),
+      format!("selected outer host lane: {}", backend.metadata().outer_host.id()),
       "result includes setup verification key, produced proof bundle, and backend verification verdict"
         .to_owned(),
     ],
-  };
-  emit_json(&result, output_path, "direct wrapper execution result")
+  })
 }
 
 fn emit_execution_result(

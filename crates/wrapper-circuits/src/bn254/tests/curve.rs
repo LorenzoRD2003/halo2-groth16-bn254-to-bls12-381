@@ -1,5 +1,19 @@
 use super::*;
 
+fn assert_mixed_add_with_line_matches_expected(
+  doubled_state: ArkG2MillerPoint,
+  addend: ArkG2Affine,
+  expected_point: ArkG2Affine,
+  line: ArkG2LineCoeffs,
+) {
+  assert_satisfied(&G2MixedAddWithLineCircuit::new(
+    ark_to_miller_point_constant(doubled_state),
+    ark_to_assigned_g2_coords(addend),
+    ark_to_assigned_g2_coords(expected_point),
+    ark_to_line_coeffs_constant(line),
+  ));
+}
+
 #[test]
 fn g1_addition_matches_arkworks() {
   let mut rng = StdRng::from_seed([31_u8; 32]);
@@ -271,12 +285,7 @@ fn g2_mixed_add_with_line_matches_arkworks_reference() {
     let (next_point, line) = ark_mixed_add_with_line(doubled_state, addend);
     let expected_point = ark_miller_point_to_affine(next_point);
 
-    assert_satisfied(&G2MixedAddWithLineCircuit::new(
-      ark_to_miller_point_constant(doubled_state),
-      ark_to_assigned_g2_coords(addend),
-      ark_to_assigned_g2_coords(expected_point),
-      ark_to_line_coeffs_constant(line),
-    ));
+    assert_mixed_add_with_line_matches_expected(doubled_state, addend, expected_point, line);
   }
 }
 
@@ -286,10 +295,5 @@ fn g2_mixed_add_with_line_matches_fixed_generator_fixture() {
   let (next_state, _) = ark_mixed_add_with_line(doubled_state, g2_point);
   let expected_point = ark_miller_point_to_affine(next_state);
 
-  assert_satisfied(&G2MixedAddWithLineCircuit::new(
-    ark_to_miller_point_constant(doubled_state),
-    ark_to_assigned_g2_coords(g2_point),
-    ark_to_assigned_g2_coords(expected_point),
-    ark_to_line_coeffs_constant(add_line),
-  ));
+  assert_mixed_add_with_line_matches_expected(doubled_state, g2_point, expected_point, add_line);
 }

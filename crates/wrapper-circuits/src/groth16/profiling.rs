@@ -9,17 +9,17 @@ use halo2curves::group::Group;
 
 use crate::LayoutMetrics;
 use crate::bn254::{
-  ForeignCurve, ForeignField, PairingCheckCircuit, PreparedConstantG2Miller,
-  final_exponentiation_easy_part_layout_metrics, final_exponentiation_hard_part_layout_metrics,
-  final_exponentiation_layout_metrics, measure_layout, miller_loop_layout_metrics,
-  pairing_check_layout_metrics,
+  ForeignCurve, PairingCheckCircuit, final_exponentiation_easy_part_layout_metrics,
+  final_exponentiation_hard_part_layout_metrics, final_exponentiation_layout_metrics,
+  measure_layout, miller_loop_layout_metrics, pairing_check_layout_metrics,
 };
 use crate::outer::{OuterWrapperCircuit, OuterWrapperCircuitInput};
 
 use super::{
   Groth16Bn254G1Point, Groth16Bn254VerifierCircuit, Groth16Bn254VerifyingKey,
-  Groth16IcAccumulatorCircuit, fixtures, groth16_g1_affine_coordinates, groth16_negate_g1,
-  groth16_public_input_accumulator_constant,
+  Groth16IcAccumulatorCircuit, Groth16VariablePairingTermConstant, fixtures,
+  groth16_g1_affine_coordinates, groth16_negate_g1, groth16_split_first_variable_and_prepare_rest,
+  groth16_verifier_pairing_term_constants,
 };
 use crate::bn254::NativeField;
 
@@ -29,8 +29,7 @@ pub const PAIRING_TERM_PROFILE_COUNTS: &[usize] = &[1, 2, 3, 4];
 /// Deterministic public-input counts used by the profiling CLI.
 pub const PUBLIC_INPUT_PROFILE_COUNTS: &[usize] = &[1, 2, 4, 8, 16];
 
-type G2AffineCoordinates = ((ForeignField, ForeignField), (ForeignField, ForeignField));
-type PairingTermConstant = ((ForeignField, ForeignField), G2AffineCoordinates);
+type PairingTermConstant = Groth16VariablePairingTermConstant;
 
 fn repeated_ic_vk(public_input_count: usize) -> Groth16Bn254VerifyingKey {
   let mut vk = fixtures::typed::verifying_key();
@@ -61,23 +60,6 @@ fn pairing_term_profile_expected(term_count: usize) -> bool {
   term_count % 2 == 0
 }
 
-fn split_pairing_terms_for_prepared_profile(
-  terms: &[PairingTermConstant],
-) -> (Vec<PairingTermConstant>, Vec<((ForeignField, ForeignField), PreparedConstantG2Miller)>) {
-  let mut variable_terms = Vec::new();
-  let mut prepared_terms = Vec::new();
-
-  for (index, (g1, g2)) in terms.iter().copied().enumerate() {
-    if index == 0 {
-      variable_terms.push((g1, g2));
-    } else {
-      prepared_terms.push((g1, PreparedConstantG2Miller::from_affine_constant(g2)));
-    }
-  }
-
-  (variable_terms, prepared_terms)
-}
-
 /// Measures the canonical Groth16 verifier circuit on the committed snarkjs fixture.
 #[must_use]
 pub fn groth16_fixture_verifier_layout_metrics() -> LayoutMetrics {
@@ -102,12 +84,15 @@ pub fn groth16_fixture_ic_accumulator_layout_metrics() -> LayoutMetrics {
 /// Measures the canonical outer wrapper circuit on the committed Week 5 fixture.
 #[must_use]
 pub fn outer_wrapper_fixture_layout_metrics() -> LayoutMetrics {
-  measure_layout(&OuterWrapperCircuit::from_input(OuterWrapperCircuitInput::mirrored(
-    fixtures::typed::proof(),
-    fixtures::typed::verifying_key(),
-    fixtures::typed::public_inputs(),
-    vec!["public_input_0".to_owned()],
-  )))
+  measure_layout(
+    &OuterWrapperCircuit::from_input(OuterWrapperCircuitInput::mirrored(
+      fixtures::typed::proof(),
+      fixtures::typed::verifying_key(),
+      fixtures::typed::public_inputs(),
+      vec!["public_input_0".to_owned()],
+    ))
+    .hosted(),
+  )
 }
 
 /// Measures an isolated pairing-check circuit for a given number of pairing terms.
@@ -117,7 +102,7 @@ pub fn outer_wrapper_fixture_layout_metrics() -> LayoutMetrics {
 #[must_use]
 pub fn groth16_pairing_term_count_layout_metrics(term_count: usize) -> LayoutMetrics {
   let terms = pairing_term_profile_terms(term_count);
-  let (variable_terms, prepared_terms) = split_pairing_terms_for_prepared_profile(&terms);
+  let (variable_terms, prepared_terms) = groth16_split_first_variable_and_prepare_rest(&terms);
   measure_layout(&PairingCheckCircuit::new_with_prepared_constant_terms(
     &variable_terms,
     &prepared_terms,
@@ -179,23 +164,8 @@ pub fn groth16_pairing_block_pairing_check_groth16_style_layout_metrics() -> Lay
   let vk = fixtures::typed::verifying_key();
   let proof = fixtures::typed::proof();
   let public_inputs = fixtures::typed::public_inputs();
-  let vk_x = groth16_public_input_accumulator_constant(&vk, &public_inputs);
-
-  let variable_terms = vec![(groth16_g1_affine_coordinates(proof.a), proof.b)];
-  let prepared_terms = vec![
-    (
-      groth16_g1_affine_coordinates(groth16_negate_g1(vk.alpha_g1)),
-      PreparedConstantG2Miller::from_affine_constant(vk.beta_g2),
-    ),
-    (
-      groth16_g1_affine_coordinates(groth16_negate_g1(vk_x)),
-      PreparedConstantG2Miller::from_affine_constant(vk.gamma_g2),
-    ),
-    (
-      groth16_g1_affine_coordinates(groth16_negate_g1(proof.c)),
-      PreparedConstantG2Miller::from_affine_constant(vk.delta_g2),
-    ),
-  ];
+  let (variable_terms, prepared_terms) =
+    groth16_verifier_pairing_term_constants(&vk, &proof, &public_inputs);
 
   measure_layout(&PairingCheckCircuit::new_with_prepared_constant_terms(
     &variable_terms,

@@ -14,24 +14,22 @@ fn fq(value: &str) -> ForeignField {
 }
 
 /// Raw committed snarkjs artifacts for the canonical Week 5 fixture.
+#[cfg(feature = "test")]
 pub mod raw {
   /// Returns the committed raw snarkjs proof JSON for the canonical Week 5 fixture.
   #[must_use]
-  #[cfg_attr(test, allow(dead_code))]
   pub fn proof_json() -> &'static [u8] {
     include_bytes!("../../../wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json")
   }
 
   /// Returns the committed raw snarkjs public-input JSON for the canonical Week 5 fixture.
   #[must_use]
-  #[cfg_attr(test, allow(dead_code))]
   pub fn public_inputs_json() -> &'static [u8] {
     include_bytes!("../../../wrapper-tests/fixtures/groth16/circom_multiplier2/public.json")
   }
 
   /// Returns the committed raw snarkjs verification-key JSON for the canonical Week 5 fixture.
   #[must_use]
-  #[cfg_attr(test, allow(dead_code))]
   pub fn verification_key_json() -> &'static [u8] {
     include_bytes!(
       "../../../wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json"

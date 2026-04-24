@@ -22,7 +22,7 @@ pub(crate) enum Bn254ExpByXWindow {
 impl Bn254ExpByXWindow {
   /// Returns the odd integer represented by this precomputed window.
   #[must_use]
-  #[cfg_attr(not(test), allow(dead_code))]
+  #[cfg(test)]
   pub(crate) const fn value(self) -> u64 {
     match self {
       Self::X17 => 17,

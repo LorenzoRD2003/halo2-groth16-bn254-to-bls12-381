@@ -12,27 +12,26 @@ use ark_ec::{AffineRepr, CurveGroup, pairing::Pairing};
 use ark_ff::{Field as ArkField, PrimeField as ArkPrimeField};
 
 use super::{Groth16Bn254G1Point, Groth16Bn254Proof, Groth16Bn254VerifyingKey};
-use crate::bn254::{ForeignCurve, ForeignField, NativeField};
+use crate::bn254::{ForeignField, NativeField};
 use crate::test_support::{
-  ark_to_midnight_g1 as shared_ark_to_midnight_g1, midnight_to_ark_fq as shared_midnight_to_ark_fq,
-  midnight_to_ark_fr as shared_midnight_to_ark_fr,
+  midnight_to_ark_fq as shared_midnight_to_ark_fq, midnight_to_ark_fr as shared_midnight_to_ark_fr,
 };
 
 /// Converts a Midnight BN254 base-field element into arkworks `Fq`.
 #[must_use]
-pub fn midnight_to_ark_fq(value: ForeignField) -> ArkFq {
+pub(crate) fn midnight_to_ark_fq(value: ForeignField) -> ArkFq {
   shared_midnight_to_ark_fq(value)
 }
 
 /// Converts a Midnight native field element into arkworks `Fr`.
 #[must_use]
-pub fn midnight_to_ark_fr(value: NativeField) -> ArkFr {
+pub(crate) fn midnight_to_ark_fr(value: NativeField) -> ArkFr {
   shared_midnight_to_ark_fr(value)
 }
 
 /// Converts the narrow Groth16 G1 encoding into arkworks affine form.
 #[must_use]
-pub fn groth16_g1_to_ark(point: Groth16Bn254G1Point) -> ArkG1Affine {
+pub(crate) fn groth16_g1_to_ark(point: Groth16Bn254G1Point) -> ArkG1Affine {
   match point {
     Groth16Bn254G1Point::Identity => ArkG1Affine::identity(),
     Groth16Bn254G1Point::Affine { x, y } => {
@@ -43,7 +42,7 @@ pub fn groth16_g1_to_ark(point: Groth16Bn254G1Point) -> ArkG1Affine {
 
 /// Converts the narrow Groth16 G2 encoding into arkworks affine form.
 #[must_use]
-pub fn groth16_g2_to_ark(
+pub(crate) fn groth16_g2_to_ark(
   point: ((ForeignField, ForeignField), (ForeignField, ForeignField)),
 ) -> ArkG2Affine {
   ArkG2Affine::new_unchecked(
@@ -52,15 +51,9 @@ pub fn groth16_g2_to_ark(
   )
 }
 
-/// Converts an arkworks G1 affine point into Midnight's BN254 curve type.
-#[must_use]
-pub fn ark_to_midnight_g1(point: ArkG1Affine) -> ForeignCurve {
-  shared_ark_to_midnight_g1(point)
-}
-
 /// Computes the verifier-side host accumulator `vk_x`.
 #[must_use]
-pub fn host_public_input_accumulator(
+pub(crate) fn host_public_input_accumulator(
   vk: &Groth16Bn254VerifyingKey,
   public_inputs: &[NativeField],
 ) -> ArkG1Affine {
@@ -76,7 +69,7 @@ pub fn host_public_input_accumulator(
 
 /// Builds the host-side Groth16 verifier pairing product.
 #[must_use]
-pub fn host_pairing_product(
+pub(crate) fn host_pairing_product(
   vk: &Groth16Bn254VerifyingKey,
   proof: &Groth16Bn254Proof,
   public_inputs: &[NativeField],
@@ -94,7 +87,6 @@ pub fn host_pairing_product(
 
 /// Verifies the narrow Groth16 relation on the host side using arkworks.
 #[must_use]
-#[cfg_attr(test, allow(dead_code))]
 pub fn host_verify(
   vk: &Groth16Bn254VerifyingKey,
   proof: &Groth16Bn254Proof,

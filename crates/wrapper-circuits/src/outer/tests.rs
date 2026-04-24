@@ -5,9 +5,9 @@ use wrapper_core::WrapperError;
 use super::{
   CircuitBuildStatus, OuterCanonicalR1csLoweringError, OuterCanonicalR1csLoweringReport,
   OuterCanonicalR1csSliceKind, OuterCanonicalR1csSliceStatus, OuterGroth16IcAccumulatorSlice,
-  OuterGroth16PairingProductCheckSlice, OuterStatementExposureR1cs, OuterStatementInput,
-  OuterStatementSemantics, OuterVerifierResultAssertionSlice, OuterWrapperCircuit,
-  OuterWrapperCircuitInput, build_outer_groth16_ic_accumulator_slice,
+  OuterGroth16PairingProductCheckSlice, OuterHostFlavor, OuterStatementExposureR1cs,
+  OuterStatementInput, OuterStatementSemantics, OuterVerifierResultAssertionSlice,
+  OuterWrapperCircuit, OuterWrapperCircuitInput, build_outer_groth16_ic_accumulator_slice,
   build_outer_groth16_pairing_product_check_slice, build_outer_statement_exposure_r1cs,
   build_outer_verifier_result_assertion_slice, build_outer_wrapper_canonical_r1cs,
   build_outer_wrapper_circuit, inspect_outer_wrapper_canonical_r1cs,
@@ -40,6 +40,22 @@ fn outer_wrapper_circuit_reports_integrated_build_status() {
   let circuit = build_outer_wrapper_circuit(canonical_input());
 
   assert_eq!(circuit.build_status(), CircuitBuildStatus::VerifierIntegrated);
+}
+
+#[test]
+fn outer_wrapper_circuit_can_materialize_hosted_wrapper() {
+  let circuit = build_outer_wrapper_circuit(canonical_input());
+  let hosted = circuit.hosted();
+
+  assert_eq!(hosted.build_status(), CircuitBuildStatus::VerifierIntegrated);
+  hosted.assert_ready_for_synthesis().expect("hosted wrapper should preserve semantic readiness");
+}
+
+#[test]
+fn outer_wrapper_circuit_defaults_to_current_bn254_host_flavor() {
+  let circuit = build_outer_wrapper_circuit(canonical_input());
+
+  assert_eq!(circuit.flavors.outer_host, OuterHostFlavor::MidnightBn254);
 }
 
 #[test]
@@ -105,6 +121,17 @@ fn outer_wrapper_circuit_rejects_non_mirrored_statement() {
   assert!(matches!(
     circuit.assert_ready_for_synthesis(),
     Err(WrapperError::InvalidInput { context: "outer statement", .. })
+  ));
+}
+
+#[test]
+fn outer_wrapper_circuit_rejects_planned_bls12_host_until_lane_exists() {
+  let circuit =
+    OuterWrapperCircuit::from_input_for_host(canonical_input(), OuterHostFlavor::MidnightBls12_381);
+
+  assert!(matches!(
+    circuit.assert_ready_for_synthesis(),
+    Err(WrapperError::InvalidInput { context: "outer host flavor", .. })
   ));
 }
 
@@ -232,7 +259,7 @@ fn outer_groth16_pairing_product_check_slice_extracts_deterministic_reference() 
 fn slow_mockprover_valid_outer_wrapper_fixture_is_satisfied() {
   let input = canonical_input();
   let instances = input.outer_statement.public_inputs.clone();
-  let circuit = OuterWrapperCircuit::from_input(input);
+  let circuit = OuterWrapperCircuit::from_input(input).into_hosted();
   let prover =
     MockProver::run(22, &circuit, vec![instances, vec![]]).expect("MockProver should build");
 
@@ -243,7 +270,7 @@ fn slow_mockprover_valid_outer_wrapper_fixture_is_satisfied() {
 #[ignore = "slow pairing-core"]
 fn slow_mockprover_wrong_outer_statement_instance_is_rejected() {
   let input = canonical_input();
-  let circuit = OuterWrapperCircuit::from_input(input);
+  let circuit = OuterWrapperCircuit::from_input(input).into_hosted();
   let prover = MockProver::run(22, &circuit, vec![vec![NativeField::from(34_u64)], vec![]])
     .expect("MockProver should build");
 
