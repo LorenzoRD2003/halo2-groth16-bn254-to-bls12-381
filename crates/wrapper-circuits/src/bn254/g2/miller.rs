@@ -1,4 +1,5 @@
 use ff::{Field, PrimeField};
+use midnight_circuits::field::foreign::params::{FieldEmulationParams, MultiEmulationParams};
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
@@ -33,17 +34,25 @@ type MillerAccumulatorFixed = (
 /// accumulation boundary small and explicit until a wider pairing-ready G1
 /// surface is planned.
 #[derive(Clone, Debug)]
-pub struct AssignedG1Point {
+pub struct AssignedG1Point<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Affine x-coordinate.
-  pub x: AssignedFp,
+  pub x: AssignedFp<FHost>,
   /// Affine y-coordinate.
-  pub y: AssignedFp,
+  pub y: AssignedFp<FHost>,
 }
 
-impl AssignedG1Point {
+impl<FHost> AssignedG1Point<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Builds a G1 evaluation point from assigned affine coordinates.
   #[must_use]
-  pub fn new(x: AssignedFp, y: AssignedFp) -> Self {
+  pub fn new(x: AssignedFp<FHost>, y: AssignedFp<FHost>) -> Self {
     Self { x, y }
   }
 
@@ -57,8 +66,8 @@ impl AssignedG1Point {
   ///
   /// Returns an error if either underlying coordinate assignment fails.
   pub fn assign(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     x: Value<ForeignField>,
     y: Value<ForeignField>,
   ) -> Result<Self, Error> {
@@ -78,22 +87,30 @@ impl AssignedG1Point {
 /// - `ell_w * x_P` lands in Fp12 slot `c3`
 /// - `ell_vw` lands in Fp12 slot `c4`
 #[derive(Clone, Debug)]
-pub struct AssignedG2LineCoeffs {
+pub struct AssignedG2LineCoeffs<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Coefficient scaled later by the G1 affine `y` coordinate and embedded into Fp12 slot `c0`.
-  pub ell_0: AssignedFp2,
+  pub ell_0: AssignedFp2<FHost>,
   /// Coefficient scaled later by the G1 affine `x` coordinate and embedded into Fp12 slot `c3`.
-  pub ell_w: AssignedFp2,
+  pub ell_w: AssignedFp2<FHost>,
   /// Constant coefficient embedded directly into Fp12 slot `c4 = v * w`.
-  pub ell_vw: AssignedFp2,
+  pub ell_vw: AssignedFp2<FHost>,
 }
 
-impl AssignedG2LineCoeffs {
+impl<FHost> AssignedG2LineCoeffs<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Builds line coefficients from their three assigned Fp2 coordinates.
   #[must_use]
   pub fn new(
-    constant_term_coeff: AssignedFp2,
-    x_slot_coeff: AssignedFp2,
-    vw_slot_coeff: AssignedFp2,
+    constant_term_coeff: AssignedFp2<FHost>,
+    x_slot_coeff: AssignedFp2<FHost>,
+    vw_slot_coeff: AssignedFp2<FHost>,
   ) -> Self {
     Self { ell_0: constant_term_coeff, ell_w: x_slot_coeff, ell_vw: vw_slot_coeff }
   }
@@ -104,16 +121,16 @@ impl AssignedG2LineCoeffs {
   ///
   /// Returns an error if any underlying Fp2 assignment fails.
   pub fn assign(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     constant_term_value: Fp2Value,
     x_slot_value: Fp2Value,
     vw_slot_value: Fp2Value,
   ) -> Result<Self, Error> {
     Ok(Self::new(
-      AssignedFp2::assign(chip, layouter, constant_term_value.0, constant_term_value.1)?,
-      AssignedFp2::assign(chip, layouter, x_slot_value.0, x_slot_value.1)?,
-      AssignedFp2::assign(chip, layouter, vw_slot_value.0, vw_slot_value.1)?,
+      AssignedFp2::<FHost>::assign(chip, layouter, constant_term_value.0, constant_term_value.1)?,
+      AssignedFp2::<FHost>::assign(chip, layouter, x_slot_value.0, x_slot_value.1)?,
+      AssignedFp2::<FHost>::assign(chip, layouter, vw_slot_value.0, vw_slot_value.1)?,
     ))
   }
 
@@ -124,8 +141,8 @@ impl AssignedG2LineCoeffs {
   /// Returns an error if any underlying Fp2 equality constraint fails.
   pub fn assert_equal(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<(), Error> {
     self.ell_0.assert_equal(chip, layouter, &rhs.ell_0)?;
@@ -140,8 +157,8 @@ impl AssignedG2LineCoeffs {
   /// Returns an error if any underlying Fp2 coordinate-equals-constant constraint fails.
   pub fn assert_equal_to_fixed(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     expected: G2LineCoeffsConstant,
   ) -> Result<(), Error> {
     self.ell_0.assert_equal_to_fixed(chip, layouter, expected.0.0, expected.0.1)?;
@@ -161,26 +178,30 @@ impl AssignedG2LineCoeffs {
   /// fails.
   pub fn evaluate_at_g1(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    point: &AssignedG1Point,
-  ) -> Result<AssignedFp12, Error> {
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    point: &AssignedG1Point<FHost>,
+  ) -> Result<AssignedFp12<FHost>, Error> {
     let slot_c0 = self.ell_0.scale_by_fp(chip, layouter, &point.y)?;
     let slot_c3 = self.ell_w.scale_by_fp(chip, layouter, &point.x)?;
-    let zero_fp2 = AssignedFp2::zero(chip, layouter)?;
+    let zero_fp2 = AssignedFp2::<FHost>::zero(chip, layouter)?;
 
     Ok(AssignedFp12::new(
-      AssignedFp6::new(slot_c0, zero_fp2.clone(), zero_fp2.clone()),
-      AssignedFp6::new(slot_c3, self.ell_vw.clone(), zero_fp2),
+      AssignedFp6::<FHost>::new(slot_c0, zero_fp2.clone(), zero_fp2.clone()),
+      AssignedFp6::<FHost>::new(slot_c3, self.ell_vw.clone(), zero_fp2),
     ))
   }
 }
 
-fn double_step_hom_projective(
-  point: &AssignedG2MillerPoint,
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-) -> Result<(AssignedG2MillerPoint, AssignedG2LineCoeffs), Error> {
+fn double_step_hom_projective<FHost>(
+  point: &AssignedG2MillerPoint<FHost>,
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+) -> Result<(AssignedG2MillerPoint<FHost>, AssignedG2LineCoeffs<FHost>), Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   let two_inv = chip.assign(
     layouter,
     Value::known(
@@ -197,7 +218,7 @@ fn double_step_hom_projective(
   let three_z_square = z_square.add(chip, layouter, &z_square)?.add(chip, layouter, &z_square)?;
   let coeff_b = g2_curve_coeff_b();
   let twist_b =
-    AssignedFp2::assign(chip, layouter, Value::known(coeff_b.0), Value::known(coeff_b.1))?;
+    AssignedFp2::<FHost>::assign(chip, layouter, Value::known(coeff_b.0), Value::known(coeff_b.1))?;
   let twist_times_three_z_square = twist_b.mul(chip, layouter, &three_z_square)?;
   let triple_twist_term = twist_times_three_z_square
     .add(chip, layouter, &twist_times_three_z_square)?
@@ -235,12 +256,16 @@ fn double_step_hom_projective(
   Ok((AssignedG2MillerPoint::new(next_x, next_y, next_z), line))
 }
 
-fn mixed_add_step_hom_projective(
-  point: &AssignedG2MillerPoint,
-  addend: &AssignedG2Affine,
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-) -> Result<(AssignedG2MillerPoint, AssignedG2LineCoeffs), Error> {
+fn mixed_add_step_hom_projective<FHost>(
+  point: &AssignedG2MillerPoint<FHost>,
+  addend: &AssignedG2Affine<FHost>,
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+) -> Result<(AssignedG2MillerPoint<FHost>, AssignedG2LineCoeffs<FHost>), Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   let rhs_y_times_z = addend.y.mul(chip, layouter, &point.z)?;
   let rhs_x_times_z = addend.x.mul(chip, layouter, &point.z)?;
   let theta = point.y.sub(chip, layouter, &rhs_y_times_z)?;
@@ -280,15 +305,23 @@ fn mixed_add_step_hom_projective(
 /// accumulator by a line evaluation rather than asking the line coefficients to
 /// materialize a generic Fp12 value directly.
 #[derive(Clone, Debug)]
-pub struct AssignedMillerAccumulator {
+pub struct AssignedMillerAccumulator<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Current Miller accumulator value.
-  pub f: AssignedFp12,
+  pub f: AssignedFp12<FHost>,
 }
 
-impl AssignedMillerAccumulator {
+impl<FHost> AssignedMillerAccumulator<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Builds an accumulator from an assigned Fp12 value.
   #[must_use]
-  pub fn new(f: AssignedFp12) -> Self {
+  pub fn new(f: AssignedFp12<FHost>) -> Self {
     Self { f }
   }
 
@@ -298,10 +331,10 @@ impl AssignedMillerAccumulator {
   ///
   /// Returns an error if assigning the underlying Fp12 identity fails.
   pub fn one(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
-    Ok(Self::new(AssignedFp12::one(chip, layouter)?))
+    Ok(Self::new(AssignedFp12::<FHost>::one(chip, layouter)?))
   }
 
   /// Squares the current accumulator value.
@@ -315,8 +348,8 @@ impl AssignedMillerAccumulator {
   /// Returns an error if the underlying Fp12 square fails.
   pub fn square(
     &mut self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<(), Error> {
     self.f = self.f.square(chip, layouter)?;
     Ok(())
@@ -333,9 +366,9 @@ impl AssignedMillerAccumulator {
   /// Returns an error if the underlying Fp12 multiplication fails.
   pub fn mul_by_evaluated_line(
     &mut self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    value: &AssignedFp12,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    value: &AssignedFp12<FHost>,
   ) -> Result<(), Error> {
     self.f = self.f.mul(chip, layouter, value)?;
     Ok(())
@@ -343,10 +376,10 @@ impl AssignedMillerAccumulator {
 
   fn mul_by_line_evaluated_generic(
     &mut self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    line: &AssignedG2LineCoeffs,
-    point: &AssignedG1Point,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    line: &AssignedG2LineCoeffs<FHost>,
+    point: &AssignedG1Point<FHost>,
   ) -> Result<(), Error> {
     let line_value = line.evaluate_at_g1(chip, layouter, point)?;
     self.mul_by_evaluated_line(chip, layouter, &line_value)
@@ -354,10 +387,10 @@ impl AssignedMillerAccumulator {
 
   fn mul_by_line_evaluated_sparse(
     &mut self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    line: &AssignedG2LineCoeffs,
-    point: &AssignedG1Point,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    line: &AssignedG2LineCoeffs<FHost>,
+    point: &AssignedG1Point<FHost>,
   ) -> Result<(), Error> {
     let c0 = line.ell_0.scale_by_fp(chip, layouter, &point.y)?;
     let c3 = line.ell_w.scale_by_fp(chip, layouter, &point.x)?;
@@ -391,10 +424,10 @@ impl AssignedMillerAccumulator {
   /// Returns an error if the sparse line evaluation or Fp12 multiplication fails.
   pub fn mul_by_line(
     &mut self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    line: &AssignedG2LineCoeffs,
-    point: &AssignedG1Point,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    line: &AssignedG2LineCoeffs<FHost>,
+    point: &AssignedG1Point<FHost>,
   ) -> Result<(), Error> {
     self.mul_by_line_evaluated_sparse(chip, layouter, line, point)
   }
@@ -406,8 +439,8 @@ impl AssignedMillerAccumulator {
   /// Returns an error if the underlying Fp12 equality-to-fixed check fails.
   pub fn assert_equal_to_fixed(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     expected: MillerAccumulatorFixed,
   ) -> Result<(), Error> {
     self.f.assert_equal_to_fixed(chip, layouter, expected)
@@ -416,21 +449,29 @@ impl AssignedMillerAccumulator {
 
 /// One fixed Miller-loop schedule step.
 #[derive(Clone, Debug)]
-pub enum MillerStep {
+pub enum MillerStep<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Doubling line. The driver squares before consuming this line.
   Double {
     /// Extracted sparse line coefficients for this doubling step.
-    line: AssignedG2LineCoeffs,
+    line: AssignedG2LineCoeffs<FHost>,
   },
   /// Mixed-add line. The driver consumes it without an extra square.
   Add {
     /// Extracted sparse line coefficients for this mixed-add step.
-    line: AssignedG2LineCoeffs,
+    line: AssignedG2LineCoeffs<FHost>,
   },
 }
 
-impl MillerStep {
-  fn line(&self) -> &AssignedG2LineCoeffs {
+impl<FHost> MillerStep<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  fn line(&self) -> &AssignedG2LineCoeffs<FHost> {
     match self {
       Self::Double { line } | Self::Add { line } => line,
     }
@@ -508,27 +549,39 @@ fn fp2_frobenius_map_constant(value: Fp2Constant) -> Fp2Constant {
   (value.0, -value.1)
 }
 
-fn assign_fp2_constant(
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
+fn assign_fp2_constant<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
   value: Fp2Constant,
-) -> Result<AssignedFp2, Error> {
-  AssignedFp2::assign(chip, layouter, Value::known(value.0), Value::known(value.1))
+) -> Result<AssignedFp2<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  AssignedFp2::<FHost>::assign(chip, layouter, Value::known(value.0), Value::known(value.1))
 }
 
-fn fp2_frobenius_map(
-  value: &AssignedFp2,
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-) -> Result<AssignedFp2, Error> {
-  Ok(AssignedFp2::new(value.c0.clone(), chip.neg(layouter, &value.c1)?))
+fn fp2_frobenius_map<FHost>(
+  value: &AssignedFp2<FHost>,
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+) -> Result<AssignedFp2<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  Ok(AssignedFp2::<FHost>::new(value.c0.clone(), chip.neg(layouter, &value.c1)?))
 }
 
-fn g2_mul_by_char(
-  point: &AssignedG2Affine,
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-) -> Result<AssignedG2Affine, Error> {
+fn g2_mul_by_char<FHost>(
+  point: &AssignedG2Affine<FHost>,
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+) -> Result<AssignedG2Affine<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   let twist_mul_by_q_x = assign_fp2_constant(
     chip,
     layouter,
@@ -626,15 +679,23 @@ fn bn254_prepared_miller_steps_constant(point: G2AffineConstant) -> Vec<MillerSt
 
 /// Prepared Miller schedule with an explicit fixed host-side traversal order.
 #[derive(Clone, Debug, Default)]
-pub struct PreparedG2Miller {
+pub struct PreparedG2Miller<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Expanded Miller traversal steps.
-  pub steps: Vec<MillerStep>,
+  pub steps: Vec<MillerStep<FHost>>,
 }
 
-impl PreparedG2Miller {
+impl<FHost> PreparedG2Miller<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Builds a prepared Miller schedule from explicit steps.
   #[must_use]
-  pub fn new(steps: Vec<MillerStep>) -> Self {
+  pub fn new(steps: Vec<MillerStep<FHost>>) -> Self {
     Self { steps }
   }
 }
@@ -726,21 +787,29 @@ pub fn miller_loop(
 }
 
 #[derive(Clone, Debug)]
-struct AssignedVariableMultiMillerTerm {
-  point: AssignedG1Point,
-  current: AssignedG2MillerPoint,
-  base: AssignedG2Affine,
-  neg_base: AssignedG2Affine,
-  frobenius_q1: AssignedG2Affine,
-  frobenius_q2_neg_y: AssignedG2Affine,
+struct AssignedVariableMultiMillerTerm<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  point: AssignedG1Point<FHost>,
+  current: AssignedG2MillerPoint<FHost>,
+  base: AssignedG2Affine<FHost>,
+  neg_base: AssignedG2Affine<FHost>,
+  frobenius_q1: AssignedG2Affine<FHost>,
+  frobenius_q2_neg_y: AssignedG2Affine<FHost>,
 }
 
-impl AssignedVariableMultiMillerTerm {
+impl<FHost> AssignedVariableMultiMillerTerm<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   fn initialize(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    point: &AssignedG1Point,
-    g2: &AssignedG2Affine,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    point: &AssignedG1Point<FHost>,
+    g2: &AssignedG2Affine<FHost>,
   ) -> Result<Self, Error> {
     let neg_base = g2.neg(chip, layouter)?;
     let frobenius_q1 = g2_mul_by_char(g2, chip, layouter)?;
@@ -760,10 +829,10 @@ impl AssignedVariableMultiMillerTerm {
 
   fn advance_step(
     &mut self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     step: Bn254MillerScheduleStep,
-  ) -> Result<AssignedG2LineCoeffs, Error> {
+  ) -> Result<AssignedG2LineCoeffs<FHost>, Error> {
     match step {
       Bn254MillerScheduleStep::Double => {
         let (next, line) = self.current.double_with_line(chip, layouter)?;
@@ -786,15 +855,23 @@ impl AssignedVariableMultiMillerTerm {
 }
 
 #[derive(Clone, Debug)]
-struct AssignedPreparedConstantMultiMillerTerm {
-  point: AssignedG1Point,
+struct AssignedPreparedConstantMultiMillerTerm<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  point: AssignedG1Point<FHost>,
   prepared: PreparedConstantG2Miller,
   next_step: usize,
 }
 
-impl AssignedPreparedConstantMultiMillerTerm {
+impl<FHost> AssignedPreparedConstantMultiMillerTerm<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   fn initialize(
-    point: &AssignedG1Point,
+    point: &AssignedG1Point<FHost>,
     prepared: &PreparedConstantG2Miller,
   ) -> Result<Self, Error> {
     prepared.validate_against_schedule()?;
@@ -803,10 +880,10 @@ impl AssignedPreparedConstantMultiMillerTerm {
 
   fn advance_step(
     &mut self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     step: Bn254MillerScheduleStep,
-  ) -> Result<AssignedG2LineCoeffs, Error> {
+  ) -> Result<AssignedG2LineCoeffs<FHost>, Error> {
     let prepared_step = self.prepared.steps.get(self.next_step).ok_or_else(|| {
       Error::Synthesis(format!("prepared G2 line sequence exhausted at step {}", self.next_step))
     })?;
@@ -823,7 +900,7 @@ impl AssignedPreparedConstantMultiMillerTerm {
       }
     };
 
-    AssignedG2LineCoeffs::assign(
+    AssignedG2LineCoeffs::<FHost>::assign(
       chip,
       layouter,
       (Value::known(line.0.0), Value::known(line.0.1)),
@@ -834,25 +911,33 @@ impl AssignedPreparedConstantMultiMillerTerm {
 }
 
 #[derive(Clone, Debug)]
-enum AssignedInterleavedMultiMillerTerm {
-  Variable(AssignedVariableMultiMillerTerm),
-  Prepared(AssignedPreparedConstantMultiMillerTerm),
+enum AssignedInterleavedMultiMillerTerm<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  Variable(AssignedVariableMultiMillerTerm<FHost>),
+  Prepared(AssignedPreparedConstantMultiMillerTerm<FHost>),
 }
 
-impl AssignedInterleavedMultiMillerTerm {
+impl<FHost> AssignedInterleavedMultiMillerTerm<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   fn advance_step(
     &mut self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     step: Bn254MillerScheduleStep,
-  ) -> Result<AssignedG2LineCoeffs, Error> {
+  ) -> Result<AssignedG2LineCoeffs<FHost>, Error> {
     match self {
       Self::Variable(term) => term.advance_step(chip, layouter, step),
       Self::Prepared(term) => term.advance_step(chip, layouter, step),
     }
   }
 
-  fn point(&self) -> &AssignedG1Point {
+  fn point(&self) -> &AssignedG1Point<FHost> {
     match self {
       Self::Variable(term) => &term.point,
       Self::Prepared(term) => &term.point,
@@ -860,12 +945,16 @@ impl AssignedInterleavedMultiMillerTerm {
   }
 }
 
-fn run_interleaved_multi_miller_schedule(
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-  terms: &mut [AssignedInterleavedMultiMillerTerm],
-) -> Result<AssignedFp12, Error> {
-  let mut accumulator = AssignedMillerAccumulator::one(chip, layouter)?;
+fn run_interleaved_multi_miller_schedule<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  terms: &mut [AssignedInterleavedMultiMillerTerm<FHost>],
+) -> Result<AssignedFp12<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  let mut accumulator = AssignedMillerAccumulator::<FHost>::one(chip, layouter)?;
 
   for step in &Bn254MillerSchedule::bn254().steps {
     if matches!(step, Bn254MillerScheduleStep::Double) {
@@ -887,13 +976,17 @@ fn run_interleaved_multi_miller_schedule(
 /// real BN254 schedule for each term, multiplies the Miller outputs together,
 /// and leaves the single shared final exponentiation to higher-level product
 /// checks.
-pub fn multi_miller_loop(
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-  terms: &[(&AssignedG1Point, &AssignedG2Affine)],
-) -> Result<AssignedFp12, Error> {
+pub fn multi_miller_loop_on_host<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  terms: &[(&AssignedG1Point<FHost>, &AssignedG2Affine<FHost>)],
+) -> Result<AssignedFp12<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   if terms.is_empty() {
-    return AssignedFp12::one(chip, layouter);
+    return AssignedFp12::<FHost>::one(chip, layouter);
   }
 
   let mut initialized_terms = Vec::with_capacity(terms.len());
@@ -906,14 +999,27 @@ pub fn multi_miller_loop(
   run_interleaved_multi_miller_schedule(chip, layouter, &mut initialized_terms)
 }
 
-pub fn multi_miller_loop_with_prepared_terms(
-  chip: &Bn254FieldChip,
+/// Compatibility wrapper for the current BN254-hosted lane's multi-Miller loop.
+pub fn multi_miller_loop(
+  chip: &Bn254FieldChip<NativeField>,
   layouter: &mut impl Layouter<NativeField>,
-  variable_terms: &[(&AssignedG1Point, &AssignedG2Affine)],
-  prepared_terms: &[(&AssignedG1Point, &PreparedConstantG2Miller)],
-) -> Result<AssignedFp12, Error> {
+  terms: &[(&AssignedG1Point<NativeField>, &AssignedG2Affine<NativeField>)],
+) -> Result<AssignedFp12<NativeField>, Error> {
+  multi_miller_loop_on_host(chip, layouter, terms)
+}
+
+pub fn multi_miller_loop_with_prepared_terms_on_host<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  variable_terms: &[(&AssignedG1Point<FHost>, &AssignedG2Affine<FHost>)],
+  prepared_terms: &[(&AssignedG1Point<FHost>, &PreparedConstantG2Miller)],
+) -> Result<AssignedFp12<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   if variable_terms.is_empty() && prepared_terms.is_empty() {
-    return AssignedFp12::one(chip, layouter);
+    return AssignedFp12::<FHost>::one(chip, layouter);
   }
 
   let mut initialized_terms = Vec::with_capacity(variable_terms.len() + prepared_terms.len());
@@ -931,20 +1037,41 @@ pub fn multi_miller_loop_with_prepared_terms(
   run_interleaved_multi_miller_schedule(chip, layouter, &mut initialized_terms)
 }
 
-fn exp_by_neg_x(
-  chip: &Bn254FieldChip,
+/// Compatibility wrapper for a BN254-hosted multi-Miller loop with prepared
+/// constant G2 terms.
+#[allow(dead_code)]
+pub fn multi_miller_loop_with_prepared_terms(
+  chip: &Bn254FieldChip<NativeField>,
   layouter: &mut impl Layouter<NativeField>,
-  value: &AssignedFp12,
-) -> Result<AssignedFp12, Error> {
+  variable_terms: &[(&AssignedG1Point<NativeField>, &AssignedG2Affine<NativeField>)],
+  prepared_terms: &[(&AssignedG1Point<NativeField>, &PreparedConstantG2Miller)],
+) -> Result<AssignedFp12<NativeField>, Error> {
+  multi_miller_loop_with_prepared_terms_on_host(chip, layouter, variable_terms, prepared_terms)
+}
+
+#[allow(clippy::too_many_lines)]
+fn exp_by_neg_x<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  value: &AssignedFp12<FHost>,
+) -> Result<AssignedFp12<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   use crate::bn254::{
     BN254_EXP_BY_X_CHAIN_START, BN254_EXP_BY_X_CHAIN_STEPS, BN254_X_ABS, Bn254ExpByXWindow,
   };
 
-  fn cyclotomic_square_6_times(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    value: &AssignedFp12,
-  ) -> Result<AssignedFp12, Error> {
+  fn cyclotomic_square_6_times<FHost>(
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    value: &AssignedFp12<FHost>,
+  ) -> Result<AssignedFp12<FHost>, Error>
+  where
+    FHost: PrimeField + Field,
+    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+  {
     let value = value.cyclotomic_square(chip, layouter)?;
     let value = value.cyclotomic_square(chip, layouter)?;
     let value = value.cyclotomic_square(chip, layouter)?;
@@ -953,59 +1080,79 @@ fn exp_by_neg_x(
     value.cyclotomic_square(chip, layouter)
   }
 
-  fn cyclotomic_square_7_times(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    value: &AssignedFp12,
-  ) -> Result<AssignedFp12, Error> {
-    let value = cyclotomic_square_6_times(chip, layouter, value)?;
+  fn cyclotomic_square_7_times<FHost>(
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    value: &AssignedFp12<FHost>,
+  ) -> Result<AssignedFp12<FHost>, Error>
+  where
+    FHost: PrimeField + Field,
+    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+  {
+    let value = cyclotomic_square_6_times::<FHost>(chip, layouter, value)?;
     value.cyclotomic_square(chip, layouter)
   }
 
-  fn cyclotomic_square_8_times(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    value: &AssignedFp12,
-  ) -> Result<AssignedFp12, Error> {
-    let value = cyclotomic_square_7_times(chip, layouter, value)?;
+  fn cyclotomic_square_8_times<FHost>(
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    value: &AssignedFp12<FHost>,
+  ) -> Result<AssignedFp12<FHost>, Error>
+  where
+    FHost: PrimeField + Field,
+    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+  {
+    let value = cyclotomic_square_7_times::<FHost>(chip, layouter, value)?;
     value.cyclotomic_square(chip, layouter)
   }
 
-  fn cyclotomic_square_10_times(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    value: &AssignedFp12,
-  ) -> Result<AssignedFp12, Error> {
-    let value = cyclotomic_square_8_times(chip, layouter, value)?;
+  fn cyclotomic_square_10_times<FHost>(
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    value: &AssignedFp12<FHost>,
+  ) -> Result<AssignedFp12<FHost>, Error>
+  where
+    FHost: PrimeField + Field,
+    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+  {
+    let value = cyclotomic_square_8_times::<FHost>(chip, layouter, value)?;
     let value = value.cyclotomic_square(chip, layouter)?;
     value.cyclotomic_square(chip, layouter)
   }
 
-  fn cyclotomic_square_n_times(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    value: &AssignedFp12,
+  fn cyclotomic_square_n_times<FHost>(
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    value: &AssignedFp12<FHost>,
     square_count: u8,
-  ) -> Result<AssignedFp12, Error> {
+  ) -> Result<AssignedFp12<FHost>, Error>
+  where
+    FHost: PrimeField + Field,
+    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+  {
     match square_count {
-      6 => cyclotomic_square_6_times(chip, layouter, value),
-      7 => cyclotomic_square_7_times(chip, layouter, value),
-      8 => cyclotomic_square_8_times(chip, layouter, value),
-      10 => cyclotomic_square_10_times(chip, layouter, value),
+      6 => cyclotomic_square_6_times::<FHost>(chip, layouter, value),
+      7 => cyclotomic_square_7_times::<FHost>(chip, layouter, value),
+      8 => cyclotomic_square_8_times::<FHost>(chip, layouter, value),
+      10 => cyclotomic_square_10_times::<FHost>(chip, layouter, value),
       _ => unreachable!("unsupported BN254 exp-by-x square block"),
     }
   }
 
-  fn exp_by_x_window<'a>(
-    x17: &'a AssignedFp12,
-    x25: &'a AssignedFp12,
-    x29: &'a AssignedFp12,
-    x39: &'a AssignedFp12,
-    x41: &'a AssignedFp12,
-    x43: &'a AssignedFp12,
-    x49: &'a AssignedFp12,
+  fn exp_by_x_window<'a, FHost>(
+    x17: &'a AssignedFp12<FHost>,
+    x25: &'a AssignedFp12<FHost>,
+    x29: &'a AssignedFp12<FHost>,
+    x39: &'a AssignedFp12<FHost>,
+    x41: &'a AssignedFp12<FHost>,
+    x43: &'a AssignedFp12<FHost>,
+    x49: &'a AssignedFp12<FHost>,
     window: Bn254ExpByXWindow,
-  ) -> &'a AssignedFp12 {
+  ) -> &'a AssignedFp12<FHost>
+  where
+    FHost: PrimeField + Field,
+    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+  {
     match window {
       Bn254ExpByXWindow::X17 => x17,
       Bn254ExpByXWindow::X25 => x25,
@@ -1042,25 +1189,30 @@ fn exp_by_neg_x(
   let x49 = x32.mul(chip, layouter, &x17)?;
 
   let mut exp =
-    exp_by_x_window(&x17, &x25, &x29, &x39, &x41, &x43, &x49, BN254_EXP_BY_X_CHAIN_START).clone();
+    exp_by_x_window::<FHost>(&x17, &x25, &x29, &x39, &x41, &x43, &x49, BN254_EXP_BY_X_CHAIN_START)
+      .clone();
 
   for (square_count, window) in BN254_EXP_BY_X_CHAIN_STEPS {
-    exp = cyclotomic_square_n_times(chip, layouter, &exp, *square_count)?;
+    exp = cyclotomic_square_n_times::<FHost>(chip, layouter, &exp, *square_count)?;
     exp = exp.mul(
       chip,
       layouter,
-      exp_by_x_window(&x17, &x25, &x29, &x39, &x41, &x43, &x49, *window),
+      exp_by_x_window::<FHost>(&x17, &x25, &x29, &x39, &x41, &x43, &x49, *window),
     )?;
   }
 
   exp.unitary_inverse(chip, layouter)
 }
 
-fn final_exponentiation_easy_part(
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-  value: &AssignedFp12,
-) -> Result<AssignedFp12, Error> {
+fn final_exponentiation_easy_part<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  value: &AssignedFp12<FHost>,
+) -> Result<AssignedFp12<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   let f1 = value.unitary_inverse(chip, layouter)?;
   let f2 = value.inv(chip, layouter)?;
   let mut r = f1.mul(chip, layouter, &f2)?;
@@ -1069,11 +1221,15 @@ fn final_exponentiation_easy_part(
   r.mul(chip, layouter, &r_clone)
 }
 
-fn final_exponentiation_hard_part(
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-  value: &AssignedFp12,
-) -> Result<AssignedFp12, Error> {
+fn final_exponentiation_hard_part<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  value: &AssignedFp12<FHost>,
+) -> Result<AssignedFp12<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   // The easy part maps the Miller output into the cyclotomic subgroup, and the
   // hard-part multiplications and unitary inverses keep intermediates inside
   // that subgroup. The explicit square sites here can therefore use
@@ -1104,6 +1260,19 @@ fn final_exponentiation_hard_part(
   y15.mul(chip, layouter, &y14)
 }
 
+pub fn final_exponentiation_on_host<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  value: &AssignedFp12<FHost>,
+) -> Result<AssignedFp12<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  let easy = final_exponentiation_easy_part(chip, layouter, value)?;
+  final_exponentiation_hard_part(chip, layouter, &easy)
+}
+
 /// Runs the BN254 final exponentiation on a nonzero Miller-loop output.
 ///
 /// This implements the standard easy-part / hard-part decomposition used by
@@ -1115,12 +1284,11 @@ fn final_exponentiation_hard_part(
 ///
 /// Returns an error if any underlying Fp12 operation fails.
 pub fn final_exponentiation(
-  chip: &Bn254FieldChip,
+  chip: &Bn254FieldChip<NativeField>,
   layouter: &mut impl Layouter<NativeField>,
-  value: &AssignedFp12,
-) -> Result<AssignedFp12, Error> {
-  let easy = final_exponentiation_easy_part(chip, layouter, value)?;
-  final_exponentiation_hard_part(chip, layouter, &easy)
+  value: &AssignedFp12<NativeField>,
+) -> Result<AssignedFp12<NativeField>, Error> {
+  final_exponentiation_on_host(chip, layouter, value)
 }
 
 /// Checks whether a narrow BN254 multi-pairing product equals the target-group identity.
@@ -1128,14 +1296,18 @@ pub fn final_exponentiation(
 /// This computes each real Miller loop, multiplies the Miller outputs together,
 /// applies exactly one final exponentiation to the total product, and returns a
 /// native constrained boolean for the equality-to-one check.
-pub fn pairing_check(
-  chip: &Bn254FieldChip,
-  bool_chip: &Bn254BoolChip,
-  layouter: &mut impl Layouter<NativeField>,
-  terms: &[(&AssignedG1Point, &AssignedG2Affine)],
-) -> Result<AssignedBool, Error> {
-  let total_miller = multi_miller_loop(chip, layouter, terms)?;
-  let gt = final_exponentiation(chip, layouter, &total_miller)?;
+pub fn pairing_check_on_host<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  bool_chip: &Bn254BoolChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  terms: &[(&AssignedG1Point<FHost>, &AssignedG2Affine<FHost>)],
+) -> Result<AssignedBool<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  let total_miller = multi_miller_loop_on_host(chip, layouter, terms)?;
+  let gt = final_exponentiation_on_host(chip, layouter, &total_miller)?;
   let c0_0 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c0, ForeignField::ONE)?;
   let c0_1 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c1, ForeignField::ZERO)?;
   let c0_2 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c0, ForeignField::ZERO)?;
@@ -1152,16 +1324,30 @@ pub fn pairing_check(
   bool_chip.and(layouter, &[c0_0, c0_1, c0_2, c0_3, c0_4, c0_5, c1_0, c1_1, c1_2, c1_3, c1_4, c1_5])
 }
 
-pub fn pairing_check_with_prepared_terms(
-  chip: &Bn254FieldChip,
-  bool_chip: &Bn254BoolChip,
+/// Compatibility wrapper for the current BN254-hosted pairing product check.
+pub fn pairing_check(
+  chip: &Bn254FieldChip<NativeField>,
+  bool_chip: &Bn254BoolChip<NativeField>,
   layouter: &mut impl Layouter<NativeField>,
-  variable_terms: &[(&AssignedG1Point, &AssignedG2Affine)],
-  prepared_terms: &[(&AssignedG1Point, &PreparedConstantG2Miller)],
-) -> Result<AssignedBool, Error> {
+  terms: &[(&AssignedG1Point<NativeField>, &AssignedG2Affine<NativeField>)],
+) -> Result<AssignedBool<NativeField>, Error> {
+  pairing_check_on_host(chip, bool_chip, layouter, terms)
+}
+
+pub fn pairing_check_with_prepared_terms_on_host<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  bool_chip: &Bn254BoolChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  variable_terms: &[(&AssignedG1Point<FHost>, &AssignedG2Affine<FHost>)],
+  prepared_terms: &[(&AssignedG1Point<FHost>, &PreparedConstantG2Miller)],
+) -> Result<AssignedBool<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   let total_miller =
-    multi_miller_loop_with_prepared_terms(chip, layouter, variable_terms, prepared_terms)?;
-  let gt = final_exponentiation(chip, layouter, &total_miller)?;
+    multi_miller_loop_with_prepared_terms_on_host(chip, layouter, variable_terms, prepared_terms)?;
+  let gt = final_exponentiation_on_host(chip, layouter, &total_miller)?;
   let c0_0 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c0, ForeignField::ONE)?;
   let c0_1 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c1, ForeignField::ZERO)?;
   let c0_2 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c0, ForeignField::ZERO)?;
@@ -1176,6 +1362,24 @@ pub fn pairing_check_with_prepared_terms(
   let c1_5 = chip.is_equal_to_fixed(layouter, &gt.c1.c2.c1, ForeignField::ZERO)?;
 
   bool_chip.and(layouter, &[c0_0, c0_1, c0_2, c0_3, c0_4, c0_5, c1_0, c1_1, c1_2, c1_3, c1_4, c1_5])
+}
+
+/// Compatibility wrapper for the current BN254-hosted pairing product check
+/// with prepared constant G2 terms.
+pub fn pairing_check_with_prepared_terms(
+  chip: &Bn254FieldChip<NativeField>,
+  bool_chip: &Bn254BoolChip<NativeField>,
+  layouter: &mut impl Layouter<NativeField>,
+  variable_terms: &[(&AssignedG1Point<NativeField>, &AssignedG2Affine<NativeField>)],
+  prepared_terms: &[(&AssignedG1Point<NativeField>, &PreparedConstantG2Miller)],
+) -> Result<AssignedBool<NativeField>, Error> {
+  pairing_check_with_prepared_terms_on_host(
+    chip,
+    bool_chip,
+    layouter,
+    variable_terms,
+    prepared_terms,
+  )
 }
 
 /// Miller-step G2 state in homogeneous projective coordinates `(X : Y : Z)`.
@@ -1189,19 +1393,27 @@ pub fn pairing_check_with_prepared_terms(
 /// The represented affine point is `x = X / Z`, `y = Y / Z` for `Z != 0`.
 /// Identity handling is intentionally out of scope for this slice.
 #[derive(Clone, Debug)]
-pub struct AssignedG2MillerPoint {
+pub struct AssignedG2MillerPoint<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Homogeneous X coordinate in Fp2.
-  pub x: AssignedFp2,
+  pub x: AssignedFp2<FHost>,
   /// Homogeneous Y coordinate in Fp2.
-  pub y: AssignedFp2,
+  pub y: AssignedFp2<FHost>,
   /// Homogeneous Z coordinate in Fp2.
-  pub z: AssignedFp2,
+  pub z: AssignedFp2<FHost>,
 }
 
-impl AssignedG2MillerPoint {
+impl<FHost> AssignedG2MillerPoint<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Builds a Miller-step point from assigned Fp2 coordinates.
   #[must_use]
-  pub fn new(x: AssignedFp2, y: AssignedFp2, z: AssignedFp2) -> Self {
+  pub fn new(x: AssignedFp2<FHost>, y: AssignedFp2<FHost>, z: AssignedFp2<FHost>) -> Self {
     Self { x, y, z }
   }
 
@@ -1211,16 +1423,16 @@ impl AssignedG2MillerPoint {
   ///
   /// Returns an error if any underlying Fp2 assignment fails.
   pub fn assign(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     x: Fp2Value,
     y: Fp2Value,
     z: Fp2Value,
   ) -> Result<Self, Error> {
     Ok(Self::new(
-      AssignedFp2::assign(chip, layouter, x.0, x.1)?,
-      AssignedFp2::assign(chip, layouter, y.0, y.1)?,
-      AssignedFp2::assign(chip, layouter, z.0, z.1)?,
+      AssignedFp2::<FHost>::assign(chip, layouter, x.0, x.1)?,
+      AssignedFp2::<FHost>::assign(chip, layouter, y.0, y.1)?,
+      AssignedFp2::<FHost>::assign(chip, layouter, z.0, z.1)?,
     ))
   }
 
@@ -1230,11 +1442,11 @@ impl AssignedG2MillerPoint {
   ///
   /// Returns an error if assigning the homogeneous `Z = 1` coordinate fails.
   pub fn from_affine(
-    affine: &AssignedG2Affine,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    affine: &AssignedG2Affine<FHost>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
-    Ok(Self::new(affine.x.clone(), affine.y.clone(), AssignedFp2::one(chip, layouter)?))
+    Ok(Self::new(affine.x.clone(), affine.y.clone(), AssignedFp2::<FHost>::one(chip, layouter)?))
   }
 
   /// Performs a Miller-path doubling step and returns both the next point and its line coefficients.
@@ -1251,9 +1463,9 @@ impl AssignedG2MillerPoint {
   /// Returns an error if any underlying Fp2 operation fails.
   pub fn double_with_line(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-  ) -> Result<(Self, AssignedG2LineCoeffs), Error> {
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+  ) -> Result<(Self, AssignedG2LineCoeffs<FHost>), Error> {
     double_step_hom_projective(self, chip, layouter)
   }
 
@@ -1272,10 +1484,10 @@ impl AssignedG2MillerPoint {
   /// Returns an error if any underlying Fp2 operation fails.
   pub fn mixed_add_with_line(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    rhs: &AssignedG2Affine,
-  ) -> Result<(Self, AssignedG2LineCoeffs), Error> {
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    rhs: &AssignedG2Affine<FHost>,
+  ) -> Result<(Self, AssignedG2LineCoeffs<FHost>), Error> {
     mixed_add_step_hom_projective(self, rhs, chip, layouter)
   }
 
@@ -1286,8 +1498,8 @@ impl AssignedG2MillerPoint {
   /// Returns an error if any underlying Fp2 coordinate-equals-constant constraint fails.
   pub fn assert_equal_to_fixed(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     expected: G2MillerPointConstant,
   ) -> Result<(), Error> {
     self.x.assert_equal_to_fixed(chip, layouter, expected.0.0, expected.0.1)?;
@@ -1304,9 +1516,9 @@ impl AssignedG2MillerPoint {
   /// Returns an error if any underlying Fp2 operation or equality constraint fails.
   pub fn assert_equivalent_to_affine(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    expected: &AssignedG2Affine,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    expected: &AssignedG2Affine<FHost>,
   ) -> Result<(), Error> {
     let expected_x = expected.x.mul(chip, layouter, &self.z)?;
     let expected_y = expected.y.mul(chip, layouter, &self.z)?;
@@ -2017,7 +2229,8 @@ impl Circuit<NativeField> for MillerLoopCircuit {
     }
 
     let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
-    let actual = miller_loop(&chip, &mut layouter, &point, &PreparedG2Miller::new(prepared))?;
+    let actual =
+      miller_loop(&chip, &mut layouter, &point, &PreparedG2Miller::<NativeField>::new(prepared))?;
     actual.assert_equal(&chip, &mut layouter, &expected)?;
     chip.load(&mut layouter)
   }
@@ -2532,7 +2745,8 @@ impl Circuit<NativeField> for PairingFinalExponentiationCircuit {
       });
     }
 
-    let miller = miller_loop(&chip, &mut layouter, &point, &PreparedG2Miller::new(prepared))?;
+    let miller =
+      miller_loop(&chip, &mut layouter, &point, &PreparedG2Miller::<NativeField>::new(prepared))?;
     let actual = final_exponentiation(&chip, &mut layouter, &miller)?;
     let expected = AssignedFp12::assign(&chip, &mut layouter, self.expected.0, self.expected.1)?;
     actual.assert_equal(&chip, &mut layouter, &expected)?;

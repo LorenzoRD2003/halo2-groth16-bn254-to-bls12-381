@@ -1,5 +1,5 @@
 use ff::{Field, PrimeField};
-use wrapper_circuits::{OuterHostField, OuterWrapperCircuit};
+use wrapper_circuits::{OuterHostField, OuterWrapperCircuit, lift_outer_inputs_to_host};
 use wrapper_core::{ExpectedWrapperArtifacts, ProofSystemKind, WrapperExecutionPackage};
 
 use super::{OuterProofBackendError, OuterProofBackendMetadata};
@@ -83,6 +83,12 @@ pub(super) fn hex_decode(value: &str) -> Result<Vec<u8>, OuterProofBackendError>
 
 pub(super) fn outer_instance_columns(circuit: &OuterWrapperCircuit) -> [&[OuterHostField]; 2] {
   [circuit.input.outer_statement.public_inputs.as_slice(), &[]]
+}
+
+pub(super) fn outer_instance_columns_for_host<FHost: PrimeField>(
+  circuit: &OuterWrapperCircuit,
+) -> [Vec<FHost>; 2] {
+  [lift_outer_inputs_to_host(&circuit.input.outer_statement.public_inputs), Vec::new()]
 }
 
 pub(super) fn expected_output_for_backend(

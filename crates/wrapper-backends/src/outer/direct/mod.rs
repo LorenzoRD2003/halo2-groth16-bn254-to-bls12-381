@@ -18,7 +18,7 @@ use super::{
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MidnightDirectOuterBackendBn254Host;
 
-/// Placeholder direct backend for the future BLS12-hosted outer lane.
+/// Direct backend for the BLS12-hosted outer lane.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MidnightDirectOuterBackendBls12Host;
 
@@ -63,17 +63,19 @@ const MIDNIGHT_DIRECT_BLS12_BACKEND_METADATA: OuterProofBackendMetadata =
     inner_verifier: InnerVerifierFlavor::Groth16Bn254,
     outer_host: OuterHostFlavor::MidnightBls12_381,
     serialization: OuterArtifactSerializationFlavor::SerdeJsonHexEncodedProcessed,
-    stack: "direct halo2/midnight outer lane over the canonical outer wrapper circuit (bls12-381 host placeholder)",
+    stack: "direct halo2/midnight outer lane over the canonical outer wrapper circuit (bls12-381 host)",
     protocol: OuterHostFlavor::MidnightBls12_381.protocol(),
     curve: OuterHostFlavor::MidnightBls12_381.curve(),
     pcs: OuterHostFlavor::MidnightBls12_381.pcs(),
     transcript: OuterHostFlavor::MidnightBls12_381.transcript(),
-    supports_setup: false,
-    supports_prove: false,
-    supports_verify: false,
+    supports_setup: true,
+    supports_prove: true,
+    supports_verify: true,
     setup_assumptions: &[
-      "the future BLS12-hosted lane keeps the same canonical outer semantic circuit",
-      "the host-lane proving integration is not wired yet in the current repository phase",
+      "the BLS12-hosted lane keeps the same canonical outer semantic circuit",
+      "the direct backend uses midnight_proofs keygen over a KZG commitment scheme on the BLS12-381 host",
+      "trusted setup output must be serialized once and then reused across proofs for the same circuit size",
+      "the wrapper statement mirrors the ordered inner verifier public inputs exactly",
     ],
     serialization_conventions: &[
       "proof and verification-key artifacts keep the same serde-json-hex contract family",
@@ -81,7 +83,7 @@ const MIDNIGHT_DIRECT_BLS12_BACKEND_METADATA: OuterProofBackendMetadata =
     ],
     compatibility_notes: &[
       "this is an additive sibling lane to the current BN254-hosted direct backend",
-      "prepare() is shape-honest, but setup/prove/verify remain intentionally unavailable",
+      "setup, proof generation, and verification are real on the BLS12-381-hosted lane",
     ],
   };
 
@@ -173,53 +175,48 @@ impl OuterProofBackend for MidnightDirectOuterBackendBls12Host {
 
     let mut planned = expected_output_for_backend(package, self.metadata());
     planned.notes.push(format!("selected outer backend stack: {}", self.metadata().stack));
+    planned
+      .notes
+      .push("selected backend is the direct halo2/midnight BLS12-hosted proving lane".to_owned());
     planned.notes.push(
-      "selected backend is the future BLS12-hosted direct lane; artifact shapes are honest but proving remains unavailable"
+      "setup uses midnight_proofs keygen over the canonical outer circuit with BLS12-381 KZG verifier parameters serialized alongside the VK"
         .to_owned(),
     );
     planned
       .notes
       .extend(self.metadata().serialization_conventions.iter().map(|note| (*note).to_owned()));
-    planned.bundle_template.notes.push(
-      "selected backend is the direct halo2/midnight BLS12-hosted placeholder lane".to_owned(),
-    );
+    planned
+      .bundle_template
+      .notes
+      .push("selected backend is the direct halo2/midnight BLS12-hosted lane".to_owned());
     Ok(planned)
   }
 
   fn setup(
     &self,
     package: &WrapperExecutionPackage,
-    _artifacts: OuterCircuitInputArtifacts<'_>,
+    artifacts: OuterCircuitInputArtifacts<'_>,
   ) -> Result<ProducedOuterVerificationKeyJson, OuterProofBackendError> {
-    let _ = self.prepare(package)?;
-    Err(OuterProofBackendError::MissingDirectOuterCircuitBackend {
-      backend: self.backend_id(),
-      circuit_stack: "halo2/midnight outer wrapper circuit on bls12-381 host lane",
-    })
+    let circuit = self.build_outer_circuit(package, artifacts)?;
+    self.produce_setup_verification_key(package, &circuit)
   }
 
   fn prove(
     &self,
     package: &WrapperExecutionPackage,
-    _artifacts: OuterCircuitInputArtifacts<'_>,
+    artifacts: OuterCircuitInputArtifacts<'_>,
   ) -> Result<ProducedOuterProofArtifactBundle, OuterProofBackendError> {
-    let _ = self.prepare(package)?;
-    Err(OuterProofBackendError::MissingDirectOuterCircuitBackend {
-      backend: self.backend_id(),
-      circuit_stack: "halo2/midnight outer wrapper circuit on bls12-381 host lane",
-    })
+    let circuit = self.build_outer_circuit(package, artifacts)?;
+    self.produce_proof_bundle(package, &circuit)
   }
 
   fn verify(
     &self,
     package: &WrapperExecutionPackage,
-    _produced: &ProducedOuterProofArtifactBundle,
-    _artifacts: OuterCircuitInputArtifacts<'_>,
+    produced: &ProducedOuterProofArtifactBundle,
+    artifacts: OuterCircuitInputArtifacts<'_>,
   ) -> Result<bool, OuterProofBackendError> {
-    let _ = self.prepare(package)?;
-    Err(OuterProofBackendError::MissingDirectOuterCircuitBackend {
-      backend: self.backend_id(),
-      circuit_stack: "halo2/midnight outer wrapper circuit on bls12-381 host lane",
-    })
+    let circuit = self.build_outer_circuit(package, artifacts)?;
+    self.verify_produced_bundle(package, produced, &circuit)
   }
 }

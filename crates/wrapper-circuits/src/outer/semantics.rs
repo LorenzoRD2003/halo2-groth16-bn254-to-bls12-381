@@ -1,5 +1,7 @@
 //! Inner-verifier semantics owned by the canonical outer wrapper circuit.
 
+use ff::{Field, PrimeField};
+use midnight_circuits::field::foreign::params::{FieldEmulationParams, MultiEmulationParams};
 use midnight_circuits::midnight_proofs::{
   circuit::Layouter,
   plonk::{Column, Error, Instance},
@@ -7,32 +9,38 @@ use midnight_circuits::midnight_proofs::{
 
 use crate::{
   Bn254BoolChip, Bn254BoolConfig,
-  bn254::{Bn254FieldChip, Bn254FieldConfig, Bn254G1Chip, Bn254G1Config},
-  groth16_verify,
+  bn254::{Bn254FieldChip, Bn254FieldConfig},
+  groth16::groth16_verify_on_host,
 };
 
 use super::{OuterHostField, OuterWrapperCircuitInput};
 
 /// BN254 Groth16 verifier semantics configured as non-native logic inside the outer circuit.
 #[derive(Clone, Debug)]
-pub struct Bn254InnerVerifierConfig {
-  field: Bn254FieldConfig,
-  bools: Bn254BoolConfig,
-  g1: Bn254G1Config,
+pub struct Bn254InnerVerifierConfig<FHost = OuterHostField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, crate::ForeignField>,
+{
+  field: Bn254FieldConfig<FHost>,
+  bools: Bn254BoolConfig<FHost>,
 }
 
-impl Bn254InnerVerifierConfig {
+impl<FHost> Bn254InnerVerifierConfig<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, crate::ForeignField>,
+{
   /// Configures the BN254 verifier semantics against one chosen host-lane
   /// instance-column layout.
   #[must_use]
   pub fn configure(
-    meta: &mut midnight_circuits::midnight_proofs::plonk::ConstraintSystem<OuterHostField>,
+    meta: &mut midnight_circuits::midnight_proofs::plonk::ConstraintSystem<FHost>,
     instance_columns: &[Column<Instance>; 2],
   ) -> Self {
     Self {
       field: Bn254FieldConfig::configure_with_instances(meta, instance_columns),
       bools: Bn254BoolConfig::configure_with_instances(meta, instance_columns),
-      g1: Bn254G1Config::configure_with_instances(meta, instance_columns),
     }
   }
 
@@ -44,17 +52,14 @@ impl Bn254InnerVerifierConfig {
   /// proving the current BN254 inner verifier semantics.
   pub fn synthesize(
     &self,
-    layouter: &mut impl Layouter<OuterHostField>,
+    layouter: &mut impl Layouter<FHost>,
     input: &OuterWrapperCircuitInput,
   ) -> Result<(), Error> {
     let field_chip = Bn254FieldChip::new(&self.field);
     let bool_chip = Bn254BoolChip::new(&self.bools);
-    let g1_chip = Bn254G1Chip::new(&self.g1);
-
-    let result = groth16_verify(
+    let result = groth16_verify_on_host(
       &field_chip,
       &bool_chip,
-      &g1_chip,
       layouter,
       &input.inner_verification_key,
       &input.inner_proof,
@@ -67,7 +72,6 @@ impl Bn254InnerVerifierConfig {
 
     bool_chip.assert_equal_to_fixed(layouter, &result, true)?;
     field_chip.load(layouter)?;
-    bool_chip.load(layouter)?;
-    g1_chip.load(layouter)
+    bool_chip.load(layouter)
   }
 }

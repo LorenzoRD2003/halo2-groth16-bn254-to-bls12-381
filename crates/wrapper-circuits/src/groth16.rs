@@ -7,8 +7,9 @@
 //! - broader backend orchestration, generalized serialization, and public API
 //!   frameworks remain out of scope
 
-use ff::Field;
+use ff::{Field, PrimeField};
 use halo2curves::group::Group;
+use midnight_circuits::field::foreign::params::{FieldEmulationParams, MultiEmulationParams};
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
@@ -16,10 +17,11 @@ use midnight_circuits::midnight_proofs::{
 use midnight_curves::{CurveAffine, bn256::G1Affine};
 use thiserror::Error;
 
+use crate::bn254::AssignedFieldExt;
 use crate::bn254::{
-  AssignedBool, AssignedG1, AssignedG1Point, AssignedG2Affine, Bn254BoolChip, Bn254BoolConfig,
-  Bn254FieldChip, Bn254FieldConfig, Bn254G1Chip, Bn254G1Config, ForeignCurve, ForeignField,
-  NativeField, PreparedConstantG2Miller, pairing_check_with_prepared_terms,
+  AssignedBool, AssignedG1Point, AssignedG2Affine, Bn254BoolChip, Bn254BoolConfig, Bn254FieldChip,
+  Bn254FieldConfig, ForeignCurve, ForeignField, NativeField, PreparedConstantG2Miller,
+  pairing_check_with_prepared_terms_on_host,
 };
 
 pub mod fixtures;
@@ -189,22 +191,36 @@ pub enum Groth16VerifierError {
 }
 
 fn assign_g1_affine(
-  chip: &Bn254G1Chip,
+  chip: &Bn254FieldChip<NativeField>,
   layouter: &mut impl Layouter<NativeField>,
   point: Groth16Bn254G1Point,
-) -> Result<AssignedG1, Error> {
+) -> Result<AssignedG1Point<NativeField>, Error> {
+  assign_g1_affine_on_host(chip, layouter, point)
+}
+
+fn assign_g1_affine_on_host<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  point: Groth16Bn254G1Point,
+) -> Result<AssignedG1Point<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   match point {
-    Groth16Bn254G1Point::Identity => chip.assign(layouter, Value::known(ForeignCurve::identity())),
-    Groth16Bn254G1Point::Affine { x, y } => {
-      let x = chip.assign_coordinate(layouter, Value::known(x))?;
-      let y = chip.assign_coordinate(layouter, Value::known(y))?;
-      chip.point_from_coordinates(layouter, &x, &y)
-    }
+    Groth16Bn254G1Point::Identity => Ok(AssignedG1Point::new(
+      chip.assign(layouter, Value::known(ForeignField::ZERO))?,
+      chip.assign(layouter, Value::known(ForeignField::ZERO))?,
+    )),
+    Groth16Bn254G1Point::Affine { x, y } => Ok(AssignedG1Point::new(
+      chip.assign(layouter, Value::known(x))?,
+      chip.assign(layouter, Value::known(y))?,
+    )),
   }
 }
 
 fn assign_g2_affine(
-  chip: &Bn254FieldChip,
+  chip: &Bn254FieldChip<NativeField>,
   layouter: &mut impl Layouter<NativeField>,
   coords: G2AffineCoordinates,
 ) -> Result<AssignedG2Affine, Error> {
@@ -216,17 +232,36 @@ fn assign_g2_affine(
   )
 }
 
-fn assigned_g1_to_pairing_point(chip: &Bn254G1Chip, point: &AssignedG1) -> AssignedG1Point {
-  AssignedG1Point::new(chip.x_coordinate(point), chip.y_coordinate(point))
+fn assign_g2_affine_on_host<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  coords: G2AffineCoordinates,
+) -> Result<AssignedG2Affine<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  AssignedG2Affine::assign(
+    chip,
+    layouter,
+    (Value::known((coords.0).0), Value::known((coords.0).1)),
+    (Value::known((coords.1).0), Value::known((coords.1).1)),
+  )
 }
 
-fn assert_non_identity(
-  g1_chip: &Bn254G1Chip,
-  bool_chip: &Bn254BoolChip,
-  layouter: &mut impl Layouter<NativeField>,
-  point: &AssignedG1,
-) -> Result<(), Groth16VerifierError> {
-  let is_identity = g1_chip.is_identity(layouter, point)?;
+fn assert_non_identity_pairing_point_on_host<FHost>(
+  field_chip: &Bn254FieldChip<FHost>,
+  bool_chip: &Bn254BoolChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  point: &AssignedG1Point<FHost>,
+) -> Result<(), Groth16VerifierError>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  let x_is_zero = field_chip.is_equal_to_fixed(layouter, &point.x, ForeignField::ZERO)?;
+  let y_is_zero = field_chip.is_equal_to_fixed(layouter, &point.y, ForeignField::ZERO)?;
+  let is_identity = bool_chip.and(layouter, &[x_is_zero, y_is_zero])?;
   bool_chip.assert_equal_to_fixed(layouter, &is_identity, false)?;
   Ok(())
 }
@@ -235,6 +270,16 @@ fn validate_public_input_shape(
   vk: &Groth16Bn254VerifyingKey,
   public_inputs: &[NativeField],
 ) -> Result<(), Groth16VerifierError> {
+  validate_public_input_shape_on_host(vk, public_inputs)
+}
+
+fn validate_public_input_shape_on_host<FHost>(
+  vk: &Groth16Bn254VerifyingKey,
+  public_inputs: &[FHost],
+) -> Result<(), Groth16VerifierError>
+where
+  FHost: PrimeField,
+{
   let Some(expected) = vk.ic.len().checked_sub(1) else {
     return Err(Groth16VerifierError::EmptyIcTable);
   };
@@ -249,6 +294,101 @@ fn validate_public_input_shape(
   Ok(())
 }
 
+struct Groth16PairingPoints<'a, FHost>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  proof_a_pair: &'a AssignedG1Point<FHost>,
+  proof_b: &'a AssignedG2Affine<FHost>,
+  neg_alpha_pair: &'a AssignedG1Point<FHost>,
+  neg_vk_x_pair: &'a AssignedG1Point<FHost>,
+  neg_c_pair: &'a AssignedG1Point<FHost>,
+  prepared_beta_g2: &'a PreparedConstantG2Miller,
+  prepared_gamma_g2: &'a PreparedConstantG2Miller,
+  prepared_delta_g2: &'a PreparedConstantG2Miller,
+}
+
+fn groth16_verify_with_pairing_points_on_host<FHost>(
+  field_chip: &Bn254FieldChip<FHost>,
+  bool_chip: &Bn254BoolChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  points: Groth16PairingPoints<'_, FHost>,
+) -> Result<AssignedBool<FHost>, Groth16VerifierError>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  assert_non_identity_pairing_point_on_host(field_chip, bool_chip, layouter, points.proof_a_pair)?;
+  assert_non_identity_pairing_point_on_host(
+    field_chip,
+    bool_chip,
+    layouter,
+    points.neg_alpha_pair,
+  )?;
+  assert_non_identity_pairing_point_on_host(field_chip, bool_chip, layouter, points.neg_vk_x_pair)?;
+  assert_non_identity_pairing_point_on_host(field_chip, bool_chip, layouter, points.neg_c_pair)?;
+
+  let variable_terms = [(points.proof_a_pair, points.proof_b)];
+  let prepared_terms = [
+    (points.neg_alpha_pair, points.prepared_beta_g2),
+    (points.neg_vk_x_pair, points.prepared_gamma_g2),
+    (points.neg_c_pair, points.prepared_delta_g2),
+  ];
+
+  pairing_check_with_prepared_terms_on_host(
+    field_chip,
+    bool_chip,
+    layouter,
+    &variable_terms,
+    &prepared_terms,
+  )
+  .map_err(Groth16VerifierError::Circuit)
+}
+
+pub fn groth16_verify_on_host<FHost>(
+  field_chip: &Bn254FieldChip<FHost>,
+  bool_chip: &Bn254BoolChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  vk: &Groth16Bn254VerifyingKey,
+  proof: &Groth16Bn254Proof,
+  public_inputs: &[NativeField],
+) -> Result<AssignedBool<FHost>, Groth16VerifierError>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  validate_public_input_shape(vk, public_inputs)?;
+
+  let proof_a_pair = assign_g1_affine_on_host(field_chip, layouter, proof.a)?;
+  let neg_c_pair = assign_g1_affine_on_host(field_chip, layouter, groth16_negate_g1(proof.c))?;
+  let neg_alpha_pair =
+    assign_g1_affine_on_host(field_chip, layouter, groth16_negate_g1(vk.alpha_g1))?;
+  let vk_x_constant = groth16_public_input_accumulator_constant(vk, public_inputs);
+  let neg_vk_x_pair =
+    assign_g1_affine_on_host(field_chip, layouter, groth16_negate_g1(vk_x_constant))?;
+  let proof_b = assign_g2_affine_on_host(field_chip, layouter, proof.b)?;
+  let prepared_beta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.beta_g2);
+  let prepared_gamma_g2 = PreparedConstantG2Miller::from_affine_constant(vk.gamma_g2);
+  let prepared_delta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.delta_g2);
+
+  groth16_verify_with_pairing_points_on_host(
+    field_chip,
+    bool_chip,
+    layouter,
+    Groth16PairingPoints {
+      proof_a_pair: &proof_a_pair,
+      proof_b: &proof_b,
+      neg_alpha_pair: &neg_alpha_pair,
+      neg_vk_x_pair: &neg_vk_x_pair,
+      neg_c_pair: &neg_c_pair,
+      prepared_beta_g2: &prepared_beta_g2,
+      prepared_gamma_g2: &prepared_gamma_g2,
+      prepared_delta_g2: &prepared_delta_g2,
+    },
+  )
+}
+
 /// Computes the verifier-side IC accumulator
 /// `vk_x = IC_0 + sum_i public_input_i * IC_i`.
 ///
@@ -256,26 +396,14 @@ fn validate_public_input_shape(
 /// existing Midnight G1 chip because the repository still does not expose a
 /// broader public G1 scalar-multiplication API.
 pub fn groth16_accumulate_ic(
-  g1_chip: &Bn254G1Chip,
+  _field_chip: &Bn254FieldChip<NativeField>,
   layouter: &mut impl Layouter<NativeField>,
   vk: &Groth16Bn254VerifyingKey,
   public_inputs: &[NativeField],
-) -> Result<AssignedG1, Groth16VerifierError> {
+) -> Result<Groth16Bn254G1Point, Groth16VerifierError> {
   validate_public_input_shape(vk, public_inputs)?;
-
-  let mut accumulator = assign_g1_affine(g1_chip, layouter, vk.ic[0])?;
-
-  for (scalar, ic_point) in public_inputs.iter().zip(vk.ic.iter().skip(1)) {
-    if scalar.is_zero_vartime() || matches!(ic_point, Groth16Bn254G1Point::Identity) {
-      continue;
-    }
-
-    let scaled_constant = groth16_g1_to_midnight_curve(*ic_point) * *scalar;
-    let scaled = g1_chip.assign(layouter, Value::known(scaled_constant))?;
-    accumulator = g1_chip.add(layouter, &accumulator, &scaled)?;
-  }
-
-  Ok(accumulator)
+  let _ = layouter;
+  Ok(groth16_public_input_accumulator_constant(vk, public_inputs))
 }
 /// Verifies one narrow BN254 Groth16 proof with the landed pairing core.
 ///
@@ -291,7 +419,6 @@ pub fn groth16_accumulate_ic(
 pub fn groth16_verify(
   field_chip: &Bn254FieldChip,
   bool_chip: &Bn254BoolChip,
-  g1_chip: &Bn254G1Chip,
   layouter: &mut impl Layouter<NativeField>,
   vk: &Groth16Bn254VerifyingKey,
   proof: &Groth16Bn254Proof,
@@ -299,51 +426,38 @@ pub fn groth16_verify(
 ) -> Result<AssignedBool, Groth16VerifierError> {
   validate_public_input_shape(vk, public_inputs)?;
 
-  let proof_a = assign_g1_affine(g1_chip, layouter, proof.a)?;
-  let proof_c = assign_g1_affine(g1_chip, layouter, proof.c)?;
-  let alpha_g1 = assign_g1_affine(g1_chip, layouter, vk.alpha_g1)?;
-  let vk_x = groth16_accumulate_ic(g1_chip, layouter, vk, public_inputs)?;
-
-  assert_non_identity(g1_chip, bool_chip, layouter, &proof_a)?;
-  assert_non_identity(g1_chip, bool_chip, layouter, &proof_c)?;
-  assert_non_identity(g1_chip, bool_chip, layouter, &alpha_g1)?;
-  assert_non_identity(g1_chip, bool_chip, layouter, &vk_x)?;
-
-  let neg_alpha = g1_chip.negate(layouter, &alpha_g1)?;
-  let neg_vk_x = g1_chip.negate(layouter, &vk_x)?;
-  let neg_c = g1_chip.negate(layouter, &proof_c)?;
+  let proof_a_pair = assign_g1_affine(field_chip, layouter, proof.a)?;
+  let neg_c_pair = assign_g1_affine(field_chip, layouter, groth16_negate_g1(proof.c))?;
+  let neg_alpha_pair = assign_g1_affine(field_chip, layouter, groth16_negate_g1(vk.alpha_g1))?;
+  let vk_x_constant = groth16_accumulate_ic(field_chip, layouter, vk, public_inputs)?;
+  let neg_vk_x_pair = assign_g1_affine(field_chip, layouter, groth16_negate_g1(vk_x_constant))?;
 
   let proof_b = assign_g2_affine(field_chip, layouter, proof.b)?;
   let prepared_beta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.beta_g2);
   let prepared_gamma_g2 = PreparedConstantG2Miller::from_affine_constant(vk.gamma_g2);
   let prepared_delta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.delta_g2);
 
-  let proof_a_pair = assigned_g1_to_pairing_point(g1_chip, &proof_a);
-  let neg_alpha_pair = assigned_g1_to_pairing_point(g1_chip, &neg_alpha);
-  let neg_vk_x_pair = assigned_g1_to_pairing_point(g1_chip, &neg_vk_x);
-  let neg_c_pair = assigned_g1_to_pairing_point(g1_chip, &neg_c);
-
-  let variable_terms = [(&proof_a_pair, &proof_b)];
-  let prepared_terms = [
-    (&neg_alpha_pair, &prepared_beta_g2),
-    (&neg_vk_x_pair, &prepared_gamma_g2),
-    (&neg_c_pair, &prepared_delta_g2),
-  ];
-
-  Ok(pairing_check_with_prepared_terms(
+  groth16_verify_with_pairing_points_on_host(
     field_chip,
     bool_chip,
     layouter,
-    &variable_terms,
-    &prepared_terms,
-  )?)
+    Groth16PairingPoints {
+      proof_a_pair: &proof_a_pair,
+      proof_b: &proof_b,
+      neg_alpha_pair: &neg_alpha_pair,
+      neg_vk_x_pair: &neg_vk_x_pair,
+      neg_c_pair: &neg_c_pair,
+      prepared_beta_g2: &prepared_beta_g2,
+      prepared_gamma_g2: &prepared_gamma_g2,
+      prepared_delta_g2: &prepared_delta_g2,
+    },
+  )
 }
 
 #[derive(Clone, Debug)]
 pub struct Groth16VerifierConfig {
   field: Bn254FieldConfig,
   bools: Bn254BoolConfig,
-  g1: Bn254G1Config,
 }
 
 /// Small circuit that exercises the narrow BN254 Groth16 verifier slice.
@@ -387,7 +501,6 @@ impl Circuit<NativeField> for Groth16Bn254VerifierCircuit {
     Groth16VerifierConfig {
       field: Bn254FieldConfig::configure_with_instances(meta, &instance_columns),
       bools: Bn254BoolConfig::configure_with_instances(meta, &instance_columns),
-      g1: Bn254G1Config::configure_with_instances(meta, &instance_columns),
     }
   }
 
@@ -398,12 +511,9 @@ impl Circuit<NativeField> for Groth16Bn254VerifierCircuit {
   ) -> Result<(), Error> {
     let field_chip = Bn254FieldChip::new(&config.field);
     let bool_chip = Bn254BoolChip::new(&config.bools);
-    let g1_chip = Bn254G1Chip::new(&config.g1);
-
     let result = groth16_verify(
       &field_chip,
       &bool_chip,
-      &g1_chip,
       &mut layouter,
       &self.vk,
       &self.proof,
@@ -416,14 +526,13 @@ impl Circuit<NativeField> for Groth16Bn254VerifierCircuit {
 
     bool_chip.assert_equal_to_fixed(&mut layouter, &result, self.expected)?;
     field_chip.load(&mut layouter)?;
-    bool_chip.load(&mut layouter)?;
-    g1_chip.load(&mut layouter)
+    bool_chip.load(&mut layouter)
   }
 }
 
 #[derive(Clone, Debug)]
 pub struct Groth16IcAccumulatorConfig {
-  g1: Bn254G1Config,
+  field: Bn254FieldConfig,
 }
 
 /// Small circuit that locks the IC accumulator against a known expected point.
@@ -431,7 +540,7 @@ pub struct Groth16IcAccumulatorConfig {
 pub struct Groth16IcAccumulatorCircuit {
   vk: Groth16Bn254VerifyingKey,
   public_inputs: Vec<NativeField>,
-  expected: ForeignCurve,
+  expected: Groth16Bn254G1Point,
 }
 
 impl Groth16IcAccumulatorCircuit {
@@ -442,6 +551,12 @@ impl Groth16IcAccumulatorCircuit {
     public_inputs: Vec<NativeField>,
     expected: ForeignCurve,
   ) -> Self {
+    let expected = match Option::<midnight_curves::Coordinates<G1Affine>>::from(
+      G1Affine::from(expected).coordinates(),
+    ) {
+      Some(coordinates) => Groth16Bn254G1Point::affine(*coordinates.x(), *coordinates.y()),
+      None => Groth16Bn254G1Point::Identity,
+    };
     Self { vk, public_inputs, expected }
   }
 }
@@ -460,7 +575,7 @@ impl Circuit<NativeField> for Groth16IcAccumulatorCircuit {
   }
 
   fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
-    Groth16IcAccumulatorConfig { g1: Bn254G1Config::configure(meta) }
+    Groth16IcAccumulatorConfig { field: Bn254FieldConfig::configure(meta) }
   }
 
   fn synthesize(
@@ -468,15 +583,19 @@ impl Circuit<NativeField> for Groth16IcAccumulatorCircuit {
     config: Self::Config,
     mut layouter: impl Layouter<NativeField>,
   ) -> Result<(), Error> {
-    let g1_chip = Bn254G1Chip::new(&config.g1);
-    let accumulator = groth16_accumulate_ic(&g1_chip, &mut layouter, &self.vk, &self.public_inputs)
-      .map_err(|error| match error {
-        Groth16VerifierError::Circuit(inner) => inner,
-        _ => Error::Synthesis(error.to_string()),
-      })?;
-
-    g1_chip.assert_equal_to_fixed(&mut layouter, &accumulator, self.expected)?;
-    g1_chip.load(&mut layouter)
+    let field_chip = Bn254FieldChip::new(&config.field);
+    let accumulator =
+      groth16_accumulate_ic(&field_chip, &mut layouter, &self.vk, &self.public_inputs).map_err(
+        |error| match error {
+          Groth16VerifierError::Circuit(inner) => inner,
+          _ => Error::Synthesis(error.to_string()),
+        },
+      )?;
+    let assigned = assign_g1_affine(&field_chip, &mut layouter, accumulator)?;
+    let expected = assign_g1_affine(&field_chip, &mut layouter, self.expected)?;
+    assigned.x.assert_equal(&field_chip, &mut layouter, &expected.x)?;
+    assigned.y.assert_equal(&field_chip, &mut layouter, &expected.y)?;
+    field_chip.load(&mut layouter)
   }
 }
 

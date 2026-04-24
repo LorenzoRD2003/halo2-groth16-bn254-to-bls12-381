@@ -15,8 +15,12 @@ pub use host::{
   InnerVerifierFlavor, MidnightBls12_381HostConfigShell, MidnightBls12_381HostLane,
   MidnightBn254HostConfig, MidnightBn254HostLane, OuterArtifactSerializationFlavor,
   OuterHostConfig, OuterHostField, OuterHostFlavor, OuterHostLane, OuterWrapperFlavorProfile,
+  lift_outer_input_to_host, lift_outer_inputs_to_host,
 };
-pub use hosted::{HostedOuterWrapperCircuit, OuterWrapperHostConfig};
+pub use hosted::{
+  HostedOuterWrapperCircuit, HostedOuterWrapperCircuitBls12, HostedOuterWrapperCircuitBn254,
+  OuterWrapperHostConfig, OuterWrapperHostConfigBls12, OuterWrapperHostConfigBn254,
+};
 pub use input::OuterWrapperCircuitInput;
 pub use r1cs::{
   OuterCanonicalR1csLoweringError, OuterCanonicalR1csLoweringReport, OuterCanonicalR1csSliceKind,
@@ -111,7 +115,7 @@ impl OuterWrapperCircuit {
       return Err(WrapperError::InvalidInput {
         context: "outer host flavor",
         reason: format!(
-          "host lane '{}' is planned but not yet wired to the canonical outer circuit in the current repository phase",
+          "host lane '{}' is not wired to the canonical outer circuit in the current repository phase",
           self.flavors.outer_host.id()
         ),
       });
@@ -126,10 +130,34 @@ impl OuterWrapperCircuit {
     HostedOuterWrapperCircuit::new(self.clone())
   }
 
+  /// Returns the BN254-hosted proving wrapper explicitly.
+  #[must_use]
+  pub fn hosted_bn254(&self) -> HostedOuterWrapperCircuitBn254 {
+    HostedOuterWrapperCircuitBn254::new(self.clone())
+  }
+
+  /// Returns the BLS12-381-hosted proving wrapper explicitly.
+  #[must_use]
+  pub fn hosted_bls12(&self) -> HostedOuterWrapperCircuitBls12 {
+    HostedOuterWrapperCircuitBls12::new(self.clone())
+  }
+
   /// Converts this semantic circuit into a host-lane-specific proving wrapper.
   #[must_use]
   pub fn into_hosted(self) -> HostedOuterWrapperCircuit {
     HostedOuterWrapperCircuit::new(self)
+  }
+
+  /// Converts this semantic circuit into the explicit BN254-hosted wrapper.
+  #[must_use]
+  pub fn into_hosted_bn254(self) -> HostedOuterWrapperCircuitBn254 {
+    HostedOuterWrapperCircuitBn254::new(self)
+  }
+
+  /// Converts this semantic circuit into the explicit BLS12-381-hosted wrapper.
+  #[must_use]
+  pub fn into_hosted_bls12(self) -> HostedOuterWrapperCircuitBls12 {
+    HostedOuterWrapperCircuitBls12::new(self)
   }
 
   /// Returns a witness-free semantic variant.

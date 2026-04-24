@@ -110,20 +110,20 @@ fn planned_bn254_lane_remains_compatibility_sibling_without_execution_capabiliti
 }
 
 #[test]
-fn bls12_direct_lane_is_exposed_as_additive_placeholder_sibling() {
+fn bls12_direct_lane_is_exposed_as_additive_executable_sibling() {
   let backend = MidnightDirectOuterBackendBls12Host;
   let metadata = backend.metadata();
   let planned = backend
     .prepare(&real_fixture_package())
-    .expect("bls12 placeholder backend should still prepare honest artifact shapes");
+    .expect("bls12 backend should prepare honest artifact shapes");
 
   assert_eq!(metadata.outer_host, wrapper_circuits::OuterHostFlavor::MidnightBls12_381);
   assert_eq!(metadata.curve, "bls12-381");
   assert_eq!(metadata.pcs, "kzg");
   assert_eq!(metadata.transcript, "blake2b");
-  assert!(!metadata.supports_setup);
-  assert!(!metadata.supports_prove);
-  assert!(!metadata.supports_verify);
+  assert!(metadata.supports_setup);
+  assert!(metadata.supports_prove);
+  assert!(metadata.supports_verify);
   assert_eq!(planned.proof_shape.curve, "bls12-381");
   assert_eq!(planned.verification_key_shape.curve, "bls12-381");
   assert_eq!(planned.proof_shape.backend, metadata.backend_id);
@@ -131,18 +131,21 @@ fn bls12_direct_lane_is_exposed_as_additive_placeholder_sibling() {
 }
 
 #[test]
-fn bls12_direct_lane_rejects_execution_until_host_lane_exists() {
+fn bls12_direct_lane_adapts_the_fixture_to_the_canonical_outer_circuit() {
   let backend = MidnightDirectOuterBackendBls12Host;
   let package = real_fixture_package();
+  let circuit = backend
+    .build_outer_circuit(
+      &package,
+      OuterCircuitInputArtifacts::new(
+        Some(groth16_fixture_raw::proof_json()),
+        Some(groth16_fixture_raw::verification_key_json()),
+      ),
+    )
+    .expect("bls12 backend should adapt the canonical fixture");
 
-  assert!(matches!(
-    backend.setup(&package, OuterCircuitInputArtifacts::default()),
-    Err(OuterProofBackendError::MissingDirectOuterCircuitBackend { .. })
-  ));
-  assert!(matches!(
-    backend.prove(&package, OuterCircuitInputArtifacts::default()),
-    Err(OuterProofBackendError::MissingDirectOuterCircuitBackend { .. })
-  ));
+  assert_eq!(circuit.flavors.outer_host, wrapper_circuits::OuterHostFlavor::MidnightBls12_381);
+  assert!(circuit.assert_ready_for_synthesis().is_ok());
 }
 
 #[test]

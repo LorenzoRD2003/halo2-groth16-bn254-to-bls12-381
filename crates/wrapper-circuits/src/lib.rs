@@ -38,8 +38,8 @@ mod test_support;
 pub use bn254::{
   AssignedBool, AssignedFp, AssignedFp2, AssignedFp6, AssignedFp12, AssignedG1, AssignedG1Point,
   AssignedG2Affine, AssignedG2LineCoeffs, AssignedG2MillerPoint, AssignedG2Projective,
-  AssignedMillerAccumulator, Bn254BitChip, Bn254BoolChip, Bn254BoolConfig, Bn254EccChip,
-  Bn254FpChip, Bn254MillerAddend, Bn254MillerSchedule, Bn254MillerScheduleStep,
+  AssignedMillerAccumulator, Bls12HostField, Bn254BitChip, Bn254BoolChip, Bn254BoolConfig,
+  Bn254EccChip, Bn254FpChip, Bn254MillerAddend, Bn254MillerSchedule, Bn254MillerScheduleStep,
   FinalExponentiationCircuit, FinalExponentiationEasyPartCircuit,
   FinalExponentiationHardPartCircuit, ForeignField, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit,
   Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit, Fp12AddCircuit, Fp12CyclotomicSquareCircuit,
@@ -69,6 +69,7 @@ pub use bn254::{
   miller_loop_k, miller_loop_layout_metrics, multi_miller_loop, pairing_check, pairing_check_k,
   pairing_check_layout_metrics,
 };
+use ff::{Field, FromUniformBytes};
 #[cfg(feature = "test")]
 pub use groth16::fixtures::{raw as groth16_fixture_raw, typed as groth16_fixture_typed};
 pub use groth16::profiling::{
@@ -81,6 +82,7 @@ pub use groth16::profiling::{
   groth16_pairing_block_pairing_check_groth16_style_layout_metrics,
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
   groth16_public_input_count_layout_metrics, outer_wrapper_fixture_layout_metrics,
+  outer_wrapper_fixture_layout_metrics_for_host,
 };
 #[cfg(feature = "test")]
 pub use groth16::reference::host_verify;
@@ -89,20 +91,23 @@ pub use groth16::{
   Groth16IcAccumulatorCircuit, Groth16VerifierError, groth16_accumulate_ic, groth16_verify,
 };
 pub use metrics::{CostEstimate, LayoutMetrics};
-use midnight_circuits::midnight_proofs::plonk::Circuit;
+use midnight_circuits::midnight_proofs::{dev::cost_model::circuit_model, plonk::Circuit};
 pub use outer::{
-  CircuitBuildStatus, HostedOuterWrapperCircuit, InnerVerifierFlavor,
-  MidnightBls12_381HostConfigShell, MidnightBls12_381HostLane, MidnightBn254HostConfig,
-  MidnightBn254HostLane, OuterArtifactSerializationFlavor, OuterCanonicalR1csLoweringError,
+  CircuitBuildStatus, HostedOuterWrapperCircuit, HostedOuterWrapperCircuitBls12,
+  HostedOuterWrapperCircuitBn254, InnerVerifierFlavor, MidnightBls12_381HostConfigShell,
+  MidnightBls12_381HostLane, MidnightBn254HostConfig, MidnightBn254HostLane,
+  OuterArtifactSerializationFlavor, OuterCanonicalR1csLoweringError,
   OuterCanonicalR1csLoweringReport, OuterCanonicalR1csSliceKind, OuterCanonicalR1csSliceReport,
   OuterCanonicalR1csSliceStatus, OuterGroth16IcAccumulatorSlice,
   OuterGroth16PairingProductCheckSlice, OuterHostConfig, OuterHostField, OuterHostFlavor,
   OuterHostLane, OuterStatementExposureR1cs, OuterStatementInput, OuterStatementSemantics,
   OuterVerifierResultAssertionSlice, OuterWrapperCircuit, OuterWrapperCircuitInput,
-  OuterWrapperFlavorProfile, OuterWrapperHostConfig, build_outer_groth16_ic_accumulator_slice,
+  OuterWrapperFlavorProfile, OuterWrapperHostConfig, OuterWrapperHostConfigBls12,
+  OuterWrapperHostConfigBn254, build_outer_groth16_ic_accumulator_slice,
   build_outer_groth16_pairing_product_check_slice, build_outer_statement_exposure_r1cs,
   build_outer_verifier_result_assertion_slice, build_outer_wrapper_canonical_r1cs,
-  build_outer_wrapper_circuit, inspect_outer_wrapper_canonical_r1cs,
+  build_outer_wrapper_circuit, inspect_outer_wrapper_canonical_r1cs, lift_outer_input_to_host,
+  lift_outer_inputs_to_host,
 };
 pub use planning::{
   CircuitPlanningView, PRIMITIVE_COUNT, PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,
@@ -124,4 +129,14 @@ pub use r1cs::{
 #[must_use]
 pub fn measure_native_circuit_layout(circuit: &impl Circuit<NativeField>) -> LayoutMetrics {
   bn254::measure_layout(circuit)
+}
+
+/// Measures layout metrics for one arbitrary host-field circuit using the shared
+/// Halo2/Midnight cost model.
+#[must_use]
+pub fn measure_host_circuit_layout<FHost>(circuit: &impl Circuit<FHost>) -> LayoutMetrics
+where
+  FHost: Ord + Field + FromUniformBytes<64>,
+{
+  LayoutMetrics::from(circuit_model::<FHost, 48, 32>(circuit))
 }

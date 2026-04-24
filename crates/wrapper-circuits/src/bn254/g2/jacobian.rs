@@ -1,4 +1,5 @@
-use ff::Field;
+use ff::{Field, PrimeField};
+use midnight_circuits::field::foreign::params::{FieldEmulationParams, MultiEmulationParams};
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
@@ -11,11 +12,15 @@ use super::{
   g2_projective_identity_constant,
 };
 
-fn double_step_jacobian(
-  point: &AssignedG2Projective,
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-) -> Result<(AssignedFp2, AssignedFp2, AssignedFp2), Error> {
+fn double_step_jacobian<FHost>(
+  point: &AssignedG2Projective<FHost>,
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+) -> Result<(AssignedFp2<FHost>, AssignedFp2<FHost>, AssignedFp2<FHost>), Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   let x_square = point.x.square(chip, layouter)?;
   let y_square = point.y.square(chip, layouter)?;
   let y_fourth = y_square.square(chip, layouter)?;
@@ -51,12 +56,16 @@ fn double_step_jacobian(
   Ok((next_x, next_y, next_z))
 }
 
-fn add_step_jacobian(
-  left: &AssignedG2Projective,
-  right: &AssignedG2Projective,
-  chip: &Bn254FieldChip,
-  layouter: &mut impl Layouter<NativeField>,
-) -> Result<(AssignedFp2, AssignedFp2, AssignedFp2), Error> {
+fn add_step_jacobian<FHost>(
+  left: &AssignedG2Projective<FHost>,
+  right: &AssignedG2Projective<FHost>,
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+) -> Result<(AssignedFp2<FHost>, AssignedFp2<FHost>, AssignedFp2<FHost>), Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   let z1z1 = left.z.square(chip, layouter)?;
   let z2z2 = right.z.square(chip, layouter)?;
   let u1 = left.x.mul(chip, layouter, &z2z2)?;
@@ -121,19 +130,27 @@ fn add_step_jacobian(
 ///
 /// These constraints are deliberate for the current Week 2 projective slice.
 #[derive(Clone, Debug)]
-pub struct AssignedG2Projective {
+pub struct AssignedG2Projective<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Jacobian X coordinate in Fp2.
-  pub x: AssignedFp2,
+  pub x: AssignedFp2<FHost>,
   /// Jacobian Y coordinate in Fp2.
-  pub y: AssignedFp2,
+  pub y: AssignedFp2<FHost>,
   /// Jacobian Z coordinate in Fp2.
-  pub z: AssignedFp2,
+  pub z: AssignedFp2<FHost>,
 }
 
-impl AssignedG2Projective {
+impl<FHost> AssignedG2Projective<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Builds an assigned G2 projective point from assigned Fp2 coordinates.
   #[must_use]
-  pub fn new(x: AssignedFp2, y: AssignedFp2, z: AssignedFp2) -> Self {
+  pub fn new(x: AssignedFp2<FHost>, y: AssignedFp2<FHost>, z: AssignedFp2<FHost>) -> Self {
     Self { x, y, z }
   }
 
@@ -143,14 +160,29 @@ impl AssignedG2Projective {
   ///
   /// Returns an error if assigning the fixed Fp2 constants fails.
   pub fn identity(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     let identity = g2_projective_identity_constant();
     Ok(Self::new(
-      AssignedFp2::assign(chip, layouter, Value::known(identity.0.0), Value::known(identity.0.1))?,
-      AssignedFp2::assign(chip, layouter, Value::known(identity.1.0), Value::known(identity.1.1))?,
-      AssignedFp2::assign(chip, layouter, Value::known(identity.2.0), Value::known(identity.2.1))?,
+      AssignedFp2::<FHost>::assign(
+        chip,
+        layouter,
+        Value::known(identity.0.0),
+        Value::known(identity.0.1),
+      )?,
+      AssignedFp2::<FHost>::assign(
+        chip,
+        layouter,
+        Value::known(identity.1.0),
+        Value::known(identity.1.1),
+      )?,
+      AssignedFp2::<FHost>::assign(
+        chip,
+        layouter,
+        Value::known(identity.2.0),
+        Value::known(identity.2.1),
+      )?,
     ))
   }
 
@@ -160,11 +192,11 @@ impl AssignedG2Projective {
   ///
   /// Returns an error if assigning the Jacobian `Z = 1` coordinate fails.
   pub fn from_affine(
-    affine: &AssignedG2Affine,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    affine: &AssignedG2Affine<FHost>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
-    Ok(Self::new(affine.x.clone(), affine.y.clone(), AssignedFp2::one(chip, layouter)?))
+    Ok(Self::new(affine.x.clone(), affine.y.clone(), AssignedFp2::<FHost>::one(chip, layouter)?))
   }
 
   /// Negates a non-identity projective point by flipping the Jacobian `Y` coordinate.
@@ -174,8 +206,8 @@ impl AssignedG2Projective {
   /// Returns an error if negating the `Y` coordinate fails.
   pub fn neg(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     Ok(Self::new(self.x.clone(), self.y.neg(chip, layouter)?, self.z.clone()))
   }
@@ -187,8 +219,8 @@ impl AssignedG2Projective {
   /// Returns an error if any underlying Fp2 operation fails.
   pub fn double(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     let (next_x, next_y, next_z) = double_step_jacobian(self, chip, layouter)?;
     Ok(Self::new(next_x, next_y, next_z))
@@ -206,8 +238,8 @@ impl AssignedG2Projective {
   /// Returns an error if any underlying Fp2 operation fails.
   pub fn add(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<Self, Error> {
     let (next_x, next_y, next_z) = add_step_jacobian(self, rhs, chip, layouter)?;
@@ -221,8 +253,8 @@ impl AssignedG2Projective {
   /// Returns an error if any Fp2 coordinate equality constraint cannot be enforced.
   pub fn assert_equal(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<(), Error> {
     self.x.assert_equal(chip, layouter, &rhs.x)?;
@@ -237,8 +269,8 @@ impl AssignedG2Projective {
   /// Returns an error if any Fp2 coordinate-equals-constant constraint fails.
   pub fn assert_equal_to_fixed(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     expected: G2ProjectiveConstant,
   ) -> Result<(), Error> {
     self.x.assert_equal_to_fixed(chip, layouter, expected.0.0, expected.0.1)?;
@@ -256,9 +288,9 @@ impl AssignedG2Projective {
   /// Returns an error if any underlying Fp2 operation or equality constraint fails.
   pub fn assert_equivalent_to_affine(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    expected: &AssignedG2Affine,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    expected: &AssignedG2Affine<FHost>,
   ) -> Result<(), Error> {
     let z2 = self.z.square(chip, layouter)?;
     let z3 = self.z.mul(chip, layouter, &z2)?;

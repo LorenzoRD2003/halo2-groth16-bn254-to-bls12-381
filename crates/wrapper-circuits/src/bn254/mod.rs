@@ -26,6 +26,7 @@ pub use fp12::{
   AssignedFp12, Fp12AddCircuit, Fp12CyclotomicSquareCircuit, Fp12MulCircuit, Fp12SquareCircuit,
   fp12_nonresidue,
 };
+pub(crate) use g2::pairing_check_with_prepared_terms_on_host;
 pub use g2::{
   AssignedG1Point, AssignedG2Affine, AssignedG2LineCoeffs, AssignedG2MillerPoint,
   AssignedG2Projective, AssignedMillerAccumulator, Bn254MillerAddend, Bn254MillerSchedule,
@@ -37,7 +38,7 @@ pub use g2::{
   MillerAccumulatorSquareCircuit, MillerLoopCircuit, MillerStep, MillerStepConstant,
   PairingCheckCircuit, PairingFinalExponentiationCircuit, PreparedConstantG2Miller,
   PreparedG2Miller, bn254_ate_loop_count, final_exponentiation, g2_curve_coeff_b, miller_loop,
-  multi_miller_loop, pairing_check, pairing_check_with_prepared_terms,
+  multi_miller_loop, pairing_check,
 };
 pub(crate) use metrics::measure_layout;
 pub use metrics::{
@@ -64,7 +65,7 @@ pub(crate) use traits::{
   synthesize_unary_value_circuit,
 };
 pub use types::{
-  AssignedBool, AssignedFp, AssignedG1, Bn254BitChip, Bn254BoolChip, Bn254BoolConfig, Bn254EccChip,
-  Bn254FieldChip, Bn254FieldConfig, Bn254FpChip, Bn254G1Chip, Bn254G1Config, ForeignCurve,
-  ForeignField, NativeField,
+  AssignedBool, AssignedFp, AssignedG1, Bls12HostField, Bn254BitChip, Bn254BoolChip,
+  Bn254BoolConfig, Bn254EccChip, Bn254FieldChip, Bn254FieldConfig, Bn254FpChip, Bn254G1Chip,
+  Bn254G1Config, ForeignCurve, ForeignField, NativeField,
 };

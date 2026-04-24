@@ -149,7 +149,7 @@ Recommended additions:
 This allows:
 
 - current BN254-hosted direct lane to keep working
-- future BLS12-hosted lane to be added as a sibling, not a rewrite
+- BLS12-hosted lane to exist as a sibling, not a rewrite
 
 ### 4. Preserve The Current Lane As A Compatibility Reference
 
@@ -164,7 +164,7 @@ Keep:
 Reason:
 
 - it gives a working baseline during the refactor
-- it preserves an implementation oracle when the BLS12-hosted lane is added
+- it preserves an implementation oracle for the BLS12-hosted lane
 
 ## Phase 2: Concrete Modifications In This Repo
 
@@ -179,9 +179,9 @@ crates/wrapper-circuits/src/outer/host/
 Possible contents:
 
 - trait(s) describing host field / transcript / PCS choices
-- config type(s) for current and future host lanes
+- config type(s) for supported host lanes
 - current BN254-hosted implementation
-- placeholder BLS12-hosted implementation shell
+- BLS12-hosted implementation shell wired to the canonical semantics
 
 ### 2. Refactor `OuterWrapperCircuit`
 
@@ -212,7 +212,7 @@ Near-term target set:
 Even if the names differ, the idea is:
 
 - current lane remains
-- future lane is additive
+- BLS12 lane is additive
 
 ### 4. Keep The CLI Surface Stable
 
@@ -242,14 +242,14 @@ Suggested form:
   - optional sample proof(s)
 - a CLI command for generating an Aiken verifier from those inputs
 
-### 2. Accept The Future BLS12-Hosted Wrapper Lane
+### 2. Accept The BLS12-Hosted Wrapper Lane
 
-The integration should target the future BLS12-hosted outer lane from this
-repo, not the current BN254-hosted one.
+The integration should target the BLS12-hosted outer lane from this repo, not
+the current BN254-hosted compatibility lane.
 
 That means the bridge code in `plutus-halo2-verifier-gen` should consume:
 
-- the future BLS12-hosted Midnight-compatible verification key type
+- the BLS12-hosted Midnight-compatible verification key type
 - the matching params / verifier params
 - the matching transcript convention
 
@@ -349,8 +349,8 @@ surface yet.
 Reason:
 
 - they are honest and useful
-- but they reflect the current BN254-hosted direct lane
-- the target Aiken export path wants the future BLS12-hosted lane
+- but they were first stabilized around the BN254-hosted direct lane
+- the target Aiken export path wants the BLS12-hosted lane
 
 So the best immediate use of the current JSON contract is:
 
@@ -364,7 +364,7 @@ Recommended order of work:
 
 1. Add host-lane abstractions in this repo.
 2. Preserve the current BN254-hosted direct lane.
-3. Introduce a BLS12-hosted outer lane in this repo.
+3. Keep hardening the BLS12-hosted outer lane in this repo.
 4. Make that lane produce the verifier objects / artifacts expected by the
    generator repo.
 5. Add a wrapper-specific consumer command in `plutus-halo2-verifier-gen`.
@@ -393,5 +393,5 @@ The integration is viable if approached as:
 The immediate next step is not "call the other repo from today's CLI".
 The immediate next step is:
 
-> make the outer lane in this repo extensible enough that a BLS12-hosted
-> implementation can be added cleanly.
+> keep hardening the BLS12-hosted lane until its produced artifacts are accepted
+> directly by the Aiken generator repo.

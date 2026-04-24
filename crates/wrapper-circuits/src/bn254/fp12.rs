@@ -1,3 +1,5 @@
+use ff::{Field, PrimeField};
+use midnight_circuits::field::foreign::params::{FieldEmulationParams, MultiEmulationParams};
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
@@ -37,11 +39,15 @@ pub fn fp12_nonresidue() -> Fp6Constant {
 /// It intentionally stays field-oriented: pairing-specific sparse multiplication
 /// and Miller-loop accumulator semantics live outside this type.
 #[derive(Clone, Debug)]
-pub struct AssignedFp12 {
+pub struct AssignedFp12<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Constant coefficient in Fp6.
-  pub c0: AssignedFp6,
+  pub c0: AssignedFp6<FHost>,
   /// `w` coefficient in Fp6.
-  pub c1: AssignedFp6,
+  pub c1: AssignedFp6<FHost>,
 }
 
 fn fp2_value_witness(
@@ -65,21 +71,25 @@ fn fp12_value_witness(value: Value<Fp12Constant>) -> Fp12Value {
   )
 }
 
-impl AssignedFp12 {
+impl<FHost> AssignedFp12<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   fn cyclotomic_square_pair(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    left: &AssignedFp2,
-    right: &AssignedFp2,
-  ) -> Result<(AssignedFp2, AssignedFp2), Error> {
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    left: &AssignedFp2<FHost>,
+    right: &AssignedFp2<FHost>,
+  ) -> Result<(AssignedFp2<FHost>, AssignedFp2<FHost>), Error> {
     // Squares the quadratic element left + right * y where y^2 = (9 + u).
     // This is the Granger-Scott building block reused three times in the full
     // Fp12 cyclotomic square.
     let product = left.mul(chip, layouter, right)?;
     let left_plus_right = left.add(chip, layouter, right)?;
-    let right_nr = AssignedFp6::mul_by_nonresidue_fp2(right, chip, layouter)?;
+    let right_nr = AssignedFp6::<FHost>::mul_by_nonresidue_fp2(right, chip, layouter)?;
     let left_plus_right_nr = right_nr.add(chip, layouter, left)?;
-    let product_nr = AssignedFp6::mul_by_nonresidue_fp2(&product, chip, layouter)?;
+    let product_nr = AssignedFp6::<FHost>::mul_by_nonresidue_fp2(&product, chip, layouter)?;
     let t0 = left_plus_right
       .mul(chip, layouter, &left_plus_right_nr)?
       .sub(chip, layouter, &product)?
@@ -90,11 +100,11 @@ impl AssignedFp12 {
   }
 
   fn fp2_three_t_minus_two_z(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    t: &AssignedFp2,
-    z: &AssignedFp2,
-  ) -> Result<AssignedFp2, Error> {
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    t: &AssignedFp2<FHost>,
+    z: &AssignedFp2<FHost>,
+  ) -> Result<AssignedFp2<FHost>, Error> {
     let t_minus_z = t.sub(chip, layouter, z)?;
     let two_t_minus_two_z = t_minus_z.add(chip, layouter, &t_minus_z)?;
 
@@ -102,11 +112,11 @@ impl AssignedFp12 {
   }
 
   fn fp2_three_t_plus_two_z(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
-    t: &AssignedFp2,
-    z: &AssignedFp2,
-  ) -> Result<AssignedFp2, Error> {
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    t: &AssignedFp2<FHost>,
+    z: &AssignedFp2<FHost>,
+  ) -> Result<AssignedFp2<FHost>, Error> {
     let t_plus_z = t.add(chip, layouter, z)?;
     let two_t_plus_two_z = t_plus_z.add(chip, layouter, &t_plus_z)?;
 
@@ -115,7 +125,7 @@ impl AssignedFp12 {
 
   /// Builds an assigned Fp12 value from its two assigned Fp6 coordinates.
   #[must_use]
-  pub fn new(c0: AssignedFp6, c1: AssignedFp6) -> Self {
+  pub fn new(c0: AssignedFp6<FHost>, c1: AssignedFp6<FHost>) -> Self {
     Self { c0, c1 }
   }
 
@@ -125,14 +135,14 @@ impl AssignedFp12 {
   ///
   /// Returns an error if any underlying Fp6 assignment fails.
   pub fn assign(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     c0: Fp6Value,
     c1: Fp6Value,
   ) -> Result<Self, Error> {
     Ok(Self::new(
-      AssignedFp6::assign(chip, layouter, c0.0, c0.1, c0.2)?,
-      AssignedFp6::assign(chip, layouter, c1.0, c1.1, c1.2)?,
+      AssignedFp6::<FHost>::assign(chip, layouter, c0.0, c0.1, c0.2)?,
+      AssignedFp6::<FHost>::assign(chip, layouter, c1.0, c1.1, c1.2)?,
     ))
   }
 
@@ -142,10 +152,10 @@ impl AssignedFp12 {
   ///
   /// Returns an error if any underlying Fp6 assignment fails.
   pub fn zero(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
-    <Self as AssignedFieldExt>::zero(chip, layouter)
+    <Self as AssignedFieldExt<FHost>>::zero(chip, layouter)
   }
 
   /// Assigns the multiplicative identity in Fp12.
@@ -154,10 +164,10 @@ impl AssignedFp12 {
   ///
   /// Returns an error if any underlying Fp6 assignment fails.
   pub fn one(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
-    <Self as AssignedFieldExt>::one(chip, layouter)
+    <Self as AssignedFieldExt<FHost>>::one(chip, layouter)
   }
 
   /// Adds two Fp12 values inside the circuit.
@@ -167,11 +177,11 @@ impl AssignedFp12 {
   /// Returns an error if any underlying Fp6 addition fails.
   pub fn add(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<Self, Error> {
-    <Self as AssignedFieldExt>::add(self, chip, layouter, rhs)
+    <Self as AssignedFieldExt<FHost>>::add(self, chip, layouter, rhs)
   }
 
   /// Subtracts two Fp12 values inside the circuit.
@@ -181,11 +191,11 @@ impl AssignedFp12 {
   /// Returns an error if any underlying Fp6 subtraction fails.
   pub fn sub(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<Self, Error> {
-    <Self as AssignedFieldExt>::sub(self, chip, layouter, rhs)
+    <Self as AssignedFieldExt<FHost>>::sub(self, chip, layouter, rhs)
   }
 
   /// Negates an Fp12 value inside the circuit.
@@ -195,10 +205,10 @@ impl AssignedFp12 {
   /// Returns an error if any underlying Fp6 negation fails.
   pub fn neg(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
-    <Self as AssignedFieldExt>::neg(self, chip, layouter)
+    <Self as AssignedFieldExt<FHost>>::neg(self, chip, layouter)
   }
 
   /// Multiplies two Fp12 values inside the circuit using the arkworks-compatible quadratic tower.
@@ -208,8 +218,8 @@ impl AssignedFp12 {
   /// Returns an error if any underlying Fp6 operation fails.
   pub fn mul(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<Self, Error> {
     let a_a = self.c0.mul(chip, layouter, &rhs.c0)?;
@@ -232,8 +242,8 @@ impl AssignedFp12 {
   /// Returns an error if any underlying Fp6 operation fails.
   pub fn square(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     let a_sq = self.c0.square(chip, layouter)?;
     let b_sq = self.c1.square(chip, layouter)?;
@@ -257,8 +267,8 @@ impl AssignedFp12 {
   /// Returns an error if any underlying Fp2/Fp6 operation fails.
   pub(crate) fn cyclotomic_square(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     // arkworks / Granger-Scott coefficient order:
     // z0 = c0.c0, z1 = c1.c1, z2 = c1.c0, z3 = c0.c2, z4 = c0.c1, z5 = c1.c2.
@@ -268,13 +278,13 @@ impl AssignedFp12 {
 
     let z0 = Self::fp2_three_t_minus_two_z(chip, layouter, &t0, &self.c0.c0)?;
     let z1 = Self::fp2_three_t_plus_two_z(chip, layouter, &t1, &self.c1.c1)?;
-    let t5_nr = AssignedFp6::mul_by_nonresidue_fp2(&t5, chip, layouter)?;
+    let t5_nr = AssignedFp6::<FHost>::mul_by_nonresidue_fp2(&t5, chip, layouter)?;
     let z2 = Self::fp2_three_t_plus_two_z(chip, layouter, &t5_nr, &self.c1.c0)?;
     let z3 = Self::fp2_three_t_minus_two_z(chip, layouter, &t4, &self.c0.c2)?;
     let z4 = Self::fp2_three_t_minus_two_z(chip, layouter, &t2, &self.c0.c1)?;
     let z5 = Self::fp2_three_t_plus_two_z(chip, layouter, &t3, &self.c1.c2)?;
 
-    Ok(Self::new(AssignedFp6::new(z0, z4, z3), AssignedFp6::new(z2, z1, z5)))
+    Ok(Self::new(AssignedFp6::<FHost>::new(z0, z4, z3), AssignedFp6::<FHost>::new(z2, z1, z5)))
   }
 
   pub(crate) fn value(&self) -> Value<Fp12Constant> {
@@ -284,37 +294,37 @@ impl AssignedFp12 {
 
   pub(crate) fn conjugate(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     Ok(Self::new(self.c0.clone(), self.c1.neg(chip, layouter)?))
   }
 
   pub(crate) fn unitary_inverse(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     self.conjugate(chip, layouter)
   }
 
   pub(crate) fn inv(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     let inverse = self.value().map(|value| fp12_inv_constant(&value));
     let inverse_witness = fp12_value_witness(inverse);
     let assigned = Self::assign(chip, layouter, inverse_witness.0, inverse_witness.1)?;
     let check = self.mul(chip, layouter, &assigned)?;
-    AssignedFp12::one(chip, layouter)?.assert_equal(chip, layouter, &check)?;
+    AssignedFp12::<FHost>::one(chip, layouter)?.assert_equal(chip, layouter, &check)?;
     Ok(assigned)
   }
 
   pub(crate) fn frobenius_map(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     power: usize,
   ) -> Result<Self, Error> {
     let assigned_witness =
@@ -329,11 +339,11 @@ impl AssignedFp12 {
   /// Returns an error if any Fp6 coordinate equality constraint fails.
   pub fn assert_equal(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<(), Error> {
-    <Self as AssignedFieldExt>::assert_equal(self, chip, layouter, rhs)
+    <Self as AssignedFieldExt<FHost>>::assert_equal(self, chip, layouter, rhs)
   }
 
   /// Asserts coordinate-wise equality against a fixed Fp12 constant.
@@ -343,29 +353,42 @@ impl AssignedFp12 {
   /// Returns an error if any Fp6 coordinate-equals-constant constraint fails.
   pub fn assert_equal_to_fixed(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     expected: Fp12Constant,
   ) -> Result<(), Error> {
-    <Self as AssignedFieldExt>::assert_equal_to_fixed(self, chip, layouter, expected)
+    <Self as AssignedFieldExt<FHost>>::assert_equal_to_fixed(self, chip, layouter, expected)
   }
 }
 
-impl AssignedFieldExt for AssignedFp12 {
+impl<FHost> AssignedFieldExt<FHost> for AssignedFp12<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   type Fixed = Fp12Constant;
 
-  fn zero(chip: &Bn254FieldChip, layouter: &mut impl Layouter<NativeField>) -> Result<Self, Error> {
-    Ok(Self::new(AssignedFp6::zero(chip, layouter)?, AssignedFp6::zero(chip, layouter)?))
+  fn zero(
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      AssignedFp6::<FHost>::zero(chip, layouter)?,
+      AssignedFp6::<FHost>::zero(chip, layouter)?,
+    ))
   }
 
-  fn one(chip: &Bn254FieldChip, layouter: &mut impl Layouter<NativeField>) -> Result<Self, Error> {
-    Ok(Self::new(AssignedFp6::one(chip, layouter)?, AssignedFp6::zero(chip, layouter)?))
+  fn one(chip: &Bn254FieldChip<FHost>, layouter: &mut impl Layouter<FHost>) -> Result<Self, Error> {
+    Ok(Self::new(
+      AssignedFp6::<FHost>::one(chip, layouter)?,
+      AssignedFp6::<FHost>::zero(chip, layouter)?,
+    ))
   }
 
   fn add(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<Self, Error> {
     Ok(Self::new(self.c0.add(chip, layouter, &rhs.c0)?, self.c1.add(chip, layouter, &rhs.c1)?))
@@ -373,8 +396,8 @@ impl AssignedFieldExt for AssignedFp12 {
 
   fn sub(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<Self, Error> {
     Ok(Self::new(self.c0.sub(chip, layouter, &rhs.c0)?, self.c1.sub(chip, layouter, &rhs.c1)?))
@@ -382,16 +405,16 @@ impl AssignedFieldExt for AssignedFp12 {
 
   fn neg(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     Ok(Self::new(self.c0.neg(chip, layouter)?, self.c1.neg(chip, layouter)?))
   }
 
   fn assert_equal(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<(), Error> {
     self.c0.assert_equal(chip, layouter, &rhs.c0)?;
@@ -400,8 +423,8 @@ impl AssignedFieldExt for AssignedFp12 {
 
   fn assert_equal_to_fixed(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     expected: Self::Fixed,
   ) -> Result<(), Error> {
     self.c0.assert_equal_to_fixed(chip, layouter, expected.0)?;
@@ -409,12 +432,16 @@ impl AssignedFieldExt for AssignedFp12 {
   }
 }
 
-impl AssignedCircuitValue for AssignedFp12 {
+impl<FHost> AssignedCircuitValue<FHost> for AssignedFp12<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   type Witness = Fp12Value;
 
   fn assign_witness(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     witness: Self::Witness,
   ) -> Result<Self, Error> {
     Self::assign(chip, layouter, witness.0, witness.1)
@@ -522,8 +549,8 @@ impl Circuit<NativeField> for Fp12AddCircuit {
 
   fn without_witnesses(&self) -> Self {
     Self {
-      left: AssignedFp12::unknown_witness(&self.left),
-      right: AssignedFp12::unknown_witness(&self.right),
+      left: AssignedFp12::<NativeField>::unknown_witness(&self.left),
+      right: AssignedFp12::<NativeField>::unknown_witness(&self.right),
       expected: self.expected,
     }
   }
@@ -634,8 +661,8 @@ impl Circuit<NativeField> for Fp12MulCircuit {
 
   fn without_witnesses(&self) -> Self {
     Self {
-      left: AssignedFp12::unknown_witness(&self.left),
-      right: AssignedFp12::unknown_witness(&self.right),
+      left: AssignedFp12::<NativeField>::unknown_witness(&self.left),
+      right: AssignedFp12::<NativeField>::unknown_witness(&self.right),
       expected: self.expected,
     }
   }
@@ -769,7 +796,10 @@ impl Circuit<NativeField> for Fp12CyclotomicSquareCircuit {
   type Params = ();
 
   fn without_witnesses(&self) -> Self {
-    Self { value: AssignedFp12::unknown_witness(&self.value), expected: self.expected }
+    Self {
+      value: AssignedFp12::<NativeField>::unknown_witness(&self.value),
+      expected: self.expected,
+    }
   }
 
   fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
@@ -803,7 +833,10 @@ impl Circuit<NativeField> for Fp12SquareCircuit {
   type Params = ();
 
   fn without_witnesses(&self) -> Self {
-    Self { value: AssignedFp12::unknown_witness(&self.value), expected: self.expected }
+    Self {
+      value: AssignedFp12::<NativeField>::unknown_witness(&self.value),
+      expected: self.expected,
+    }
   }
 
   fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {

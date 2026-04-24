@@ -125,14 +125,11 @@ fn outer_wrapper_circuit_rejects_non_mirrored_statement() {
 }
 
 #[test]
-fn outer_wrapper_circuit_rejects_planned_bls12_host_until_lane_exists() {
+fn outer_wrapper_circuit_accepts_bls12_host_flavor_boundary() {
   let circuit =
     OuterWrapperCircuit::from_input_for_host(canonical_input(), OuterHostFlavor::MidnightBls12_381);
 
-  assert!(matches!(
-    circuit.assert_ready_for_synthesis(),
-    Err(WrapperError::InvalidInput { context: "outer host flavor", .. })
-  ));
+  assert!(circuit.assert_ready_for_synthesis().is_ok());
 }
 
 #[test]

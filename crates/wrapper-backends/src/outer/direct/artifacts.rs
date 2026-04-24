@@ -3,10 +3,12 @@ use wrapper_core::{
   WrapperExecutionPackage,
 };
 
-use super::MidnightDirectOuterBackend;
+use super::{MidnightDirectOuterBackend, MidnightDirectOuterBackendBls12Host};
 use crate::outer::{OuterProofBackend, OuterProofBackendError};
 
-impl MidnightDirectOuterBackend {
+macro_rules! impl_direct_backend_artifacts {
+  ($backend:ty) => {
+impl $backend {
   /// Validates that one produced setup verification key matches the current
   /// wrapper-core planning contract.
   ///
@@ -154,3 +156,8 @@ impl MidnightDirectOuterBackend {
     ))
   }
 }
+  };
+}
+
+impl_direct_backend_artifacts!(MidnightDirectOuterBackend);
+impl_direct_backend_artifacts!(MidnightDirectOuterBackendBls12Host);

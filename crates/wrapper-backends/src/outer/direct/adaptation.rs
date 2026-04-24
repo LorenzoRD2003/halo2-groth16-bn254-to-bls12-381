@@ -3,13 +3,15 @@ use wrapper_core::WrapperExecutionPackage;
 
 use crate::snarkjs::{parse_groth16_bn254_proof, parse_groth16_bn254_verifying_key};
 
-use super::MidnightDirectOuterBackend;
+use super::{MidnightDirectOuterBackend, MidnightDirectOuterBackendBls12Host};
 use crate::outer::{
   DirectOuterCircuitInput, DirectOuterStatementInput, OuterCircuitInputArtifacts,
   OuterProofBackend, OuterProofBackendError, helpers::parse_native_input_value,
 };
 
-impl MidnightDirectOuterBackend {
+macro_rules! impl_direct_backend_adaptation {
+  ($backend:ty) => {
+impl $backend {
   /// Adapts a wrapper execution package plus raw inner artifacts into the exact
   /// normalized input shape expected by the selected arkworks outer lane.
   ///
@@ -120,3 +122,8 @@ impl MidnightDirectOuterBackend {
     Ok(circuit)
   }
 }
+  };
+}
+
+impl_direct_backend_adaptation!(MidnightDirectOuterBackend);
+impl_direct_backend_adaptation!(MidnightDirectOuterBackendBls12Host);

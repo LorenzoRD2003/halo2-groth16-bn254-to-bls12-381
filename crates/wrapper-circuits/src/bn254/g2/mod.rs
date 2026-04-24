@@ -33,7 +33,7 @@ pub use miller::{
   MillerAccumulatorMulByLineSparseCircuit, MillerAccumulatorSquareCircuit, MillerLoopCircuit,
   MillerStep, MillerStepConstant, PairingCheckCircuit, PairingFinalExponentiationCircuit,
   PreparedConstantG2Miller, PreparedG2Miller, bn254_ate_loop_count, final_exponentiation,
-  miller_loop, multi_miller_loop, pairing_check, pairing_check_with_prepared_terms,
+  miller_loop, multi_miller_loop, pairing_check, pairing_check_with_prepared_terms_on_host,
 };
 
 type G2AffineValue = (Fp2Value, Fp2Value);

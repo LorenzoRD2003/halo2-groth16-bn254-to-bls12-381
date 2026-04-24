@@ -13,7 +13,8 @@ use crate::bn254::{
   final_exponentiation_hard_part_layout_metrics, final_exponentiation_layout_metrics,
   measure_layout, miller_loop_layout_metrics, pairing_check_layout_metrics,
 };
-use crate::outer::{OuterWrapperCircuit, OuterWrapperCircuitInput};
+use crate::measure_host_circuit_layout;
+use crate::outer::{OuterHostFlavor, OuterWrapperCircuit, OuterWrapperCircuitInput};
 
 use super::{
   Groth16Bn254G1Point, Groth16Bn254VerifierCircuit, Groth16Bn254VerifyingKey,
@@ -84,15 +85,27 @@ pub fn groth16_fixture_ic_accumulator_layout_metrics() -> LayoutMetrics {
 /// Measures the canonical outer wrapper circuit on the committed Week 5 fixture.
 #[must_use]
 pub fn outer_wrapper_fixture_layout_metrics() -> LayoutMetrics {
-  measure_layout(
-    &OuterWrapperCircuit::from_input(OuterWrapperCircuitInput::mirrored(
+  outer_wrapper_fixture_layout_metrics_for_host(OuterHostFlavor::MidnightBn254)
+}
+
+/// Measures the canonical outer wrapper circuit on the committed Week 5 fixture
+/// for one explicit host lane.
+#[must_use]
+pub fn outer_wrapper_fixture_layout_metrics_for_host(outer_host: OuterHostFlavor) -> LayoutMetrics {
+  let circuit = OuterWrapperCircuit::from_input_for_host(
+    OuterWrapperCircuitInput::mirrored(
       fixtures::typed::proof(),
       fixtures::typed::verifying_key(),
       fixtures::typed::public_inputs(),
       vec!["public_input_0".to_owned()],
-    ))
-    .hosted(),
-  )
+    ),
+    outer_host,
+  );
+
+  match outer_host {
+    OuterHostFlavor::MidnightBn254 => measure_layout(&circuit.hosted_bn254()),
+    OuterHostFlavor::MidnightBls12_381 => measure_host_circuit_layout(&circuit.hosted_bls12()),
+  }
 }
 
 /// Measures an isolated pairing-check circuit for a given number of pairing terms.

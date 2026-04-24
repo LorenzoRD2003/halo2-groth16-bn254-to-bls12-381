@@ -17,8 +17,8 @@ use wrapper_backends::{
   parse_snarkjs_groth16_bn254_bundle_with_names,
 };
 use wrapper_circuits::{
-  CircuitPlanningView, LayoutMetrics, PAIRING_TERM_PROFILE_COUNTS, PUBLIC_INPUT_PROFILE_COUNTS,
-  PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,
+  CircuitPlanningView, LayoutMetrics, OuterHostFlavor, PAIRING_TERM_PROFILE_COUNTS,
+  PUBLIC_INPUT_PROFILE_COUNTS, PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,
   groth16_fixture_ic_accumulator_layout_metrics, groth16_fixture_verifier_layout_metrics,
   groth16_pairing_block_final_exponentiation_easy_part_layout_metrics,
   groth16_pairing_block_final_exponentiation_hard_part_layout_metrics,
@@ -26,8 +26,9 @@ use wrapper_circuits::{
   groth16_pairing_block_miller_loop_layout_metrics,
   groth16_pairing_block_pairing_check_groth16_style_layout_metrics,
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
-  groth16_public_input_count_layout_metrics, measure_native_circuit_layout,
-  outer_wrapper_fixture_layout_metrics, primitive_definitions,
+  groth16_public_input_count_layout_metrics, measure_host_circuit_layout,
+  measure_native_circuit_layout, outer_wrapper_fixture_layout_metrics_for_host,
+  primitive_definitions,
 };
 use wrapper_core::{
   ProjectConfig, ProjectStatusReport, WrapperExecutionPackage, WrapperExecutionResult, WrapperJob,
@@ -499,15 +500,10 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
 
   if matches!(family, ProfileFamily::All | ProfileFamily::Outer) {
     rows.extend([
-      LayoutProfileRow {
-        family: "outer",
-        id: "outer_wrapper_fixture_total".to_owned(),
-        label: "outer wrapper fixture total",
-        term_count: Some(4),
-        public_input_count: Some(1),
-        layout: outer_wrapper_fixture_layout_metrics(),
-      },
-      semaphore_outer_end_to_end_layout_row(),
+      outer_wrapper_fixture_layout_row(OuterHostFlavor::MidnightBn254),
+      outer_wrapper_fixture_layout_row(OuterHostFlavor::MidnightBls12_381),
+      semaphore_outer_end_to_end_layout_row_bn254(),
+      semaphore_outer_end_to_end_layout_row_bls12(),
     ]);
   }
 
@@ -536,7 +532,27 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
   rows
 }
 
-fn semaphore_outer_end_to_end_layout_row() -> LayoutProfileRow {
+fn outer_wrapper_fixture_layout_row(outer_host: OuterHostFlavor) -> LayoutProfileRow {
+  let host_suffix = match outer_host {
+    OuterHostFlavor::MidnightBn254 => "bn254_host",
+    OuterHostFlavor::MidnightBls12_381 => "bls12_381_host",
+  };
+  let host_label = match outer_host {
+    OuterHostFlavor::MidnightBn254 => "outer wrapper fixture total (bn254 host)",
+    OuterHostFlavor::MidnightBls12_381 => "outer wrapper fixture total (bls12-381 host)",
+  };
+
+  LayoutProfileRow {
+    family: "outer",
+    id: format!("outer_wrapper_fixture_total_{host_suffix}"),
+    label: host_label,
+    term_count: Some(4),
+    public_input_count: Some(1),
+    layout: outer_wrapper_fixture_layout_metrics_for_host(outer_host),
+  }
+}
+
+fn semaphore_outer_end_to_end_layout_row_bn254() -> LayoutProfileRow {
   let bundle = parse_snarkjs_groth16_bn254_bundle_with_names(
     "semaphore-depth-10",
     include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json"),
@@ -558,15 +574,47 @@ fn semaphore_outer_end_to_end_layout_row() -> LayoutProfileRow {
       ),
     )
     .expect("Semaphore outer profiling circuit should build");
-  let hosted_circuit = circuit.hosted();
 
   LayoutProfileRow {
     family: "outer",
-    id: "outer_wrapper_semaphore_end_to_end".to_owned(),
-    label: "outer wrapper semaphore end-to-end",
+    id: "outer_wrapper_semaphore_end_to_end_bn254_host".to_owned(),
+    label: "outer wrapper semaphore end-to-end (bn254 host)",
     term_count: Some(4),
     public_input_count: Some(4),
-    layout: measure_native_circuit_layout(&hosted_circuit),
+    layout: measure_native_circuit_layout(&circuit.hosted_bn254()),
+  }
+}
+
+fn semaphore_outer_end_to_end_layout_row_bls12() -> LayoutProfileRow {
+  let bundle = parse_snarkjs_groth16_bn254_bundle_with_names(
+    "semaphore-depth-10",
+    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json"),
+    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/public.json"),
+    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"),
+    &SEMAPHORE_PROFILE_PUBLIC_INPUT_NAMES,
+  )
+  .expect("named Semaphore profiling bundle should parse");
+  let package = bundle.build_halo2_outer_execution_package();
+  let backend = MidnightDirectOuterBackendBls12Host;
+  let circuit = backend
+    .build_outer_circuit(
+      &package,
+      OuterCircuitInputArtifacts::new(
+        Some(include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json")),
+        Some(include_bytes!(
+          "../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"
+        )),
+      ),
+    )
+    .expect("Semaphore BLS12 outer profiling circuit should build");
+
+  LayoutProfileRow {
+    family: "outer",
+    id: "outer_wrapper_semaphore_end_to_end_bls12_381_host".to_owned(),
+    label: "outer wrapper semaphore end-to-end (bls12-381 host)",
+    term_count: Some(4),
+    public_input_count: Some(4),
+    layout: measure_host_circuit_layout(&circuit.hosted_bls12()),
   }
 }
 

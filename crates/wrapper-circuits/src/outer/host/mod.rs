@@ -3,6 +3,8 @@
 mod bls12_381;
 mod bn254;
 
+use ff::PrimeField;
+
 use crate::NativeField;
 
 pub use bls12_381::{MidnightBls12_381HostConfigShell, MidnightBls12_381HostLane};
@@ -13,6 +15,26 @@ pub type OuterHostField = NativeField;
 
 /// Current host config used by the wired outer circuit lane.
 pub type OuterHostConfig = MidnightBn254HostConfig;
+
+/// Converts one BN254-hosted scalar value into the target outer-host field by
+/// preserving its canonical integer value.
+#[must_use]
+pub fn lift_outer_input_to_host<FHost: PrimeField>(value: NativeField) -> FHost {
+  let radix = FHost::from(256_u64);
+  value
+    .to_repr()
+    .as_ref()
+    .iter()
+    .rev()
+    .fold(FHost::ZERO, |acc, byte| acc * radix + FHost::from(u64::from(*byte)))
+}
+
+/// Converts one ordered BN254-hosted outer statement or verifier-input vector
+/// into the selected outer-host field.
+#[must_use]
+pub fn lift_outer_inputs_to_host<FHost: PrimeField>(values: &[NativeField]) -> Vec<FHost> {
+  values.iter().copied().map(lift_outer_input_to_host::<FHost>).collect()
+}
 
 /// Inner verifier family consumed by the canonical outer wrapper circuit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,7 +83,7 @@ pub trait OuterHostLane {
 pub enum OuterHostFlavor {
   /// Current Halo2/Midnight host lane over BN254.
   MidnightBn254,
-  /// Planned Halo2/Midnight host lane over BLS12-381.
+  /// Halo2/Midnight host lane over BLS12-381.
   MidnightBls12_381,
 }
 
@@ -70,8 +92,7 @@ impl OuterHostFlavor {
   #[must_use]
   pub const fn protocol(self) -> &'static str {
     match self {
-      Self::MidnightBn254 => "halo2-plonkish",
-      Self::MidnightBls12_381 => "halo2-plonkish",
+      Self::MidnightBn254 | Self::MidnightBls12_381 => "halo2-plonkish",
     }
   }
 
@@ -97,8 +118,7 @@ impl OuterHostFlavor {
   #[must_use]
   pub const fn pcs(self) -> &'static str {
     match self {
-      Self::MidnightBn254 => "kzg",
-      Self::MidnightBls12_381 => "kzg",
+      Self::MidnightBn254 | Self::MidnightBls12_381 => "kzg",
     }
   }
 
@@ -106,8 +126,7 @@ impl OuterHostFlavor {
   #[must_use]
   pub const fn transcript(self) -> &'static str {
     match self {
-      Self::MidnightBn254 => "blake2b",
-      Self::MidnightBls12_381 => "blake2b",
+      Self::MidnightBn254 | Self::MidnightBls12_381 => "blake2b",
     }
   }
 
@@ -115,7 +134,7 @@ impl OuterHostFlavor {
   /// circuit on this host lane today.
   #[must_use]
   pub const fn supports_current_canonical_circuit(self) -> bool {
-    matches!(self, Self::MidnightBn254)
+    matches!(self, Self::MidnightBn254 | Self::MidnightBls12_381)
   }
 }
 

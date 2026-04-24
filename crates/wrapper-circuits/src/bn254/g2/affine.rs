@@ -1,28 +1,38 @@
+use ff::{Field, PrimeField};
+use midnight_circuits::field::foreign::params::{FieldEmulationParams, MultiEmulationParams};
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
 };
 
 use super::{
-  AssignedFp2, Bn254FieldChip, Bn254FieldConfig, Fp2Constant, Fp2Value, G2AffineConstant,
-  G2AffineValue, NativeField, fp2_neg_constant, g2_curve_coeff_b, g2_generator,
+  AssignedFp2, Bn254FieldChip, Bn254FieldConfig, ForeignField, Fp2Constant, Fp2Value,
+  G2AffineConstant, G2AffineValue, NativeField, fp2_neg_constant, g2_curve_coeff_b, g2_generator,
 };
 
 /// Assigned BN254 G2 affine point represented over the Fp2 twist coordinates.
 ///
 /// This narrow slice supports only non-infinity affine points.
 #[derive(Clone, Debug)]
-pub struct AssignedG2Affine {
+pub struct AssignedG2Affine<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// X coordinate in Fp2.
-  pub x: AssignedFp2,
+  pub x: AssignedFp2<FHost>,
   /// Y coordinate in Fp2.
-  pub y: AssignedFp2,
+  pub y: AssignedFp2<FHost>,
 }
 
-impl AssignedG2Affine {
+impl<FHost> AssignedG2Affine<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   /// Builds an assigned G2 affine point from assigned Fp2 coordinates.
   #[must_use]
-  pub fn new(x: AssignedFp2, y: AssignedFp2) -> Self {
+  pub fn new(x: AssignedFp2<FHost>, y: AssignedFp2<FHost>) -> Self {
     Self { x, y }
   }
 
@@ -32,8 +42,8 @@ impl AssignedG2Affine {
   ///
   /// Returns an error if assigning any of the underlying Fp2 coordinates fails.
   pub fn assign(
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     x: Fp2Value,
     y: Fp2Value,
   ) -> Result<Self, Error> {
@@ -50,8 +60,8 @@ impl AssignedG2Affine {
   /// Returns an error if negating the underlying Fp2 y-coordinate fails.
   pub fn neg(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<Self, Error> {
     Ok(Self::new(self.x.clone(), self.y.neg(chip, layouter)?))
   }
@@ -63,8 +73,8 @@ impl AssignedG2Affine {
   /// Returns an error if either Fp2 coordinate equality constraint cannot be enforced.
   pub fn assert_equal(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<(), Error> {
     self.x.assert_equal(chip, layouter, &rhs.x)?;
@@ -79,8 +89,8 @@ impl AssignedG2Affine {
   /// equation check fails.
   pub fn assert_on_curve(
     &self,
-    chip: &Bn254FieldChip,
-    layouter: &mut impl Layouter<NativeField>,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
   ) -> Result<(), Error> {
     let y_square = self.y.square(chip, layouter)?;
     let x_square = self.x.square(chip, layouter)?;
