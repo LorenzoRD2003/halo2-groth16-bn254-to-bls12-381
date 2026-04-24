@@ -1,22 +1,24 @@
-[2m2026-04-24T01:05:40.703375Z[0m [32m INFO[0m printing Groth16 layout profiles for All
-family	id	label	term_count	public_input_count	rows	column_queries	k	table_rows	max_degree	advice_columns	fixed_columns	lookups	permutations	point_sets
-blocks	bn254_miller_loop_narrow	bn254 miller loop narrow			503854	58	19	417	5	15	37	4	18	4
-blocks	bn254_final_exponentiation_easy_part	bn254 final exponentiation easy part			13884	58	14	417	5	15	37	4	18	4
-blocks	bn254_final_exponentiation_hard_part	bn254 final exponentiation hard part			690782	58	20	417	5	15	37	4	18	4
-blocks	bn254_final_exponentiation	bn254 final exponentiation			705596	58	20	417	5	15	37	4	18	4
-blocks	bn254_pairing_check_groth16_style	bn254 pairing check groth16-style (1 variable + 3 prepared)	4	1	2170266	94	22	417	5	20	60	8	24	4
-blocks	bn254_pairing_check_sample_2_terms	bn254 pairing check sample	2		1873660	94	21	417	5	20	60	8	24	4
-groth16	groth16_fixture_verifier_total	groth16 fixture verifier total		1	2170186	192	22	417	5	41	125	17	47	5
-groth16	groth16_fixture_vk_x_accumulator	groth16 fixture vk_x accumulator		1	319	105	9	417	5	21	67	9	25	5
-groth16	groth16_pairing_check_proxy_4_terms	groth16 pairing check 4-term proxy	4		2170266	94	22	417	5	20	60	8	24	4
-outer	outer_wrapper_fixture_total	outer wrapper fixture total	4	1	2170186	193	22	417	5	42	126	17	48	5
-outer	outer_wrapper_semaphore_end_to_end	outer wrapper semaphore end-to-end	4	4	2170186	193	22	417	5	42	126	17	48	5
-pairing_terms	pairing_check_terms_1	pairing check term scaling	1		1415916	94	21	417	5	20	60	8	24	4
-pairing_terms	pairing_check_terms_2	pairing check term scaling	2		1667366	94	21	417	5	20	60	8	24	4
-pairing_terms	pairing_check_terms_3	pairing check term scaling	3		1918816	94	21	417	5	20	60	8	24	4
-pairing_terms	pairing_check_terms_4	pairing check term scaling	4		2170266	94	22	417	5	20	60	8	24	4
-public_inputs	groth16_ic_accumulator_public_inputs_1	groth16 ic accumulator public-input scaling		1	319	105	9	417	5	21	67	9	25	5
-public_inputs	groth16_ic_accumulator_public_inputs_2	groth16 ic accumulator public-input scaling		2	590	105	10	417	5	21	67	9	25	5
-public_inputs	groth16_ic_accumulator_public_inputs_4	groth16 ic accumulator public-input scaling		4	1132	105	11	417	5	21	67	9	25	5
-public_inputs	groth16_ic_accumulator_public_inputs_8	groth16 ic accumulator public-input scaling		8	2216	105	12	417	5	21	67	9	25	5
-public_inputs	groth16_ic_accumulator_public_inputs_16	groth16 ic accumulator public-input scaling		16	4384	105	13	417	5	21	67	9	25	5
+[2m2026-04-24T15:33:26.258397Z[0m [32m INFO[0m printing Groth16 layout profiles for All
+family	id	label	term_count	public_input_count	elapsed_ms	rows	column_queries	k	table_rows	max_degree	advice_columns	fixed_columns	lookups	permutations	point_sets
+blocks	bn254_miller_loop_narrow	bn254 miller loop narrow			34152	503854	58	19	417	5	15	37	4	18	4
+blocks	bn254_final_exponentiation_easy_part	bn254 final exponentiation easy part			1174	13884	58	14	417	5	15	37	4	18	4
+blocks	bn254_final_exponentiation_hard_part	bn254 final exponentiation hard part			35121	690782	58	20	417	5	15	37	4	18	4
+blocks	bn254_final_exponentiation	bn254 final exponentiation			35486	705596	58	20	417	5	15	37	4	18	4
+blocks	bn254_pairing_check_groth16_style	bn254 pairing check groth16-style (1 variable + 3 prepared)	4	1	106643	2170266	94	22	417	5	20	60	8	24	4
+blocks	bn254_pairing_check_sample_2_terms	bn254 pairing check sample	2		83194	1873660	94	21	417	5	20	60	8	24	4
+groth16	groth16_fixture_verifier_total	groth16 fixture verifier total		1	96560	2170378	94	22	417	5	20	60	8	24	4
+groth16	groth16_fixture_vk_x_accumulator	groth16 fixture vk_x accumulator		1	10	40	58	9	385	5	15	37	4	18	4
+groth16	groth16_pairing_check_proxy_4_terms	groth16 pairing check 4-term proxy	4		96555	2170266	94	22	417	5	20	60	8	24	4
+outer	outer_wrapper_circom_multiplier2_end_to_end_bn254_host	outer wrapper circom_multiplier2 end-to-end (bn254 host)	4	1	96283	2170378	96	22	417	5	21	61	8	25	4
+outer	outer_wrapper_circom_multiplier2_end_to_end_bls12_381_host	outer wrapper circom_multiplier2 end-to-end (bls12-381 host)	4	1	97048	2170378	96	22	417	5	21	61	8	25	4
+outer	outer_wrapper_semaphore_end_to_end_bn254_host	outer wrapper semaphore end-to-end (bn254 host)	4	4	97704	2170378	96	22	417	5	21	61	8	25	4
+outer	outer_wrapper_semaphore_end_to_end_bls12_381_host	outer wrapper semaphore end-to-end (bls12-381 host)	4	4	96207	2170378	96	22	417	5	21	61	8	25	4
+pairing_terms	pairing_check_terms_1	pairing check term scaling	1		62112	1415916	94	21	417	5	20	60	8	24	4
+pairing_terms	pairing_check_terms_2	pairing check term scaling	2		73507	1667366	94	21	417	5	20	60	8	24	4
+pairing_terms	pairing_check_terms_3	pairing check term scaling	3		85357	1918816	94	21	417	5	20	60	8	24	4
+pairing_terms	pairing_check_terms_4	pairing check term scaling	4		96588	2170266	94	22	417	5	20	60	8	24	4
+public_inputs	groth16_ic_accumulator_public_inputs_1	groth16 ic accumulator public-input scaling		1	11	40	58	9	385	5	15	37	4	18	4
+public_inputs	groth16_ic_accumulator_public_inputs_2	groth16 ic accumulator public-input scaling		2	9	40	58	9	385	5	15	37	4	18	4
+public_inputs	groth16_ic_accumulator_public_inputs_4	groth16 ic accumulator public-input scaling		4	11	40	58	9	385	5	15	37	4	18	4
+public_inputs	groth16_ic_accumulator_public_inputs_8	groth16 ic accumulator public-input scaling		8	16	40	58	9	385	5	15	37	4	18	4
+public_inputs	groth16_ic_accumulator_public_inputs_16	groth16 ic accumulator public-input scaling		16	24	40	58	9	385	5	15	37	4	18	4

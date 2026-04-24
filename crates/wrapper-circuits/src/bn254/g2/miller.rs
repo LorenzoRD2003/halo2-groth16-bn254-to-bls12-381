@@ -202,29 +202,40 @@ where
   FHost: PrimeField + Field,
   MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
 {
-  let two_inv = chip.assign(
+  double_step_hom_projective_with_constants(
+    point,
+    two_inverse_constant(),
+    g2_curve_coeff_b(),
+    chip,
     layouter,
-    Value::known(
-      ForeignField::from(2_u64)
-        .invert()
-        .expect("hard-coded BN254 base-field two should be invertible"),
-    ),
-  )?;
+  )
+}
 
+fn two_inverse_constant() -> ForeignField {
+  ForeignField::from(2_u64).invert().expect("hard-coded BN254 base-field two should be invertible")
+}
+
+fn double_step_hom_projective_with_constants<FHost>(
+  point: &AssignedG2MillerPoint<FHost>,
+  two_inv: ForeignField,
+  twist_b: Fp2Constant,
+  chip: &Bn254FieldChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+) -> Result<(AssignedG2MillerPoint<FHost>, AssignedG2LineCoeffs<FHost>), Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   let xy = point.x.mul(chip, layouter, &point.y)?;
-  let xy_half = xy.scale_by_fp(chip, layouter, &two_inv)?;
+  let xy_half = xy.scale_by_constant(chip, layouter, two_inv)?;
   let y_square = point.y.square(chip, layouter)?;
   let z_square = point.z.square(chip, layouter)?;
-  let three_z_square = z_square.add(chip, layouter, &z_square)?.add(chip, layouter, &z_square)?;
-  let coeff_b = g2_curve_coeff_b();
-  let twist_b =
-    AssignedFp2::<FHost>::assign(chip, layouter, Value::known(coeff_b.0), Value::known(coeff_b.1))?;
-  let twist_times_three_z_square = twist_b.mul(chip, layouter, &three_z_square)?;
-  let triple_twist_term = twist_times_three_z_square
-    .add(chip, layouter, &twist_times_three_z_square)?
-    .add(chip, layouter, &twist_times_three_z_square)?;
+  let three_z_square = z_square.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?;
+  let twist_times_three_z_square = three_z_square.mul_by_constant(chip, layouter, twist_b)?;
+  let triple_twist_term =
+    twist_times_three_z_square.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?;
   let average_y_square_and_twist =
-    y_square.add(chip, layouter, &triple_twist_term)?.scale_by_fp(chip, layouter, &two_inv)?;
+    y_square.add(chip, layouter, &triple_twist_term)?.scale_by_constant(chip, layouter, two_inv)?;
   let y_plus_z = point.y.add(chip, layouter, &point.z)?;
   let y_plus_z_sq = y_plus_z.square(chip, layouter)?;
   let y_plus_z_sum = y_square.add(chip, layouter, &z_square)?;
@@ -235,11 +246,8 @@ where
 
   let y_plus_z_cross = y_plus_z_sq.sub(chip, layouter, &y_plus_z_sum)?;
   let next_x = xy_half.mul(chip, layouter, &y_minus_twist_term)?;
-  let three_twist_term_square = twist_term_square.add(chip, layouter, &twist_term_square)?.add(
-    chip,
-    layouter,
-    &twist_term_square,
-  )?;
+  let three_twist_term_square =
+    twist_term_square.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?;
   let next_y = average_y_square_and_twist.square(chip, layouter)?.sub(
     chip,
     layouter,
@@ -249,7 +257,7 @@ where
 
   let line = AssignedG2LineCoeffs::new(
     y_plus_z_cross.neg(chip, layouter)?,
-    x_square.add(chip, layouter, &x_square)?.add(chip, layouter, &x_square)?,
+    x_square.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?,
     vertical_term,
   );
 
@@ -275,7 +283,8 @@ where
   let lambda_cubed = lambda.mul(chip, layouter, &lambda_square)?;
   let z_times_theta_square = point.z.mul(chip, layouter, &theta_square)?;
   let x_times_lambda_square = point.x.mul(chip, layouter, &lambda_square)?;
-  let double_x_lambda_square = x_times_lambda_square.add(chip, layouter, &x_times_lambda_square)?;
+  let double_x_lambda_square =
+    x_times_lambda_square.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?;
   let next_x_intermediate = lambda_cubed.add(chip, layouter, &z_times_theta_square)?.sub(
     chip,
     layouter,
@@ -549,18 +558,6 @@ fn fp2_frobenius_map_constant(value: Fp2Constant) -> Fp2Constant {
   (value.0, -value.1)
 }
 
-fn assign_fp2_constant<FHost>(
-  chip: &Bn254FieldChip<FHost>,
-  layouter: &mut impl Layouter<FHost>,
-  value: Fp2Constant,
-) -> Result<AssignedFp2<FHost>, Error>
-where
-  FHost: PrimeField + Field,
-  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
-{
-  AssignedFp2::<FHost>::assign(chip, layouter, Value::known(value.0), Value::known(value.1))
-}
-
 fn fp2_frobenius_map<FHost>(
   value: &AssignedFp2<FHost>,
   chip: &Bn254FieldChip<FHost>,
@@ -582,7 +579,7 @@ where
   FHost: PrimeField + Field,
   MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
 {
-  let twist_mul_by_q_x = assign_fp2_constant(
+  let x = fp2_frobenius_map(&point.x, chip, layouter)?.mul_by_constant(
     chip,
     layouter,
     (
@@ -596,7 +593,7 @@ where
       .expect("hard-coded BN254 twist mul-by-q x.c1 should parse"),
     ),
   )?;
-  let twist_mul_by_q_y = assign_fp2_constant(
+  let y = fp2_frobenius_map(&point.y, chip, layouter)?.mul_by_constant(
     chip,
     layouter,
     (
@@ -610,9 +607,6 @@ where
       .expect("hard-coded BN254 twist mul-by-q y.c1 should parse"),
     ),
   )?;
-
-  let x = fp2_frobenius_map(&point.x, chip, layouter)?.mul(chip, layouter, &twist_mul_by_q_x)?;
-  let y = fp2_frobenius_map(&point.y, chip, layouter)?.mul(chip, layouter, &twist_mul_by_q_y)?;
   Ok(AssignedG2Affine::new(x, y))
 }
 
@@ -798,6 +792,8 @@ where
   neg_base: AssignedG2Affine<FHost>,
   frobenius_q1: AssignedG2Affine<FHost>,
   frobenius_q2_neg_y: AssignedG2Affine<FHost>,
+  two_inv: ForeignField,
+  twist_b: Fp2Constant,
 }
 
 impl<FHost> AssignedVariableMultiMillerTerm<FHost>
@@ -816,6 +812,8 @@ where
     let mut frobenius_q2_neg_y = g2_mul_by_char(&frobenius_q1, chip, layouter)?;
     frobenius_q2_neg_y =
       AssignedG2Affine::new(frobenius_q2_neg_y.x, frobenius_q2_neg_y.y.neg(chip, layouter)?);
+    let two_inv = two_inverse_constant();
+    let twist_b = g2_curve_coeff_b();
 
     Ok(Self {
       point: point.clone(),
@@ -824,6 +822,8 @@ where
       neg_base,
       frobenius_q1,
       frobenius_q2_neg_y,
+      two_inv,
+      twist_b,
     })
   }
 
@@ -835,7 +835,13 @@ where
   ) -> Result<AssignedG2LineCoeffs<FHost>, Error> {
     match step {
       Bn254MillerScheduleStep::Double => {
-        let (next, line) = self.current.double_with_line(chip, layouter)?;
+        let (next, line) = double_step_hom_projective_with_constants(
+          &self.current,
+          self.two_inv,
+          self.twist_b,
+          chip,
+          layouter,
+        )?;
         self.current = next;
         Ok(line)
       }
@@ -1164,6 +1170,31 @@ where
     }
   }
 
+  fn exp_by_x_window_sum<'a, FHost>(
+    x17: &'a AssignedFp6<FHost>,
+    x25: &'a AssignedFp6<FHost>,
+    x29: &'a AssignedFp6<FHost>,
+    x39: &'a AssignedFp6<FHost>,
+    x41: &'a AssignedFp6<FHost>,
+    x43: &'a AssignedFp6<FHost>,
+    x49: &'a AssignedFp6<FHost>,
+    window: Bn254ExpByXWindow,
+  ) -> &'a AssignedFp6<FHost>
+  where
+    FHost: PrimeField + Field,
+    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+  {
+    match window {
+      Bn254ExpByXWindow::X17 => x17,
+      Bn254ExpByXWindow::X25 => x25,
+      Bn254ExpByXWindow::X29 => x29,
+      Bn254ExpByXWindow::X39 => x39,
+      Bn254ExpByXWindow::X41 => x41,
+      Bn254ExpByXWindow::X43 => x43,
+      Bn254ExpByXWindow::X49 => x49,
+    }
+  }
+
   // Compute value^x for the BN254 parameter
   // x = 0x44e992b44a6909f1 = 4965661367192848881.
   //
@@ -1178,15 +1209,29 @@ where
   let x8 = x4.cyclotomic_square(chip, layouter)?;
   let x16 = x8.cyclotomic_square(chip, layouter)?;
   let x32 = x16.cyclotomic_square(chip, layouter)?;
+  let value_sum = value.sum_components(chip, layouter)?;
+  let x2_sum = x2.sum_components(chip, layouter)?;
+  let x4_sum = x4.sum_components(chip, layouter)?;
+  let x8_sum = x8.sum_components(chip, layouter)?;
+  let x16_sum = x16.sum_components(chip, layouter)?;
+  let x32_sum = x32.sum_components(chip, layouter)?;
 
-  let x10 = x8.mul(chip, layouter, &x2)?;
-  let x17 = x16.mul(chip, layouter, value)?;
-  let x25 = x17.mul(chip, layouter, &x8)?;
-  let x29 = x25.mul(chip, layouter, &x4)?;
-  let x39 = x29.mul(chip, layouter, &x10)?;
-  let x41 = x25.mul(chip, layouter, &x16)?;
-  let x43 = x41.mul(chip, layouter, &x2)?;
-  let x49 = x32.mul(chip, layouter, &x17)?;
+  let x10 = x8.mul_with_precomputed_sums(chip, layouter, &x2, &x8_sum, &x2_sum)?;
+  let x10_sum = x10.sum_components(chip, layouter)?;
+  let x17 = x16.mul_with_precomputed_sums(chip, layouter, value, &x16_sum, &value_sum)?;
+  let x17_sum = x17.sum_components(chip, layouter)?;
+  let x25 = x17.mul_with_precomputed_sums(chip, layouter, &x8, &x17_sum, &x8_sum)?;
+  let x25_sum = x25.sum_components(chip, layouter)?;
+  let x29 = x25.mul_with_precomputed_sums(chip, layouter, &x4, &x25_sum, &x4_sum)?;
+  let x29_sum = x29.sum_components(chip, layouter)?;
+  let x39 = x29.mul_with_precomputed_sums(chip, layouter, &x10, &x29_sum, &x10_sum)?;
+  let x39_sum = x39.sum_components(chip, layouter)?;
+  let x41 = x25.mul_with_precomputed_sums(chip, layouter, &x16, &x25_sum, &x16_sum)?;
+  let x41_sum = x41.sum_components(chip, layouter)?;
+  let x43 = x41.mul_with_precomputed_sums(chip, layouter, &x2, &x41_sum, &x2_sum)?;
+  let x43_sum = x43.sum_components(chip, layouter)?;
+  let x49 = x32.mul_with_precomputed_sums(chip, layouter, &x17, &x32_sum, &x17_sum)?;
+  let x49_sum = x49.sum_components(chip, layouter)?;
 
   let mut exp =
     exp_by_x_window::<FHost>(&x17, &x25, &x29, &x39, &x41, &x43, &x49, BN254_EXP_BY_X_CHAIN_START)
@@ -1194,10 +1239,15 @@ where
 
   for (square_count, window) in BN254_EXP_BY_X_CHAIN_STEPS {
     exp = cyclotomic_square_n_times::<FHost>(chip, layouter, &exp, *square_count)?;
-    exp = exp.mul(
+    let exp_sum = exp.sum_components(chip, layouter)?;
+    exp = exp.mul_with_precomputed_sums(
       chip,
       layouter,
       exp_by_x_window::<FHost>(&x17, &x25, &x29, &x39, &x41, &x43, &x49, *window),
+      &exp_sum,
+      exp_by_x_window_sum::<FHost>(
+        &x17_sum, &x25_sum, &x29_sum, &x39_sum, &x41_sum, &x43_sum, &x49_sum, *window,
+      ),
     )?;
   }
 
@@ -1213,9 +1263,8 @@ where
   FHost: PrimeField + Field,
   MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
 {
-  let f1 = value.unitary_inverse(chip, layouter)?;
   let f2 = value.inv(chip, layouter)?;
-  let mut r = f1.mul(chip, layouter, &f2)?;
+  let mut r = f2.mul_by_unitary_inverse(chip, layouter, value)?;
   let r_clone = r.clone();
   r = r.frobenius_map(chip, layouter, 2)?;
   r.mul(chip, layouter, &r_clone)
@@ -1233,31 +1282,60 @@ where
   // The easy part maps the Miller output into the cyclotomic subgroup, and the
   // hard-part multiplications and unitary inverses keep intermediates inside
   // that subgroup. The explicit square sites here can therefore use
-  // cyclotomic_square(...).
+  // cyclotomic_square(...). This first optimization pass also classifies the
+  // hard-part multiply sites by operand shape so we can replace the highest
+  // leverage generic products one family at a time.
   let r = value.clone();
+  let r_sum = r.sum_components(chip, layouter)?;
+  let r_diff = r.diff_components(chip, layouter)?;
 
   let y0 = exp_by_neg_x(chip, layouter, value)?;
   let y1 = y0.cyclotomic_square(chip, layouter)?;
+  let y1_sum = y1.sum_components(chip, layouter)?;
   let y2 = y1.cyclotomic_square(chip, layouter)?;
-  let mut y3 = y2.mul(chip, layouter, &y1)?;
+  // cyclotomic * cyclotomic
+  let y2_sum = y2.sum_components(chip, layouter)?;
+  let y3 = y2.mul_with_precomputed_sums(chip, layouter, &y1, &y2_sum, &y1_sum)?;
+  let y3_diff = y3.diff_components(chip, layouter)?;
   let y4 = exp_by_neg_x(chip, layouter, &y3)?;
+  let y4_sum = y4.sum_components(chip, layouter)?;
   let y5 = y4.cyclotomic_square(chip, layouter)?;
-  let mut y6 = exp_by_neg_x(chip, layouter, &y5)?;
-  y3 = y3.unitary_inverse(chip, layouter)?;
-  y6 = y6.unitary_inverse(chip, layouter)?;
-  let y7 = y6.mul(chip, layouter, &y4)?;
-  let mut y8 = y7.mul(chip, layouter, &y3)?;
-  let y9 = y8.mul(chip, layouter, &y1)?;
-  let y10 = y8.mul(chip, layouter, &y4)?;
-  let y11 = y10.mul(chip, layouter, &r)?;
+  let y6 = exp_by_neg_x(chip, layouter, &y5)?;
+  let y6_diff = y6.diff_components(chip, layouter)?;
+  // cyclotomic * unitary_inverse(cyclotomic)
+  let y7 =
+    y4.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, &y6, &y4_sum, &y6_diff)?;
+  let y7_sum = y7.sum_components(chip, layouter)?;
+  // cyclotomic * unitary_inverse(cyclotomic)
+  let mut y8 =
+    y7.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, &y3, &y7_sum, &y3_diff)?;
+  let y8_sum = y8.sum_components(chip, layouter)?;
+  // cyclotomic * cyclotomic
+  let y9 = y8.mul_with_precomputed_sums(chip, layouter, &y1, &y8_sum, &y1_sum)?;
+  // cyclotomic * cyclotomic
+  let y10 = y8.mul_with_precomputed_sums(chip, layouter, &y4, &y8_sum, &y4_sum)?;
+  // cyclotomic * cyclotomic
+  let y10_sum = y10.sum_components(chip, layouter)?;
+  let y11 = y10.mul_with_precomputed_sums(chip, layouter, &r, &y10_sum, &r_sum)?;
   let mut y12 = y9.frobenius_map(chip, layouter, 1)?;
-  y12 = y12.mul(chip, layouter, &y11)?;
+  // frobenius(cyclotomic) * cyclotomic
+  let y12_sum = y12.sum_components(chip, layouter)?;
+  let y11_sum = y11.sum_components(chip, layouter)?;
+  y12 = y12.mul_with_precomputed_sums(chip, layouter, &y11, &y12_sum, &y11_sum)?;
   y8 = y8.frobenius_map(chip, layouter, 2)?;
-  let y14 = y8.mul(chip, layouter, &y12)?;
-  let r_inv = r.unitary_inverse(chip, layouter)?;
-  let mut y15 = r_inv.mul(chip, layouter, &y9)?;
+  // frobenius(cyclotomic) * cyclotomic
+  let y8_frob_sum = y8.sum_components(chip, layouter)?;
+  let y12_sum = y12.sum_components(chip, layouter)?;
+  let y14 = y8.mul_with_precomputed_sums(chip, layouter, &y12, &y8_frob_sum, &y12_sum)?;
+  // cyclotomic * unitary_inverse(cyclotomic)
+  let y9_sum = y9.sum_components(chip, layouter)?;
+  let mut y15 =
+    y9.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, &r, &y9_sum, &r_diff)?;
   y15 = y15.frobenius_map(chip, layouter, 3)?;
-  y15.mul(chip, layouter, &y14)
+  // frobenius(cyclotomic) * cyclotomic
+  let y15_sum = y15.sum_components(chip, layouter)?;
+  let y14_sum = y14.sum_components(chip, layouter)?;
+  y15.mul_with_precomputed_sums(chip, layouter, &y14, &y15_sum, &y14_sum)
 }
 
 pub fn final_exponentiation_on_host<FHost>(

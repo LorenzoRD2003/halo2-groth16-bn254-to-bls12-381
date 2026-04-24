@@ -3,7 +3,7 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::trivially_copy_pass_by_ref)]
 
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -27,8 +27,7 @@ use wrapper_circuits::{
   groth16_pairing_block_pairing_check_groth16_style_layout_metrics,
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
   groth16_public_input_count_layout_metrics, measure_host_circuit_layout,
-  measure_native_circuit_layout, outer_wrapper_fixture_layout_metrics_for_host,
-  primitive_definitions,
+  measure_native_circuit_layout, primitive_definitions,
 };
 use wrapper_core::{
   ProjectConfig, ProjectStatusReport, WrapperExecutionPackage, WrapperExecutionResult, WrapperJob,
@@ -36,6 +35,7 @@ use wrapper_core::{
 
 const SEMAPHORE_PROFILE_PUBLIC_INPUT_NAMES: [&str; 4] =
   ["merkle_root", "nullifier", "message_hash", "scope_hash"];
+const CIRCOM_MULTIPLIER2_PROFILE_PUBLIC_INPUT_NAMES: [&str; 1] = ["public_input_0"];
 
 #[derive(Debug, Parser)]
 #[command(
@@ -263,6 +263,7 @@ struct LayoutProfileRow {
   label: &'static str,
   term_count: Option<usize>,
   public_input_count: Option<usize>,
+  elapsed_ms: u128,
   layout: LayoutMetrics,
 }
 
@@ -365,8 +366,9 @@ fn run_bench_info() {
   info!("printing benchmark guidance");
   println!("Benchmark runner: Criterion");
   println!("Command: cargo bench");
+  println!("Benchmark preflight timing TSV: kind\\tid\\telapsed_ms");
   println!("Current benchmark structure:");
-  for module in ["field", "ecc"] {
+  for module in ["field", "ecc", "outer"] {
     println!("  - crates/wrapper-tests/benches/{module}/");
   }
   println!("Current benchmark entry points:");
@@ -378,6 +380,15 @@ fn run_bench_info() {
   ] {
     print_bench_group(layer);
   }
+  println!("  Outer:");
+  for bench_name in [
+    "bench_outer_circom_multiplier2_bn254_host",
+    "bench_outer_circom_multiplier2_bls12_381_host",
+    "bench_outer_semaphore_bn254_host",
+    "bench_outer_semaphore_bls12_381_host",
+  ] {
+    println!("  - {bench_name}");
+  }
   println!(
     "Warning: current benchmarks use small Midnight-backed sanity circuits. The Miller-loop, final-exponentiation, and pairing-check entries cover only the current narrow pairing and first Groth16-verifier slice, not a broad verifier framework or production wrapper pipeline."
   );
@@ -388,17 +399,18 @@ fn run_profile_layout(family: ProfileFamily) {
   let rows = layout_profile_rows(family);
 
   println!(
-    "family\tid\tlabel\tterm_count\tpublic_input_count\trows\tcolumn_queries\tk\ttable_rows\tmax_degree\tadvice_columns\tfixed_columns\tlookups\tpermutations\tpoint_sets"
+    "family\tid\tlabel\tterm_count\tpublic_input_count\telapsed_ms\trows\tcolumn_queries\tk\ttable_rows\tmax_degree\tadvice_columns\tfixed_columns\tlookups\tpermutations\tpoint_sets"
   );
 
   for row in rows {
     println!(
-      "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+      "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
       row.family,
       row.id,
       row.label,
       optional_usize(row.term_count),
       optional_usize(row.public_input_count),
+      row.elapsed_ms,
       row.layout.rows,
       row.layout.column_queries,
       row.layout.k,
@@ -424,7 +436,7 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         label: "bn254 miller loop narrow",
         term_count: None,
         public_input_count: None,
-        layout: groth16_pairing_block_miller_loop_layout_metrics(),
+        ..timed_layout_profile_row(groth16_pairing_block_miller_loop_layout_metrics)
       },
       LayoutProfileRow {
         family: "blocks",
@@ -432,7 +444,9 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         label: "bn254 final exponentiation easy part",
         term_count: None,
         public_input_count: None,
-        layout: groth16_pairing_block_final_exponentiation_easy_part_layout_metrics(),
+        ..timed_layout_profile_row(
+          groth16_pairing_block_final_exponentiation_easy_part_layout_metrics,
+        )
       },
       LayoutProfileRow {
         family: "blocks",
@@ -440,7 +454,9 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         label: "bn254 final exponentiation hard part",
         term_count: None,
         public_input_count: None,
-        layout: groth16_pairing_block_final_exponentiation_hard_part_layout_metrics(),
+        ..timed_layout_profile_row(
+          groth16_pairing_block_final_exponentiation_hard_part_layout_metrics,
+        )
       },
       LayoutProfileRow {
         family: "blocks",
@@ -448,7 +464,7 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         label: "bn254 final exponentiation",
         term_count: None,
         public_input_count: None,
-        layout: groth16_pairing_block_final_exponentiation_layout_metrics(),
+        ..timed_layout_profile_row(groth16_pairing_block_final_exponentiation_layout_metrics)
       },
       LayoutProfileRow {
         family: "blocks",
@@ -456,7 +472,7 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         label: "bn254 pairing check groth16-style (1 variable + 3 prepared)",
         term_count: Some(4),
         public_input_count: Some(1),
-        layout: groth16_pairing_block_pairing_check_groth16_style_layout_metrics(),
+        ..timed_layout_profile_row(groth16_pairing_block_pairing_check_groth16_style_layout_metrics)
       },
       LayoutProfileRow {
         family: "blocks",
@@ -464,7 +480,7 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         label: "bn254 pairing check sample",
         term_count: Some(2),
         public_input_count: None,
-        layout: groth16_pairing_block_pairing_check_layout_metrics(),
+        ..timed_layout_profile_row(groth16_pairing_block_pairing_check_layout_metrics)
       },
     ]);
   }
@@ -477,7 +493,7 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         label: "groth16 fixture verifier total",
         term_count: None,
         public_input_count: Some(1),
-        layout: groth16_fixture_verifier_layout_metrics(),
+        ..timed_layout_profile_row(groth16_fixture_verifier_layout_metrics)
       },
       LayoutProfileRow {
         family: "groth16",
@@ -485,7 +501,7 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         label: "groth16 fixture vk_x accumulator",
         term_count: None,
         public_input_count: Some(1),
-        layout: groth16_fixture_ic_accumulator_layout_metrics(),
+        ..timed_layout_profile_row(groth16_fixture_ic_accumulator_layout_metrics)
       },
       LayoutProfileRow {
         family: "groth16",
@@ -493,17 +509,57 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
         label: "groth16 pairing check 4-term proxy",
         term_count: Some(4),
         public_input_count: None,
-        layout: groth16_pairing_term_count_layout_metrics(4),
+        ..timed_layout_profile_row(|| groth16_pairing_term_count_layout_metrics(4))
       },
     ]);
   }
 
   if matches!(family, ProfileFamily::All | ProfileFamily::Outer) {
     rows.extend([
-      outer_wrapper_fixture_layout_row(OuterHostFlavor::MidnightBn254),
-      outer_wrapper_fixture_layout_row(OuterHostFlavor::MidnightBls12_381),
-      semaphore_outer_end_to_end_layout_row_bn254(),
-      semaphore_outer_end_to_end_layout_row_bls12(),
+      outer_fixture_end_to_end_layout_row(
+        "circom-multiplier2",
+        "circom_multiplier2",
+        "outer wrapper circom_multiplier2 end-to-end",
+        include_bytes!("../../wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json"),
+        include_bytes!("../../wrapper-tests/fixtures/groth16/circom_multiplier2/public.json"),
+        include_bytes!(
+          "../../wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json"
+        ),
+        &CIRCOM_MULTIPLIER2_PROFILE_PUBLIC_INPUT_NAMES,
+        OuterHostFlavor::MidnightBn254,
+      ),
+      outer_fixture_end_to_end_layout_row(
+        "circom-multiplier2",
+        "circom_multiplier2",
+        "outer wrapper circom_multiplier2 end-to-end",
+        include_bytes!("../../wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json"),
+        include_bytes!("../../wrapper-tests/fixtures/groth16/circom_multiplier2/public.json"),
+        include_bytes!(
+          "../../wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json"
+        ),
+        &CIRCOM_MULTIPLIER2_PROFILE_PUBLIC_INPUT_NAMES,
+        OuterHostFlavor::MidnightBls12_381,
+      ),
+      outer_fixture_end_to_end_layout_row(
+        "semaphore-depth-10",
+        "semaphore",
+        "outer wrapper semaphore end-to-end",
+        include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json"),
+        include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/public.json"),
+        include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"),
+        &SEMAPHORE_PROFILE_PUBLIC_INPUT_NAMES,
+        OuterHostFlavor::MidnightBn254,
+      ),
+      outer_fixture_end_to_end_layout_row(
+        "semaphore-depth-10",
+        "semaphore",
+        "outer wrapper semaphore end-to-end",
+        include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json"),
+        include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/public.json"),
+        include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"),
+        &SEMAPHORE_PROFILE_PUBLIC_INPUT_NAMES,
+        OuterHostFlavor::MidnightBls12_381,
+      ),
     ]);
   }
 
@@ -514,7 +570,7 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
       label: "pairing check term scaling",
       term_count: Some(*count),
       public_input_count: None,
-      layout: groth16_pairing_term_count_layout_metrics(*count),
+      ..timed_layout_profile_row(|| groth16_pairing_term_count_layout_metrics(*count))
     }));
   }
 
@@ -525,96 +581,87 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
       label: "groth16 ic accumulator public-input scaling",
       term_count: None,
       public_input_count: Some(*count),
-      layout: groth16_public_input_count_layout_metrics(*count),
+      ..timed_layout_profile_row(|| groth16_public_input_count_layout_metrics(*count))
     }));
   }
 
   rows
 }
 
-fn outer_wrapper_fixture_layout_row(outer_host: OuterHostFlavor) -> LayoutProfileRow {
+fn outer_fixture_end_to_end_layout_row(
+  artifact_id: &str,
+  fixture_slug: &str,
+  fixture_label: &'static str,
+  proof_json: &'static [u8],
+  public_json: &'static [u8],
+  verification_key_json: &'static [u8],
+  public_input_names: &[&str],
+  outer_host: OuterHostFlavor,
+) -> LayoutProfileRow {
   let host_suffix = match outer_host {
     OuterHostFlavor::MidnightBn254 => "bn254_host",
     OuterHostFlavor::MidnightBls12_381 => "bls12_381_host",
   };
   let host_label = match outer_host {
-    OuterHostFlavor::MidnightBn254 => "outer wrapper fixture total (bn254 host)",
-    OuterHostFlavor::MidnightBls12_381 => "outer wrapper fixture total (bls12-381 host)",
+    OuterHostFlavor::MidnightBn254 => "bn254 host",
+    OuterHostFlavor::MidnightBls12_381 => "bls12-381 host",
   };
+  let bundle = parse_snarkjs_groth16_bn254_bundle_with_names(
+    artifact_id,
+    proof_json,
+    public_json,
+    verification_key_json,
+    public_input_names,
+  )
+  .expect("named outer profiling bundle should parse");
+  let package = bundle.build_halo2_outer_execution_package();
+  let started_at = Instant::now();
+  let layout = match outer_host {
+    OuterHostFlavor::MidnightBn254 => {
+      let backend = MidnightDirectOuterBackend;
+      let circuit = backend
+        .build_outer_circuit(
+          &package,
+          OuterCircuitInputArtifacts::new(Some(proof_json), Some(verification_key_json)),
+        )
+        .expect("BN254 outer profiling circuit should build");
+      measure_native_circuit_layout(&circuit.hosted_bn254())
+    }
+    OuterHostFlavor::MidnightBls12_381 => {
+      let backend = MidnightDirectOuterBackendBls12Host;
+      let circuit = backend
+        .build_outer_circuit(
+          &package,
+          OuterCircuitInputArtifacts::new(Some(proof_json), Some(verification_key_json)),
+        )
+        .expect("BLS12 outer profiling circuit should build");
+      measure_host_circuit_layout(&circuit.hosted_bls12())
+    }
+  };
+  let label = Box::leak(format!("{fixture_label} ({host_label})").into_boxed_str());
 
   LayoutProfileRow {
     family: "outer",
-    id: format!("outer_wrapper_fixture_total_{host_suffix}"),
-    label: host_label,
+    id: format!("outer_wrapper_{fixture_slug}_end_to_end_{host_suffix}"),
+    label,
     term_count: Some(4),
-    public_input_count: Some(1),
-    layout: outer_wrapper_fixture_layout_metrics_for_host(outer_host),
+    public_input_count: Some(public_input_names.len()),
+    elapsed_ms: started_at.elapsed().as_millis(),
+    layout,
   }
 }
 
-fn semaphore_outer_end_to_end_layout_row_bn254() -> LayoutProfileRow {
-  let bundle = parse_snarkjs_groth16_bn254_bundle_with_names(
-    "semaphore-depth-10",
-    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json"),
-    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/public.json"),
-    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"),
-    &SEMAPHORE_PROFILE_PUBLIC_INPUT_NAMES,
-  )
-  .expect("named Semaphore profiling bundle should parse");
-  let package = bundle.build_halo2_outer_execution_package();
-  let backend = MidnightDirectOuterBackend;
-  let circuit = backend
-    .build_outer_circuit(
-      &package,
-      OuterCircuitInputArtifacts::new(
-        Some(include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json")),
-        Some(include_bytes!(
-          "../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"
-        )),
-      ),
-    )
-    .expect("Semaphore outer profiling circuit should build");
-
+fn timed_layout_profile_row(measure: impl FnOnce() -> LayoutMetrics) -> LayoutProfileRow {
+  let started_at = Instant::now();
+  let layout = measure();
   LayoutProfileRow {
-    family: "outer",
-    id: "outer_wrapper_semaphore_end_to_end_bn254_host".to_owned(),
-    label: "outer wrapper semaphore end-to-end (bn254 host)",
-    term_count: Some(4),
-    public_input_count: Some(4),
-    layout: measure_native_circuit_layout(&circuit.hosted_bn254()),
-  }
-}
-
-fn semaphore_outer_end_to_end_layout_row_bls12() -> LayoutProfileRow {
-  let bundle = parse_snarkjs_groth16_bn254_bundle_with_names(
-    "semaphore-depth-10",
-    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json"),
-    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/public.json"),
-    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"),
-    &SEMAPHORE_PROFILE_PUBLIC_INPUT_NAMES,
-  )
-  .expect("named Semaphore profiling bundle should parse");
-  let package = bundle.build_halo2_outer_execution_package();
-  let backend = MidnightDirectOuterBackendBls12Host;
-  let circuit = backend
-    .build_outer_circuit(
-      &package,
-      OuterCircuitInputArtifacts::new(
-        Some(include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json")),
-        Some(include_bytes!(
-          "../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"
-        )),
-      ),
-    )
-    .expect("Semaphore BLS12 outer profiling circuit should build");
-
-  LayoutProfileRow {
-    family: "outer",
-    id: "outer_wrapper_semaphore_end_to_end_bls12_381_host".to_owned(),
-    label: "outer wrapper semaphore end-to-end (bls12-381 host)",
-    term_count: Some(4),
-    public_input_count: Some(4),
-    layout: measure_host_circuit_layout(&circuit.hosted_bls12()),
+    family: "",
+    id: String::new(),
+    label: "",
+    term_count: None,
+    public_input_count: None,
+    elapsed_ms: started_at.elapsed().as_millis(),
+    layout,
   }
 }
 

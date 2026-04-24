@@ -76,6 +76,60 @@ where
   FHost: PrimeField + Field,
   MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
 {
+  pub(crate) fn sum_components(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+  ) -> Result<AssignedFp6<FHost>, Error> {
+    self.c0.add(chip, layouter, &self.c1)
+  }
+
+  pub(crate) fn diff_components(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+  ) -> Result<AssignedFp6<FHost>, Error> {
+    self.c0.sub(chip, layouter, &self.c1)
+  }
+
+  pub(crate) fn mul_with_precomputed_sums(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    rhs: &Self,
+    lhs_sum: &AssignedFp6<FHost>,
+    rhs_sum: &AssignedFp6<FHost>,
+  ) -> Result<Self, Error> {
+    let a_a = self.c0.mul(chip, layouter, &rhs.c0)?;
+    let b_b = self.c1.mul(chip, layouter, &rhs.c1)?;
+    let b_b_nr = b_b.mul_by_nonresidue(chip, layouter)?;
+    let cross = lhs_sum.mul(chip, layouter, rhs_sum)?;
+
+    let c0 = a_a.add(chip, layouter, &b_b_nr)?;
+    let c1 = cross.sub(chip, layouter, &a_a)?.sub(chip, layouter, &b_b)?;
+
+    Ok(Self::new(c0, c1))
+  }
+
+  pub(crate) fn mul_by_unitary_inverse_with_precomputed_sums(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    rhs: &Self,
+    lhs_sum: &AssignedFp6<FHost>,
+    rhs_diff: &AssignedFp6<FHost>,
+  ) -> Result<Self, Error> {
+    let a_a = self.c0.mul(chip, layouter, &rhs.c0)?;
+    let b_b = self.c1.mul(chip, layouter, &rhs.c1)?;
+    let b_b_nr = b_b.mul_by_nonresidue(chip, layouter)?;
+    let cross = lhs_sum.mul(chip, layouter, rhs_diff)?;
+
+    let c0 = a_a.sub(chip, layouter, &b_b_nr)?;
+    let c1 = cross.sub(chip, layouter, &a_a)?.add(chip, layouter, &b_b)?;
+
+    Ok(Self::new(c0, c1))
+  }
+
   fn cyclotomic_square_pair(
     chip: &Bn254FieldChip<FHost>,
     layouter: &mut impl Layouter<FHost>,
@@ -105,10 +159,9 @@ where
     t: &AssignedFp2<FHost>,
     z: &AssignedFp2<FHost>,
   ) -> Result<AssignedFp2<FHost>, Error> {
-    let t_minus_z = t.sub(chip, layouter, z)?;
-    let two_t_minus_two_z = t_minus_z.add(chip, layouter, &t_minus_z)?;
-
-    two_t_minus_two_z.add(chip, layouter, t)
+    let three_t = t.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?;
+    let two_z = z.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?;
+    three_t.sub(chip, layouter, &two_z)
   }
 
   fn fp2_three_t_plus_two_z(
@@ -117,10 +170,9 @@ where
     t: &AssignedFp2<FHost>,
     z: &AssignedFp2<FHost>,
   ) -> Result<AssignedFp2<FHost>, Error> {
-    let t_plus_z = t.add(chip, layouter, z)?;
-    let two_t_plus_two_z = t_plus_z.add(chip, layouter, &t_plus_z)?;
-
-    two_t_plus_two_z.add(chip, layouter, t)
+    let three_t = t.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?;
+    let two_z = z.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?;
+    three_t.add(chip, layouter, &two_z)
   }
 
   /// Builds an assigned Fp12 value from its two assigned Fp6 coordinates.
@@ -222,17 +274,31 @@ where
     layouter: &mut impl Layouter<FHost>,
     rhs: &Self,
   ) -> Result<Self, Error> {
-    let a_a = self.c0.mul(chip, layouter, &rhs.c0)?;
-    let b_b = self.c1.mul(chip, layouter, &rhs.c1)?;
-    let b_b_nr = b_b.mul_by_nonresidue(chip, layouter)?;
-    let lhs_sum = self.c0.add(chip, layouter, &self.c1)?;
-    let rhs_sum = rhs.c0.add(chip, layouter, &rhs.c1)?;
-    let cross = lhs_sum.mul(chip, layouter, &rhs_sum)?;
+    let lhs_sum = self.sum_components(chip, layouter)?;
+    let rhs_sum = rhs.sum_components(chip, layouter)?;
+    self.mul_with_precomputed_sums(chip, layouter, rhs, &lhs_sum, &rhs_sum)
+  }
 
-    let c0 = a_a.add(chip, layouter, &b_b_nr)?;
-    let c1 = cross.sub(chip, layouter, &a_a)?.sub(chip, layouter, &b_b)?;
-
-    Ok(Self::new(c0, c1))
+  /// Multiplies this Fp12 value by the unitary inverse of `rhs`.
+  ///
+  /// In the cyclotomic subgroup used by BN254 final exponentiation, the
+  /// unitary inverse is just conjugation. This helper keeps that multiplication
+  /// in one place so hard-part call sites can avoid materializing a separate
+  /// conjugated Fp12 witness before using the same generic quadratic-tower
+  /// product shape.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any underlying Fp6 operation fails.
+  pub(crate) fn mul_by_unitary_inverse(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    rhs: &Self,
+  ) -> Result<Self, Error> {
+    let lhs_sum = self.sum_components(chip, layouter)?;
+    let rhs_diff = rhs.diff_components(chip, layouter)?;
+    self.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, rhs, &lhs_sum, &rhs_diff)
   }
 
   /// Squares an Fp12 value inside the circuit using the quadratic-extension identity.
@@ -249,7 +315,7 @@ where
     let b_sq = self.c1.square(chip, layouter)?;
     let ab = self.c0.mul(chip, layouter, &self.c1)?;
     let b_sq_nr = b_sq.mul_by_nonresidue(chip, layouter)?;
-    let two_ab = ab.add(chip, layouter, &ab)?;
+    let two_ab = ab.scale_by_base_constant(chip, layouter, ForeignField::from(2_u64))?;
 
     Ok(Self::new(a_sq.add(chip, layouter, &b_sq_nr)?, two_ab))
   }

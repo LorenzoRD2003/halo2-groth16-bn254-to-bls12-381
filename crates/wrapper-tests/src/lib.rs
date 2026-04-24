@@ -1,8 +1,14 @@
 //! Test harness crate for workspace-level fixtures and integration helpers.
 #![allow(clippy::multiple_crate_versions)]
 
-use wrapper_backends as _;
-use wrapper_circuits as _;
+use wrapper_backends::{
+  ArtifactSetLoader, Groth16Bn254ArtifactBundle, MidnightDirectOuterBackendBls12Host,
+  MidnightDirectOuterBackendBn254Host, OuterCircuitInputArtifacts,
+  SnarkjsGroth16Bn254ArtifactSetLoader, parse_snarkjs_groth16_bn254_bundle_with_names,
+};
+use wrapper_circuits::{
+  HostedOuterWrapperCircuitBls12, HostedOuterWrapperCircuitBn254, groth16_fixture_raw,
+};
 use wrapper_core as _;
 
 #[cfg(test)]
@@ -10,14 +16,134 @@ use criterion as _;
 #[cfg(test)]
 use midnight_proofs as _;
 
+/// Ordered public-input names for the committed Semaphore fixture.
+pub const SEMAPHORE_PUBLIC_INPUT_NAMES: [&str; 4] =
+  ["merkle_root", "nullifier", "message_hash", "scope_hash"];
+
+/// Committed Groth16 fixtures that can feed the canonical outer wrapper lane.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OuterBenchFixture {
+  /// The small `circom` / `snarkjs` `multiplier2` fixture.
+  CircomMultiplier2,
+  /// The real Semaphore fixture committed for migration / end-to-end coverage.
+  SemaphoreDepth10,
+}
+
+impl OuterBenchFixture {
+  /// Stable artifact identifier used when parsing the fixture bundle.
+  #[must_use]
+  pub fn artifact_id(self) -> &'static str {
+    match self {
+      Self::CircomMultiplier2 => "circom-multiplier2",
+      Self::SemaphoreDepth10 => "semaphore-depth-10",
+    }
+  }
+
+  /// Stable slug for benchmark and profiling labels.
+  #[must_use]
+  pub fn slug(self) -> &'static str {
+    match self {
+      Self::CircomMultiplier2 => "circom_multiplier2",
+      Self::SemaphoreDepth10 => "semaphore",
+    }
+  }
+}
+
 /// Returns the example config bundled for integration tests.
 #[must_use]
 pub fn example_config() -> &'static str {
   include_str!("../fixtures/example-config.toml")
 }
 
+/// Loads one committed Groth16 fixture bundle.
+#[must_use]
+pub fn load_outer_bench_fixture_bundle(fixture: OuterBenchFixture) -> Groth16Bn254ArtifactBundle {
+  match fixture {
+    OuterBenchFixture::CircomMultiplier2 => {
+      let loader = SnarkjsGroth16Bn254ArtifactSetLoader;
+      loader
+        .load_artifact_set(
+          fixture.artifact_id(),
+          groth16_fixture_raw::proof_json(),
+          groth16_fixture_raw::public_inputs_json(),
+          groth16_fixture_raw::verification_key_json(),
+        )
+        .expect("canonical multiplier2 fixture bundle should parse")
+    }
+    OuterBenchFixture::SemaphoreDepth10 => parse_snarkjs_groth16_bn254_bundle_with_names(
+      fixture.artifact_id(),
+      include_bytes!("../fixtures/groth16/semaphore/proof.json"),
+      include_bytes!("../fixtures/groth16/semaphore/public.json"),
+      include_bytes!("../fixtures/groth16/semaphore/verification_key.json"),
+      &SEMAPHORE_PUBLIC_INPUT_NAMES,
+    )
+    .expect("named Semaphore fixture bundle should parse"),
+  }
+}
+
+/// Builds the canonical BN254-hosted outer circuit for one committed fixture.
+#[must_use]
+pub fn build_outer_bench_circuit_bn254(
+  fixture: OuterBenchFixture,
+) -> HostedOuterWrapperCircuitBn254 {
+  let bundle = load_outer_bench_fixture_bundle(fixture);
+  let package = bundle.build_halo2_outer_execution_package();
+  let backend = MidnightDirectOuterBackendBn254Host;
+  let circuit = backend
+    .build_outer_circuit(
+      &package,
+      OuterCircuitInputArtifacts::new(
+        Some(match fixture {
+          OuterBenchFixture::CircomMultiplier2 => groth16_fixture_raw::proof_json(),
+          OuterBenchFixture::SemaphoreDepth10 => {
+            include_bytes!("../fixtures/groth16/semaphore/proof.json")
+          }
+        }),
+        Some(match fixture {
+          OuterBenchFixture::CircomMultiplier2 => groth16_fixture_raw::verification_key_json(),
+          OuterBenchFixture::SemaphoreDepth10 => {
+            include_bytes!("../fixtures/groth16/semaphore/verification_key.json")
+          }
+        }),
+      ),
+    )
+    .expect("BN254-hosted outer benchmark circuit should build");
+  circuit.into_hosted_bn254()
+}
+
+/// Builds the canonical BLS12-381-hosted outer circuit for one committed fixture.
+#[must_use]
+pub fn build_outer_bench_circuit_bls12(
+  fixture: OuterBenchFixture,
+) -> HostedOuterWrapperCircuitBls12 {
+  let bundle = load_outer_bench_fixture_bundle(fixture);
+  let package = bundle.build_halo2_outer_execution_package();
+  let backend = MidnightDirectOuterBackendBls12Host;
+  let circuit = backend
+    .build_outer_circuit(
+      &package,
+      OuterCircuitInputArtifacts::new(
+        Some(match fixture {
+          OuterBenchFixture::CircomMultiplier2 => groth16_fixture_raw::proof_json(),
+          OuterBenchFixture::SemaphoreDepth10 => {
+            include_bytes!("../fixtures/groth16/semaphore/proof.json")
+          }
+        }),
+        Some(match fixture {
+          OuterBenchFixture::CircomMultiplier2 => groth16_fixture_raw::verification_key_json(),
+          OuterBenchFixture::SemaphoreDepth10 => {
+            include_bytes!("../fixtures/groth16/semaphore/verification_key.json")
+          }
+        }),
+      ),
+    )
+    .expect("BLS12-hosted outer benchmark circuit should build");
+  circuit.into_hosted_bls12()
+}
+
 #[cfg(test)]
 mod tests {
+  use super::SEMAPHORE_PUBLIC_INPUT_NAMES;
   use wrapper_backends::{
     ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle, MidnightDirectOuterBackend,
     OuterCircuitInputArtifacts, OuterProofBackend, PlannedHalo2OuterBackend,
@@ -32,9 +158,6 @@ mod tests {
   };
 
   use super::example_config;
-
-  const SEMAPHORE_PUBLIC_INPUT_NAMES: [&str; 4] =
-    ["merkle_root", "nullifier", "message_hash", "scope_hash"];
 
   #[test]
   fn example_config_parses() {

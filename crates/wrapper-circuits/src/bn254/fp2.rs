@@ -150,7 +150,7 @@ where
     let a_sq = chip.square(layouter, &self.c0)?;
     let b_sq = chip.square(layouter, &self.c1)?;
     let ab = chip.mul(layouter, &self.c0, &self.c1)?;
-    let two_ab = chip.add(layouter, &ab, &ab)?;
+    let two_ab = chip.mul_by_constant(layouter, &ab, ForeignField::from(2_u64))?;
 
     Ok(Self::new(chip.sub(layouter, &a_sq, &b_sq)?, two_ab))
   }
@@ -167,6 +167,32 @@ where
     scalar: &AssignedFp<FHost>,
   ) -> Result<Self, Error> {
     Ok(Self::new(chip.mul(layouter, &self.c0, scalar)?, chip.mul(layouter, &self.c1, scalar)?))
+  }
+
+  pub(crate) fn scale_by_constant(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    scalar: ForeignField,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      chip.mul_by_constant(layouter, &self.c0, scalar)?,
+      chip.mul_by_constant(layouter, &self.c1, scalar)?,
+    ))
+  }
+
+  pub(crate) fn mul_by_constant(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    rhs: Fp2Constant,
+  ) -> Result<Self, Error> {
+    let ac = chip.mul_by_constant(layouter, &self.c0, rhs.0)?;
+    let bd = chip.mul_by_constant(layouter, &self.c1, rhs.1)?;
+    let ad = chip.mul_by_constant(layouter, &self.c0, rhs.1)?;
+    let bc = chip.mul_by_constant(layouter, &self.c1, rhs.0)?;
+
+    Ok(Self::new(chip.sub(layouter, &ac, &bd)?, chip.add(layouter, &ad, &bc)?))
   }
 
   pub(crate) fn value(&self) -> Value<Fp2Constant> {

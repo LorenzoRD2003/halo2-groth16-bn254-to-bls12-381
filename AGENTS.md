@@ -153,9 +153,18 @@ If you need pairing-core / final-exponentiation context:
 1. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
 2. `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`
 3. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
-4. `docs/groth16-optimization-summary.md`
+4. `docs/midnight-local-optimization-notes.md`
 5. `docs/profiling.md`
-6. `docs/groth16-optimization-summary.md`
+6. `docs/midnight-local-optimization-notes.md`
+
+If you need Midnight-local optimization context:
+
+1. `docs/midnight-local-optimization-notes.md`
+2. `crates/wrapper-circuits/src/bn254/types.rs`
+3. `crates/wrapper-circuits/src/bn254/fp2.rs`
+4. `crates/wrapper-circuits/src/bn254/fp6.rs`
+5. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
+6. `docs/profiling.md`
 
 If you need BN254 primitive structure / ownership context:
 
@@ -171,7 +180,7 @@ If you need CLI / measurement context:
 3. `crates/wrapper-cli/src/main.rs`
 4. `docs/profiling.md`
 5. `docs/benchmarking.md`
-6. `docs/groth16-optimization-summary.md`
+6. `docs/midnight-local-optimization-notes.md`
 
 If you need stage boundaries / "is this in scope?" context:
 
@@ -205,7 +214,7 @@ When you need to build context quickly, read in this order:
 20. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
 21. `docs/outer-prover-strategy-plan.md`
 22. `docs/profiling.md`
-23. `docs/groth16-optimization-summary.md`
+23. `docs/midnight-local-optimization-notes.md`
 
 This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
 
@@ -219,7 +228,7 @@ Use each top-level doc for one job:
 - `docs/roadmap.md`: what stage the repo is in and what remains explicitly out of scope
 - `docs/profiling.md`: how to measure layout cost and compare optimization baselines
 - `docs/benchmarking.md`: benchmark naming, bench-info wiring, and benchmark/reporting sync rules
-- `docs/groth16-optimization-summary.md`: current hard-part chain, measured hotspot split, and next optimization targets
+- `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates that already proved useful or look promising for the BN254 tower / pairing path
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current status of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision and direct backend surface for the canonical Halo2/Midnight outer circuit
@@ -238,7 +247,7 @@ future agents know when to read it.
 - `docs/roadmap.md`: staged implementation plan
 - `docs/benchmarking.md`: benchmark structure and conventions
 - `docs/profiling.md`: reproducible layout-profiling workflow for the current Groth16 slice
-- `docs/groth16-optimization-summary.md`: code-level final-exponentiation chain, sub-block metrics, and next optimization targets
+- `docs/midnight-local-optimization-notes.md`: local Midnight-backed optimization guidance for repeated tower operations and fixed-constant arithmetic
 - `docs/outer-prover-strategy-plan.md`: strategy document for the remaining prover/backend decision on the outer Halo2/Midnight circuit
 - `docs/decisions/0001-initial-workspace-structure.md`: ADR for the workspace split
 
@@ -350,8 +359,8 @@ When touching the current BN254 primitive code:
 - keep Miller-path G2 work aligned with the homogeneous prepared-step formulas used by arkworks BN prepared-G2 generation
 - keep final exponentiation work aligned with the standard BN easy-part / hard-part decomposition used by arkworks unless a measured circuit-oriented rewrite clearly improves the current slice
 - keep pairing-check work verifier-shaped: accumulate Miller outputs first, apply exactly one final exponentiation to the total product, and avoid per-term final exponentiation
-- for final-exponentiation optimization work, read `docs/groth16-optimization-summary.md` first; it records the exact implemented chain, the `exp_by_neg_x(...)` hotspot, and the current easy-part / hard-part split
-- before starting a new optimization pass, read `docs/groth16-optimization-summary.md` first so you inherit the current before/after numbers and do not re-open already-settled measurement questions
+- for final-exponentiation and local tower optimization work, read `docs/midnight-local-optimization-notes.md` first so you inherit the current proved-useful Midnight primitives and ruled-out local paths
+- when looking for local tower wins, read `docs/midnight-local-optimization-notes.md` before inventing new gadgets; it records which `midnight-circuits` primitives (`mul_by_constant`, `linear_combination`, `add_constant`, etc.) already paid off in this repo
 - when a public method contains a full algebraic step, prefer extracting the formula into a well-named internal helper such as `double_step_jacobian`, `double_step_hom_projective`, or `mixed_add_step_hom_projective`
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
@@ -378,7 +387,8 @@ Concrete BN254 conventions already in use:
 - the narrow pairing-check path computes each real Miller loop, multiplies the Miller outputs in `Fp12`, applies exactly one final exponentiation, and checks equality with the `Fp12` multiplicative identity
 - the current Groth16 verifier route precomputes Miller-step line coefficients off-circuit for constant verifier-key G2 terms (`beta_g2`, `gamma_g2`, `delta_g2`) and feeds those prepared lines into the interleaved multi-Miller loop; only the proof term stays on the variable G2 path
 - the current final-exponentiation code now exposes `final_exponentiation_easy_part(...)` and `final_exponentiation_hard_part(...)` as audit-friendly internal helpers without changing semantics
-- the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/groth16-optimization-summary.md` before changing it so you inherit the current chain shape, measured split, and next optimization targets
+- the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/profiling.md` plus `docs/midnight-local-optimization-notes.md` before changing it so you inherit the current measured state and the local Midnight primitives that already paid off
+- the current best class of local wins came from replacing generic constant multiplies in repeated tower helpers with Midnight-backed `mul_by_constant(...)`; check `docs/midnight-local-optimization-notes.md` before changing repeated `Fp2` / `Fp6` / `Fp12` transforms
 - the fixed BN254 `exp_by_neg_x(...)` recipe now lives in `crates/wrapper-circuits/src/bn254/final_exp_chain.rs` and is consumed by both host/reference code and the circuit path; keep that module canonical
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
@@ -423,7 +433,7 @@ Interpretation guidance:
 - `miller loop narrow` now measures the real fixed single-pair BN254 optimal-ate Miller traversal, not the earlier synthetic schedule
 - `final exponentiation` measures the narrow single-pair BN254 final-exponentiation sanity circuit over a Miller-loop output, not a verifier-facing full pairing API
 - `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `13884` rows / `k=14` for the easy part and `690782` rows / `k=20` for the hard part, so future optimization work should focus overwhelmingly on the hard part
-- `docs/groth16-optimization-summary.md` is the canonical narrative summary of completed optimization phases and consolidated before/after metrics; keep it updated when a new optimization materially changes the bottleneck story
+- `docs/midnight-local-optimization-notes.md` is the canonical short list of Midnight primitives and local optimization targets; keep it updated when a new `midnight-circuits` primitive proves useful or a local candidate is ruled out
 - `pairing check` should always be described as the narrow verifier-shaped product-check slice with one shared final exponentiation, not as a full pairing engine or Groth16 verifier
 - as of the current repo state, local accumulator-square rewrites that only swap formulas inside the existing Fp12 tower did not beat the generic `miller accumulator square` cost; future square optimization likely needs a more structural/cross-step design rather than a small algebraic rewrite, so do not keep partial `square_optimized` experiments in the tree unless they measurably win in `wrapper-cli doctor`
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
@@ -520,7 +530,7 @@ Benchmark/metrics integration rules that have already bitten this repo:
 - use explicit honest names for Miller work such as `*_narrow`, `*_sparse`, or `*_baseline` when the slice is not a full pairing pipeline
 - when changing Groth16 optimization-baseline reporting, keep `crates/wrapper-circuits/src/groth16/profiling.rs`, `crates/wrapper-cli/src/main.rs`, `docs/profiling.md`, and the relevant README/AGENTS references in sync in the same turn
 - keep profiling identifiers stable: `family`, `id`, and `label` should remain diff-friendly across runs unless there is a deliberate reporting-schema change
-- when changing final-exponentiation decomposition or reporting, keep `crates/wrapper-circuits/src/bn254/g2/miller.rs`, `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`, `crates/wrapper-circuits/src/bn254/metrics.rs`, `docs/profiling.md`, and `docs/groth16-optimization-summary.md` in sync in the same turn
+- when changing final-exponentiation decomposition or local-Midnight optimization guidance, keep `crates/wrapper-circuits/src/bn254/g2/miller.rs`, `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`, `crates/wrapper-circuits/src/bn254/metrics.rs`, `docs/profiling.md`, and `docs/midnight-local-optimization-notes.md` in sync in the same turn
 
 ## Documentation Standards
 

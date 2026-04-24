@@ -6,8 +6,10 @@ use wrapper_backends as _;
 use wrapper_core as _;
 use wrapper_tests as _;
 
+mod common;
 mod ecc;
 mod field;
+mod outer;
 
 criterion_group!(
   primitive_benches,
@@ -36,6 +38,10 @@ criterion_group!(
   ecc::bench_miller_accumulator_mul_by_line_sparse,
   ecc::bench_miller_loop_narrow,
   ecc::bench_final_exponentiation,
-  ecc::bench_pairing_check
+  ecc::bench_pairing_check,
+  outer::bench_outer_circom_multiplier2_bn254_host,
+  outer::bench_outer_circom_multiplier2_bls12_381_host,
+  outer::bench_outer_semaphore_bn254_host,
+  outer::bench_outer_semaphore_bls12_381_host
 );
 criterion_main!(primitive_benches);

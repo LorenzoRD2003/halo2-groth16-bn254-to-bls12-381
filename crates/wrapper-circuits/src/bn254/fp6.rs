@@ -105,9 +105,14 @@ where
     layouter: &mut impl Layouter<FHost>,
   ) -> Result<AssignedFp2<FHost>, Error> {
     // (c0 + c1 * u) * (9 + u) = (9*c0 - c1) + (c0 + 9*c1) * u
-    let nine = chip.assign(layouter, Value::known(ForeignField::from(9_u64)))?;
-    let nine_c0 = AssignedFp2::new(chip.mul(layouter, &value.c0, &nine)?, value.c1.clone());
-    let nine_c1 = AssignedFp2::new(value.c0.clone(), chip.mul(layouter, &value.c1, &nine)?);
+    let nine_c0 = AssignedFp2::new(
+      chip.mul_by_constant(layouter, &value.c0, ForeignField::from(9_u64))?,
+      value.c1.clone(),
+    );
+    let nine_c1 = AssignedFp2::new(
+      value.c0.clone(),
+      chip.mul_by_constant(layouter, &value.c1, ForeignField::from(9_u64))?,
+    );
     let c0 = chip.sub(layouter, &nine_c0.c0, &value.c1)?;
     let c1 = chip.add(layouter, &value.c0, &nine_c1.c1)?;
 
@@ -124,6 +129,19 @@ where
       self.c0.mul(chip, layouter, scalar)?,
       self.c1.mul(chip, layouter, scalar)?,
       self.c2.mul(chip, layouter, scalar)?,
+    ))
+  }
+
+  pub(crate) fn scale_by_base_constant(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    scalar: ForeignField,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      self.c0.scale_by_constant(chip, layouter, scalar)?,
+      self.c1.scale_by_constant(chip, layouter, scalar)?,
+      self.c2.scale_by_constant(chip, layouter, scalar)?,
     ))
   }
 
@@ -278,7 +296,7 @@ where
     let s0 = self.c0.square(chip, layouter)?;
     let s1 = {
       let c0c1 = self.c0.mul(chip, layouter, &self.c1)?;
-      c0c1.add(chip, layouter, &c0c1)?
+      c0c1.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?
     };
     let s2 = {
       let c0_minus_c1 = self.c0.sub(chip, layouter, &self.c1)?;
@@ -287,7 +305,7 @@ where
     };
     let s3 = {
       let c1c2 = self.c1.mul(chip, layouter, &self.c2)?;
-      c1c2.add(chip, layouter, &c1c2)?
+      c1c2.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?
     };
     let s4 = self.c2.square(chip, layouter)?;
 

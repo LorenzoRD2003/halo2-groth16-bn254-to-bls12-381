@@ -198,6 +198,16 @@ where
     self.field_chip.mul(layouter, left, right, None)
   }
 
+  /// Multiplies one BN254 base-field value by a fixed constant.
+  pub fn mul_by_constant(
+    &self,
+    layouter: &mut impl Layouter<FHost>,
+    value: &AssignedFp<FHost>,
+    constant: ForeignField,
+  ) -> Result<AssignedFp<FHost>, Error> {
+    self.field_chip.mul_by_constant(layouter, value, constant)
+  }
+
   /// Squares a BN254 base-field value inside the circuit.
   pub fn square(
     &self,

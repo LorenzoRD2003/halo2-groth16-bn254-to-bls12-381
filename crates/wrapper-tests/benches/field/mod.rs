@@ -1,6 +1,6 @@
 //! Field benchmark hooks backed by the real Midnight BN254 foreign-field circuits.
 
-use criterion::{BenchmarkId, Criterion};
+use criterion::Criterion;
 use midnight_proofs::dev::MockProver;
 use midnight_proofs::plonk::Circuit;
 use wrapper_circuits::{
@@ -10,18 +10,14 @@ use wrapper_circuits::{
   fp6_mul_k, fp6_square_k, fp12_add_k, fp12_cyclotomic_square_k, fp12_mul_k, fp12_square_k,
 };
 
+use crate::common::bench_verified_sample;
+
 fn verify_sample_circuit<CircuitT>(circuit: &CircuitT, k: u32, build_error: &str)
 where
   CircuitT: Circuit<NativeField>,
 {
   let prover = MockProver::run(k, circuit, vec![vec![], vec![]]).expect(build_error);
   assert_eq!(prover.verify(), Ok(()));
-}
-
-fn bench_verified_sample(criterion: &mut Criterion, bench_name: &str, run: fn()) {
-  let mut group = criterion.benchmark_group("field");
-  group.bench_with_input(BenchmarkId::new(bench_name, 1), &1_u8, |bench, _| bench.iter(run));
-  group.finish();
 }
 
 fn run_fp_add_circuit() {
@@ -90,63 +86,64 @@ fn run_fp12_cyclotomic_square_circuit() {
 
 /// Benchmarks the current Midnight-backed BN254 foreign-field addition circuit.
 pub fn bench_fp_add(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp_add", run_fp_add_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp_add", run_fp_add_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 foreign-field multiplication circuit.
 pub fn bench_fp_mul(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp_mul", run_fp_mul_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp_mul", run_fp_mul_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp2 addition circuit.
 pub fn bench_fp2_add(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp2_add", run_fp2_add_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp2_add", run_fp2_add_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp2 multiplication circuit.
 pub fn bench_fp2_mul(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp2_mul", run_fp2_mul_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp2_mul", run_fp2_mul_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp2 square circuit.
 pub fn bench_fp2_square(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp2_square", run_fp2_square_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp2_square", run_fp2_square_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp6 addition circuit.
 pub fn bench_fp6_add(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp6_add", run_fp6_add_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp6_add", run_fp6_add_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp6 multiplication circuit.
 pub fn bench_fp6_mul(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp6_mul", run_fp6_mul_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp6_mul", run_fp6_mul_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp6 square circuit.
 pub fn bench_fp6_square(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp6_square", run_fp6_square_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp6_square", run_fp6_square_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp12 addition circuit.
 pub fn bench_fp12_add(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp12_add", run_fp12_add_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp12_add", run_fp12_add_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp12 multiplication circuit.
 pub fn bench_fp12_mul(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp12_mul", run_fp12_mul_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp12_mul", run_fp12_mul_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp12 square circuit.
 pub fn bench_fp12_square(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_fp12_square", run_fp12_square_circuit);
+  bench_verified_sample(criterion, "field", "bench_fp12_square", run_fp12_square_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 Fp12 cyclotomic-square circuit.
 pub fn bench_fp12_cyclotomic_square(criterion: &mut Criterion) {
   bench_verified_sample(
     criterion,
+    "field",
     "bench_fp12_cyclotomic_square",
     run_fp12_cyclotomic_square_circuit,
   );

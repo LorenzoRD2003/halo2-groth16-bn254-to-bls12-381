@@ -1,6 +1,6 @@
 //! ECC benchmark hooks backed by the real Midnight BN254 G1 circuit.
 
-use criterion::{BenchmarkId, Criterion};
+use criterion::Criterion;
 use midnight_proofs::dev::MockProver;
 use midnight_proofs::plonk::Circuit;
 use wrapper_circuits::{
@@ -14,18 +14,14 @@ use wrapper_circuits::{
   miller_accumulator_square_k, miller_loop_k, pairing_check_k,
 };
 
+use crate::common::bench_verified_sample;
+
 fn verify_sample_circuit<CircuitT>(circuit: &CircuitT, k: u32, build_error: &str)
 where
   CircuitT: Circuit<NativeField>,
 {
   let prover = MockProver::run(k, circuit, vec![vec![], vec![]]).expect(build_error);
   assert_eq!(prover.verify(), Ok(()));
-}
-
-fn bench_verified_sample(criterion: &mut Criterion, bench_name: &str, run: fn()) {
-  let mut group = criterion.benchmark_group("ecc");
-  group.bench_with_input(BenchmarkId::new(bench_name, 1), &1_u8, |bench, _| bench.iter(run));
-  group.finish();
 }
 
 fn run_g1_add_circuit() {
@@ -134,43 +130,54 @@ fn run_pairing_check_circuit() {
 
 /// Benchmarks the current Midnight-backed BN254 G1 addition circuit.
 pub fn bench_g1_add(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_g1_add", run_g1_add_circuit);
+  bench_verified_sample(criterion, "ecc", "bench_g1_add", run_g1_add_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 G2 on-curve circuit.
 pub fn bench_g2_on_curve(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_g2_on_curve", run_g2_on_curve_circuit);
+  bench_verified_sample(criterion, "ecc", "bench_g2_on_curve", run_g2_on_curve_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 G2 negation circuit.
 pub fn bench_g2_neg(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_g2_neg", run_g2_neg_circuit);
+  bench_verified_sample(criterion, "ecc", "bench_g2_neg", run_g2_neg_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 G2 affine-to-projective embedding circuit.
 pub fn bench_g2_proj_from_affine(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_g2_proj_from_affine", run_g2_proj_from_affine_circuit);
+  bench_verified_sample(
+    criterion,
+    "ecc",
+    "bench_g2_proj_from_affine",
+    run_g2_proj_from_affine_circuit,
+  );
 }
 
 /// Benchmarks the current Midnight-backed BN254 G2 projective doubling circuit.
 pub fn bench_g2_proj_double(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_g2_proj_double", run_g2_proj_double_circuit);
+  bench_verified_sample(criterion, "ecc", "bench_g2_proj_double", run_g2_proj_double_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 G2 projective addition circuit.
 pub fn bench_g2_proj_add(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_g2_proj_add", run_g2_proj_add_circuit);
+  bench_verified_sample(criterion, "ecc", "bench_g2_proj_add", run_g2_proj_add_circuit);
 }
 
 /// Benchmarks the current Midnight-backed BN254 G2 doubling-with-line circuit.
 pub fn bench_g2_double_with_line(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_g2_double_with_line", run_g2_double_with_line_circuit);
+  bench_verified_sample(
+    criterion,
+    "ecc",
+    "bench_g2_double_with_line",
+    run_g2_double_with_line_circuit,
+  );
 }
 
 /// Benchmarks the current Midnight-backed BN254 G2 mixed-add-with-line circuit.
 pub fn bench_g2_mixed_add_with_line(criterion: &mut Criterion) {
   bench_verified_sample(
     criterion,
+    "ecc",
     "bench_g2_mixed_add_with_line",
     run_g2_mixed_add_with_line_circuit,
   );
@@ -180,6 +187,7 @@ pub fn bench_g2_mixed_add_with_line(criterion: &mut Criterion) {
 pub fn bench_miller_accumulator_square(criterion: &mut Criterion) {
   bench_verified_sample(
     criterion,
+    "ecc",
     "bench_miller_accumulator_square",
     run_miller_accumulator_square_circuit,
   );
@@ -189,6 +197,7 @@ pub fn bench_miller_accumulator_square(criterion: &mut Criterion) {
 pub fn bench_miller_accumulator_mul_by_line(criterion: &mut Criterion) {
   bench_verified_sample(
     criterion,
+    "ecc",
     "bench_miller_accumulator_mul_by_line",
     run_miller_accumulator_mul_by_line_circuit,
   );
@@ -198,6 +207,7 @@ pub fn bench_miller_accumulator_mul_by_line(criterion: &mut Criterion) {
 pub fn bench_miller_accumulator_mul_by_line_sparse(criterion: &mut Criterion) {
   bench_verified_sample(
     criterion,
+    "ecc",
     "bench_miller_accumulator_mul_by_line_sparse",
     run_miller_accumulator_mul_by_line_sparse_circuit,
   );
@@ -205,15 +215,20 @@ pub fn bench_miller_accumulator_mul_by_line_sparse(criterion: &mut Criterion) {
 
 /// Benchmarks the current narrow Midnight-backed BN254 Miller-loop circuit.
 pub fn bench_miller_loop_narrow(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_miller_loop_narrow", run_miller_loop_circuit);
+  bench_verified_sample(criterion, "ecc", "bench_miller_loop_narrow", run_miller_loop_circuit);
 }
 
 /// Benchmarks the current narrow Midnight-backed BN254 final exponentiation circuit.
 pub fn bench_final_exponentiation(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_final_exponentiation", run_final_exponentiation_circuit);
+  bench_verified_sample(
+    criterion,
+    "ecc",
+    "bench_final_exponentiation",
+    run_final_exponentiation_circuit,
+  );
 }
 
 /// Benchmarks the current narrow Midnight-backed BN254 pairing-check circuit.
 pub fn bench_pairing_check(criterion: &mut Criterion) {
-  bench_verified_sample(criterion, "bench_pairing_check", run_pairing_check_circuit);
+  bench_verified_sample(criterion, "ecc", "bench_pairing_check", run_pairing_check_circuit);
 }

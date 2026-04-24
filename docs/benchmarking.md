@@ -26,6 +26,18 @@ cargo bench
 
 The current benchmark target lives in `crates/wrapper-tests/benches/primitives.rs`.
 
+When `cargo bench` starts, the workspace benches now also emit a small TSV
+preflight table:
+
+```text
+kind	id	elapsed_ms
+```
+
+Each `benchmark` row is a single deterministic dry run of the corresponding
+experiment before Criterion takes over with its repeated timing and statistics.
+That keeps an explicit wall-clock `elapsed_ms` column in the terminal output
+without replacing Criterion's own estimates.
+
 ## Profiling vs Benchmarks
 
 Use:
@@ -42,11 +54,8 @@ preferred baseline path for optimization work on:
 - public-input scaling
 - existing pairing-core block costs
 
-For final-exponentiation-specific metrics and next-step optimization planning,
-see `docs/groth16-optimization-summary.md`.
-
-For the consolidated optimization history across pairing-core, Groth16, and
-public-input scaling work, see `docs/groth16-optimization-summary.md`.
+For the current list of local optimization opportunities backed by existing
+Midnight primitives, see `docs/midnight-local-optimization-notes.md`.
 
 ## Current Structure
 
@@ -54,6 +63,7 @@ Benchmarks are grouped by future implementation area:
 
 - `crates/wrapper-tests/benches/field/`
 - `crates/wrapper-tests/benches/ecc/`
+- `crates/wrapper-tests/benches/outer/`
 
 This keeps the benchmark layout aligned with the intended cryptographic workstreams without forcing later-stage implementations to exist yet.
 
@@ -109,6 +119,10 @@ Current benchmark entry points are:
 - `bench_miller_loop_narrow`
 - `bench_final_exponentiation`
 - `bench_pairing_check`
+- `bench_outer_circom_multiplier2_bn254_host`
+- `bench_outer_circom_multiplier2_bls12_381_host`
+- `bench_outer_semaphore_bn254_host`
+- `bench_outer_semaphore_bls12_381_host`
 
 ## Metrics That Will Matter Later
 
@@ -122,4 +136,4 @@ Additional metrics may be added later if circuit shape, witness generation, or b
 
 ## Warning
 
-Current benchmarks exercise small Midnight-backed BN254 primitive circuits. The field lane now includes both the generic `bench_fp12_square` sanity circuit and the subgroup-only `bench_fp12_cyclotomic_square` sanity circuit used in the final-exponentiation hard part. The Miller-loop benchmarks cover the current narrow accumulation slice over extracted lines, `bench_final_exponentiation` covers the current narrow final-exponentiation slice on top of an Fp12 Miller output, and `bench_pairing_check` covers the narrow multi-pairing product-check slice with one shared final exponentiation. `bench_miller_accumulator_mul_by_line` is retained as the generic baseline path, while `bench_miller_accumulator_mul_by_line_sparse` measures the optimized sparse-specialized line-consumption path used by the public accumulator API. These do not measure subgroup checks, scalar multiplication, a broad verifier-facing pairing API, Groth16 verification, or a production wrapper circuit.
+Current benchmarks exercise small Midnight-backed BN254 primitive circuits plus the canonical direct outer-wrapper lane on the committed `circom_multiplier2` and Semaphore fixtures for both implemented Midnight host lanes. The field lane now includes both the generic `bench_fp12_square` sanity circuit and the subgroup-only `bench_fp12_cyclotomic_square` sanity circuit used in the final-exponentiation hard part. The Miller-loop benchmarks cover the current narrow accumulation slice over extracted lines, `bench_final_exponentiation` covers the current narrow final-exponentiation slice on top of an Fp12 Miller output, and `bench_pairing_check` covers the narrow multi-pairing product-check slice with one shared final exponentiation. `bench_miller_accumulator_mul_by_line` is retained as the generic baseline path, while `bench_miller_accumulator_mul_by_line_sparse` measures the optimized sparse-specialized line-consumption path used by the public accumulator API. The new `bench_outer_*` entries benchmark backend-built outer circuits through `MockProver`; they still do not measure subgroup checks, scalar multiplication, a broad verifier-facing pairing API, or production proving/runtime performance.

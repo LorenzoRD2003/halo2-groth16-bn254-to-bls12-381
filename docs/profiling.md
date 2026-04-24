@@ -6,8 +6,8 @@ current narrow Groth16 BN254 verifier slice.
 The goal is reproducible measurement for optimization work, not a new
 benchmarking framework.
 
-For the consolidated history of completed optimization phases and their
-before/after impact, see `docs/groth16-optimization-summary.md`.
+For the current prioritized list of local optimization opportunities backed by
+existing Midnight primitives, see `docs/midnight-local-optimization-notes.md`.
 
 ## What Was Added
 
@@ -20,7 +20,7 @@ The new workflow reuses the existing layout-cost path based on
 
 ## What It Measures
 
-The profiling command emits layout metrics for four measurement families.
+The profiling command emits layout metrics for five measurement families.
 
 ### 1. `groth16`
 
@@ -88,6 +88,16 @@ already available:
 - pairing check groth16-style (1 variable + 3 prepared)
 - pairing check primitive sample
 
+### 5. `outer`
+
+These rows cover the canonical direct outer-wrapper lane on the two committed
+Groth16 fixtures and on both implemented Midnight host lanes:
+
+- `circom_multiplier2` on BN254 host
+- `circom_multiplier2` on BLS12-381 host
+- `semaphore` on BN254 host
+- `semaphore` on BLS12-381 host
+
 ## What It Does Not Measure Yet
 
 This workflow does not currently measure:
@@ -107,7 +117,7 @@ Layout / constraint cost is still the primary signal.
 The command prints TSV with a stable header:
 
 ```text
-family	id	label	term_count	public_input_count	rows	column_queries	k	table_rows	max_degree	advice_columns	fixed_columns	lookups	permutations	point_sets
+family	id	label	term_count	public_input_count	elapsed_ms	rows	column_queries	k	table_rows	max_degree	advice_columns	fixed_columns	lookups	permutations	point_sets
 ```
 
 This is designed to be:
@@ -115,6 +125,7 @@ This is designed to be:
 - readable in the terminal
 - redirectable to a file
 - easy to diff before and after an optimization PR
+- explicit about the wall-clock time spent producing each row
 
 ## Commands
 
@@ -176,19 +187,23 @@ Important workflow note:
 
 - `groth16_fixture_verifier_total` is the closest current measurement of the
   committed verifier slice end-to-end.
-- `outer_wrapper_fixture_total` is the direct stage-5 baseline for the canonical
-  `OuterWrapperCircuit` that now backs real setup/prove wiring.
-- `outer_wrapper_semaphore_end_to_end` is the stage-7 Semaphore fixture baseline
-  for the same direct outer lane, measured on the real named Semaphore artifact
-  set rather than the smaller canonical fixture.
+- `outer_wrapper_circom_multiplier2_end_to_end_bn254_host` and
+  `outer_wrapper_circom_multiplier2_end_to_end_bls12_381_host` are the direct
+  end-to-end baselines for the committed `circom_multiplier2` fixture across
+  both Midnight host lanes.
+- `outer_wrapper_semaphore_end_to_end_bn254_host` and
+  `outer_wrapper_semaphore_end_to_end_bls12_381_host` are the matching direct
+  end-to-end baselines for the committed Semaphore fixture across both Midnight
+  host lanes.
 - `groth16_pairing_check_proxy_4_terms` is intentionally a term-count proxy for
   the Groth16 reduction, not a second semantic verifier implementation.
 - `public-inputs` isolates the current accumulator path only; it does not
   remeasure the full verifier for every input count.
 - `blocks` rows are useful when optimization work targets Miller loop or final
   exponentiation directly.
-- for final-exponentiation-specific decomposition, operation counts, and
-  follow-up targets, read `docs/groth16-optimization-summary.md`
+- for local follow-up targets that specifically leverage `midnight-circuits`
+  primitives such as `mul_by_constant`, read
+  `docs/midnight-local-optimization-notes.md`
 - `bn254_pairing_check_groth16_style` is the current optimized verifier-shaped
   pairing-core snapshot:
   one variable proof term plus three prepared constant verifier-key terms

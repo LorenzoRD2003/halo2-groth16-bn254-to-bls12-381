@@ -50,8 +50,9 @@ Use the shortest route that matches the task:
 - Real `.circom` integration plan: `docs/real-circom-wrapper-integration-plan.md`
 - Canonical R1CS backend status: `docs/r1cs-backend-status.md`
 - Outer prover strategy: `docs/outer-prover-strategy-plan.md`
-- Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/groth16-optimization-summary.md`
+- Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/midnight-local-optimization-notes.md`
 - Layout profiling / optimization: `crates/wrapper-circuits/src/groth16/profiling.rs` -> `crates/wrapper-cli/src/main.rs` -> `docs/profiling.md`
+- Midnight-local optimization opportunities: `docs/midnight-local-optimization-notes.md` -> `crates/wrapper-circuits/src/bn254/types.rs` -> `crates/wrapper-circuits/src/bn254/fp6.rs`
 - Scope / stage boundaries: `AGENTS.md` `Current Phase and Scope Boundaries` -> `docs/roadmap.md`
 
 Top-level doc roles:
@@ -61,6 +62,7 @@ Top-level doc roles:
 - `docs/architecture.md`: ownership boundaries and current implementation shape
 - `docs/roadmap.md`: stage intent and explicit non-goals
 - `docs/profiling.md`: how to measure layout-cost changes
+- `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates for repeated BN254 tower operations
 - `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current state of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision for the canonical outer circuit and the direct backend surface
@@ -88,7 +90,7 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 ├── docs/
 │   ├── architecture.md
 │   ├── benchmarking.md
-│   ├── groth16-optimization-summary.md
+│   ├── midnight-local-optimization-notes.md
 │   ├── outer-prover-strategy-plan.md
 │   ├── profiling.md
 │   ├── roadmap.md
@@ -107,8 +109,9 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 - Go to `AGENTS.md` before editing code or docs so you inherit repo-specific constraints.
 - Go to `docs/architecture.md` when deciding where code should live.
 - Go to `docs/roadmap.md` when checking whether an idea belongs in the current stage.
-- Go to `docs/profiling.md` and `docs/groth16-optimization-summary.md` for optimization work.
-- Go to `docs/groth16-optimization-summary.md` when you need the consolidated before/after history of completed optimization phases.
+- Go to `docs/profiling.md` and `docs/midnight-local-optimization-notes.md` for optimization work.
+- Go to `docs/midnight-local-optimization-notes.md` when you want the current prioritized list of local Midnight-backed optimization opportunities.
+- Go to `docs/midnight-local-optimization-notes.md` when you want local tower wins driven by existing `midnight-circuits` primitives such as `mul_by_constant`, `add_constant`, or `linear_combination`.
 
 ## Build Instructions
 
@@ -182,8 +185,8 @@ Notes:
 - if you inspect the output file before the command exits, it may look empty or
   incomplete; wait for the command to finish before comparing baselines
 - `blocks` now includes `final exponentiation easy part`, `final exponentiation hard part`, and total `final exponentiation`
-- for final-exponentiation work specifically, start with `docs/groth16-optimization-summary.md`
-- for the consolidated optimization history and current bottleneck picture, start with `docs/groth16-optimization-summary.md`
+- for final-exponentiation work specifically, start with `docs/profiling.md` and `docs/midnight-local-optimization-notes.md`
+- for the current local Midnight-backed optimization picture, start with `docs/midnight-local-optimization-notes.md`
 - the current Groth16 verifier route also precomputes Miller-step line
   coefficients off-circuit for constant verifier-key G2 terms (`beta_g2`,
   `gamma_g2`, `delta_g2`), trading a larger prepared VK representation for
