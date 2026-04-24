@@ -42,8 +42,8 @@ preferred baseline path for optimization work on:
 - public-input scaling
 - existing pairing-core block costs
 
-For final-exponentiation-specific audit and next-step optimization planning, see
-`docs/final-exponentiation-audit.md`.
+For final-exponentiation-specific metrics and next-step optimization planning,
+see `docs/groth16-optimization-summary.md`.
 
 For the consolidated optimization history across pairing-core, Groth16, and
 public-input scaling work, see `docs/groth16-optimization-summary.md`.

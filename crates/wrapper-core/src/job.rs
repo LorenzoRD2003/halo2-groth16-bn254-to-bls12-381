@@ -55,7 +55,7 @@ mod tests {
       "job-1",
       ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "snarkjs".to_owned() },
       ProofSystemDescriptor {
-        kind: ProofSystemKind::Groth16Bls12_381,
+        kind: ProofSystemKind::Halo2Outer,
         source: "planned-outer".to_owned(),
       },
       2,

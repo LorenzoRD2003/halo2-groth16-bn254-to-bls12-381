@@ -32,7 +32,7 @@ fn miller_accumulator_one_is_fp12_identity() {
 
 #[test]
 fn miller_accumulator_square_matches_arkworks_reference() {
-  let mut rng = ChaCha20Rng::from_seed([59_u8; 32]);
+  let mut rng = StdRng::from_seed([59_u8; 32]);
 
   for _ in 0..8 {
     let value = ArkFq12::rand(&mut rng);
@@ -57,7 +57,7 @@ fn miller_accumulator_square_matches_fixed_generator_line_fixture() {
 
 #[test]
 fn miller_accumulator_mul_by_evaluated_line_matches_arkworks_reference() {
-  let mut rng = ChaCha20Rng::from_seed([60_u8; 32]);
+  let mut rng = StdRng::from_seed([60_u8; 32]);
 
   for _ in 0..8 {
     let initial = ArkFq12::rand(&mut rng);
@@ -74,7 +74,7 @@ fn miller_accumulator_mul_by_evaluated_line_matches_arkworks_reference() {
 
 #[test]
 fn miller_accumulator_mul_by_line_matches_arkworks_reference() {
-  let mut rng = ChaCha20Rng::from_seed([61_u8; 32]);
+  let mut rng = StdRng::from_seed([61_u8; 32]);
 
   for _ in 0..8 {
     let g2_point = ArkG2Projective::rand(&mut rng).into_affine();
@@ -103,7 +103,7 @@ fn miller_accumulator_mul_by_line_baseline_and_sparse_match_fixed_fixture() {
 
 #[test]
 fn miller_accumulator_mul_by_line_baseline_and_sparse_match_randomized_fixtures() {
-  let mut rng = ChaCha20Rng::from_seed([65_u8; 32]);
+  let mut rng = StdRng::from_seed([65_u8; 32]);
 
   for _ in 0..4 {
     let g2_point = ArkG2Projective::rand(&mut rng).into_affine();
@@ -120,7 +120,7 @@ fn miller_accumulator_mul_by_line_baseline_and_sparse_match_randomized_fixtures(
 
 #[test]
 fn mixed_add_with_line_then_accumulate_matches_arkworks_reference() {
-  let mut rng = ChaCha20Rng::from_seed([63_u8; 32]);
+  let mut rng = StdRng::from_seed([63_u8; 32]);
 
   for _ in 0..8 {
     let (_seed_point, addend, doubled_state) = random_supported_mixed_add_fixture(&mut rng);

@@ -4,11 +4,11 @@
 
 This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based wrapper that may eventually verify Groth16 BN254 proofs inside an outer Halo2 proof system.
 
-The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations, the narrow Week 2 slices, the Week 3 extension-field slice, the Week 4 pairing-core slice through real optimal-ate Miller traversal, final exponentiation, and a narrow multi-pairing product check, and the first Week 5 end-to-end Groth16 BN254 verifier slice on top of that pairing core. It is still far from a broad or production-ready wrapper verifier.
+The project is intentionally incremental. The current codebase now includes a circuit-backed BN254 primitive layer covering Week 1 foundations, the narrow Week 2 slices, the Week 3 extension-field slice, the Week 4 pairing-core slice through real optimal-ate Miller traversal, final exponentiation, and a narrow multi-pairing product check, the Week 5 Groth16 BN254 verifier slice on top of that pairing core, and the direct Halo2/Midnight outer setup/prove/verify lane built on the canonical `OuterWrapperCircuit`. It is still far from a broad or production-ready wrapper verifier.
 
 ## Current Phase and Scope Boundaries
 
-Current phase: Stage 1 / Week 5 first end-to-end Groth16 BN254 verifier slice.
+Current phase: Stage 1 / Week 5+ direct outer setup/prove/verify lane.
 
 Implemented in scope today:
 
@@ -46,17 +46,17 @@ Implemented in scope today:
 - verifier-only BN254 G1 IC accumulation using fixed public-input scalars over the existing Midnight G1 chip
 - real snarkjs Groth16 BN254 JSON parsing in `wrapper-backends/src/snarkjs.rs`
 - generic snarkjs Groth16 BN254 artifact-set loading in `wrapper-backends/src/groth16.rs`
-- outer Groth16 backend contracts in `wrapper-backends/src/outer.rs`
+- outer proof backend contracts in `wrapper-backends/src/outer.rs`
 - a real Halo2/Midnight outer wrapper circuit in `wrapper-circuits/src/outer/`
 - domain-level wrapper-job planning in `wrapper-core/src/job.rs`
 - serializable wrapper execution packages in `wrapper-core/src/package.rs`
-- expected outer Groth16 BLS12-381 output-artifact modeling in `wrapper-core/src/output.rs`
-- stub wrapper execution results in `wrapper-core/src/execution.rs`
+- expected honest direct outer artifact modeling in `wrapper-core/src/output.rs`
+- execution result modeling in `wrapper-core/src/execution.rs`
 - verifier-equation reduction to one multi-pairing product check using `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`
 - a real Circom/snarkjs fixture under `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/`
 - a real Semaphore Groth16 BN254 fixture under `crates/wrapper-tests/fixtures/groth16/semaphore/`
 - end-to-end valid / invalid Groth16 verifier tests on top of the existing pairing core
-- bundle -> job -> package -> stub-execution validation on top of the Semaphore fixture
+- bundle -> job -> package plus direct setup/prove/verify validation on top of the Semaphore fixture
 - Real layout and row visibility through the Halo2/Midnight cost model
 - Deterministic arkworks-backed tests for `Fp`, `Fp2`, `Fp6`, `Fp12`, G1, and the current narrow G2 affine / Jacobian / Miller-step behavior
 - Criterion sanity benchmarks for the currently implemented primitive circuits
@@ -83,17 +83,17 @@ Week 5 verifier-memory notes:
 - the current Groth16 pairing reduction is `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`
 - the current IC accumulation path is verifier-only and uses fixed public-input scalars over the existing Midnight G1 chip; it is not a broad public MSM API
 - the current generic artifact-set path is `snarkjs artifacts -> Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage -> WrapperExecutionResult`
-- the current target wrapper experiment is planned as `Groth16Bn254 -> Groth16Bls12_381`, but only as metadata / planning / stub execution; no outer proof is synthesized yet
-- the current expected outer artifact model is intentionally `snarkjs`-like: proof keys such as `pi_a/pi_b/pi_c`, verification-key keys such as `nPublic` / `IC`, and JSON decimal-string encodings are modeled explicitly even though the real outer backend is not implemented yet
-- the current stub execution result also exposes a placeholder `bundle_template` for the expected outer `proof.json`, `public.json`, and `verification_key.json` payloads
-- the current CLI surfaces for that lane are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, and `execute-wrapper-stub`
-- the current placeholder outer backend is `PlannedGroth16Bls12381Backend`, which materializes the planned output bundle shape but does not generate a real proof
-- the selected concrete outer backend lane is still named `ArkworksGroth16Bls12381Backend`, but it now treats the Halo2/Midnight outer circuit as canonical rather than assuming a second circuit implementation in arkworks
+- the current delivery lane is `Groth16Bn254 -> Halo2Outer` over the canonical Halo2/Midnight outer circuit
+- the current expected outer artifact model is honest to the direct backend: `halo2-plonkish` / `bn254`, with `serde` JSON carrying hex-encoded proof, VK, and verifier-param payloads
+- the current execution model includes both the legacy stub result and the real direct CLI execution result payload
+- the current CLI surfaces for that lane are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, `execute-wrapper-stub`, and `execute-wrapper-direct`
+- the current placeholder outer backend is `PlannedHalo2OuterBackend`, which materializes the honest direct-output contract without generating a real proof
+- the selected concrete outer backend lane is `MidnightDirectOuterBackend`, and it treats the Halo2/Midnight outer circuit as canonical
 - the current outer backend lane can now adapt artifact bundles into the canonical outer circuit input, build a real outer circuit, plan setup/proof outputs, and validate produced proof/VK shapes
 - the repository now also exposes a direct canonical outer-circuit backend surface in `wrapper-backends/src/outer.rs` through `CanonicalOuterCircuitProofBackend`, `plan_direct_outer_circuit_setup(...)`, and `plan_direct_outer_circuit_proof(...)`
 - the repository now also contains a canonical R1CS line under `crates/wrapper-circuits/src/r1cs/`, including deterministic lowering, canonical identity hashing, a zkInterface-style export bridge, and a first Arkworks adapter
 - that canonical R1CS line should currently be treated as an alternate backend / later phase, not the critical path for the first real `.circom` -> outer-wrapper flow
-- the remaining blocker for real outer artifacts is now a missing concrete prover/serializer behind the direct Halo2/Midnight outer-circuit backend surface, not a missing second circuit implementation in another stack
+- the remaining blockers are mainly performance/CI ergonomics and broader production hardening, not missing direct setup/prove/verify plumbing
 - the prover-strategy design pass for that blocker lives in `docs/outer-prover-strategy-plan.md`
 
 ## Quick Context Routes
@@ -153,7 +153,7 @@ If you need pairing-core / final-exponentiation context:
 1. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
 2. `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`
 3. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
-4. `docs/final-exponentiation-audit.md`
+4. `docs/groth16-optimization-summary.md`
 5. `docs/profiling.md`
 6. `docs/groth16-optimization-summary.md`
 
@@ -205,7 +205,7 @@ When you need to build context quickly, read in this order:
 20. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
 21. `docs/outer-prover-strategy-plan.md`
 22. `docs/profiling.md`
-23. `docs/final-exponentiation-audit.md`
+23. `docs/groth16-optimization-summary.md`
 
 This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
 
@@ -219,7 +219,7 @@ Use each top-level doc for one job:
 - `docs/roadmap.md`: what stage the repo is in and what remains explicitly out of scope
 - `docs/profiling.md`: how to measure layout cost and compare optimization baselines
 - `docs/benchmarking.md`: benchmark naming, bench-info wiring, and benchmark/reporting sync rules
-- `docs/final-exponentiation-audit.md`: current hard-part chain, measured hotspot split, and next optimization targets
+- `docs/groth16-optimization-summary.md`: current hard-part chain, measured hotspot split, and next optimization targets
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current status of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision and direct backend surface for the canonical Halo2/Midnight outer circuit
@@ -229,7 +229,7 @@ future agents know when to read it.
 
 ## Repository Map
 
-- `crates/wrapper-core`: domain models, traits, config, errors, metadata, capability/status reporting, wrapper-job planning, execution packages, expected output-artifact shapes, and stub execution results
+- `crates/wrapper-core`: domain models, traits, config, errors, metadata, capability/status reporting, wrapper-job planning, execution packages, expected output-artifact shapes, and execution results
 - `crates/wrapper-circuits`: Halo2-facing code, Midnight-backed BN254 primitive layer, planning, layout reporting
 - `crates/wrapper-backends`: backend adapter placeholders, artifact parsing entry points, generic Groth16 artifact-set loading, and bundle-to-wrapper planning adapters
 - `crates/wrapper-cli`: developer commands and diagnostics
@@ -238,7 +238,7 @@ future agents know when to read it.
 - `docs/roadmap.md`: staged implementation plan
 - `docs/benchmarking.md`: benchmark structure and conventions
 - `docs/profiling.md`: reproducible layout-profiling workflow for the current Groth16 slice
-- `docs/final-exponentiation-audit.md`: code-level final-exponentiation chain, sub-block metrics, and next optimization targets
+- `docs/groth16-optimization-summary.md`: code-level final-exponentiation chain, sub-block metrics, and next optimization targets
 - `docs/outer-prover-strategy-plan.md`: strategy document for the remaining prover/backend decision on the outer Halo2/Midnight circuit
 - `docs/decisions/0001-initial-workspace-structure.md`: ADR for the workspace split
 
@@ -249,7 +249,7 @@ future agents know when to read it.
 - Must remain mostly domain-oriented.
 - Prefer no Halo2 dependency unless a boundary cannot be expressed otherwise.
 - Own shared enums, traits, config structs, metadata, capabilities, and stable public concepts.
-- Own wrapper-job planning, execution-package, expected-output, and stub-execution concepts when they can stay proving-system-agnostic.
+- Own wrapper-job planning, execution-package, expected-output, and execution-result concepts when they can stay proving-system-agnostic.
 - Must not absorb chip-specific or region-specific logic.
 
 `wrapper-circuits`
@@ -295,7 +295,7 @@ future agents know when to read it.
 - Should expose measured primitive status without overstating what is implemented.
 - The current narrow optimization-baseline surface is `profile-layout`, which emits TSV layout metrics for Groth16, pairing-term scaling, public-input scaling, and existing pairing-core blocks.
 - Treat `profile-layout` as layout/constraint profiling, not runtime benchmarking.
-- The current planning/export surfaces for wrapper experiments are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, and `execute-wrapper-stub`.
+- The current planning/execution surfaces for wrapper experiments are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, `execute-wrapper-stub`, and `execute-wrapper-direct`.
 
 `wrapper-tests`
 
@@ -350,7 +350,7 @@ When touching the current BN254 primitive code:
 - keep Miller-path G2 work aligned with the homogeneous prepared-step formulas used by arkworks BN prepared-G2 generation
 - keep final exponentiation work aligned with the standard BN easy-part / hard-part decomposition used by arkworks unless a measured circuit-oriented rewrite clearly improves the current slice
 - keep pairing-check work verifier-shaped: accumulate Miller outputs first, apply exactly one final exponentiation to the total product, and avoid per-term final exponentiation
-- for final-exponentiation optimization work, read `docs/final-exponentiation-audit.md` first; it records the exact implemented chain, the `exp_by_neg_x(...)` hotspot, and the current easy-part / hard-part split
+- for final-exponentiation optimization work, read `docs/groth16-optimization-summary.md` first; it records the exact implemented chain, the `exp_by_neg_x(...)` hotspot, and the current easy-part / hard-part split
 - before starting a new optimization pass, read `docs/groth16-optimization-summary.md` first so you inherit the current before/after numbers and do not re-open already-settled measurement questions
 - when a public method contains a full algebraic step, prefer extracting the formula into a well-named internal helper such as `double_step_jacobian`, `double_step_hom_projective`, or `mixed_add_step_hom_projective`
 - preserve real layout measurement support
@@ -378,7 +378,7 @@ Concrete BN254 conventions already in use:
 - the narrow pairing-check path computes each real Miller loop, multiplies the Miller outputs in `Fp12`, applies exactly one final exponentiation, and checks equality with the `Fp12` multiplicative identity
 - the current Groth16 verifier route precomputes Miller-step line coefficients off-circuit for constant verifier-key G2 terms (`beta_g2`, `gamma_g2`, `delta_g2`) and feeds those prepared lines into the interleaved multi-Miller loop; only the proof term stays on the variable G2 path
 - the current final-exponentiation code now exposes `final_exponentiation_easy_part(...)` and `final_exponentiation_hard_part(...)` as audit-friendly internal helpers without changing semantics
-- the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/final-exponentiation-audit.md` before changing it so you inherit the current chain shape, measured split, and next optimization targets
+- the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/groth16-optimization-summary.md` before changing it so you inherit the current chain shape, measured split, and next optimization targets
 - the fixed BN254 `exp_by_neg_x(...)` recipe now lives in `crates/wrapper-circuits/src/bn254/final_exp_chain.rs` and is consumed by both host/reference code and the circuit path; keep that module canonical
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
@@ -520,7 +520,7 @@ Benchmark/metrics integration rules that have already bitten this repo:
 - use explicit honest names for Miller work such as `*_narrow`, `*_sparse`, or `*_baseline` when the slice is not a full pairing pipeline
 - when changing Groth16 optimization-baseline reporting, keep `crates/wrapper-circuits/src/groth16/profiling.rs`, `crates/wrapper-cli/src/main.rs`, `docs/profiling.md`, and the relevant README/AGENTS references in sync in the same turn
 - keep profiling identifiers stable: `family`, `id`, and `label` should remain diff-friendly across runs unless there is a deliberate reporting-schema change
-- when changing final-exponentiation decomposition or reporting, keep `crates/wrapper-circuits/src/bn254/g2/miller.rs`, `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`, `crates/wrapper-circuits/src/bn254/metrics.rs`, `docs/profiling.md`, and `docs/final-exponentiation-audit.md` in sync in the same turn
+- when changing final-exponentiation decomposition or reporting, keep `crates/wrapper-circuits/src/bn254/g2/miller.rs`, `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`, `crates/wrapper-circuits/src/bn254/metrics.rs`, `docs/profiling.md`, and `docs/groth16-optimization-summary.md` in sync in the same turn
 
 ## Documentation Standards
 

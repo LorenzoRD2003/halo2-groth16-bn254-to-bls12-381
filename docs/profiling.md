@@ -142,6 +142,12 @@ Run only the public-input scaling rows:
 cargo run -p wrapper-cli -- profile-layout --family public-inputs
 ```
 
+Run only the direct outer-wrapper rows:
+
+```bash
+cargo run -p wrapper-cli -- profile-layout --family outer
+```
+
 Run only the already-available pairing-core block rows:
 
 ```bash
@@ -154,8 +160,9 @@ Save a baseline for later comparison:
 cargo run -p wrapper-cli -- profile-layout > /tmp/groth16-layout-profile.tsv
 ```
 
-The `groth16`, `pairing-terms`, and `all` modes can take noticeably longer than
-`blocks` or `public-inputs`, because they model large pairing-backed circuits.
+The `groth16`, `outer`, `pairing-terms`, and `all` modes can take noticeably
+longer than `blocks` or `public-inputs`, because they model large pairing-backed
+circuits.
 That is expected: these commands are meant for reproducible baseline capture,
 not for tight edit-run loops.
 
@@ -169,6 +176,11 @@ Important workflow note:
 
 - `groth16_fixture_verifier_total` is the closest current measurement of the
   committed verifier slice end-to-end.
+- `outer_wrapper_fixture_total` is the direct stage-5 baseline for the canonical
+  `OuterWrapperCircuit` that now backs real setup/prove wiring.
+- `outer_wrapper_semaphore_end_to_end` is the stage-7 Semaphore fixture baseline
+  for the same direct outer lane, measured on the real named Semaphore artifact
+  set rather than the smaller canonical fixture.
 - `groth16_pairing_check_proxy_4_terms` is intentionally a term-count proxy for
   the Groth16 reduction, not a second semantic verifier implementation.
 - `public-inputs` isolates the current accumulator path only; it does not
@@ -176,7 +188,7 @@ Important workflow note:
 - `blocks` rows are useful when optimization work targets Miller loop or final
   exponentiation directly.
 - for final-exponentiation-specific decomposition, operation counts, and
-  follow-up targets, read `docs/final-exponentiation-audit.md`
+  follow-up targets, read `docs/groth16-optimization-summary.md`
 - `bn254_pairing_check_groth16_style` is the current optimized verifier-shaped
   pairing-core snapshot:
   one variable proof term plus three prepared constant verifier-key terms

@@ -44,9 +44,9 @@ Halo2/Midnight circuit:
 - `wrapper-verification-key.json`
 
 The proof-system family of those artifacts should match the real backend chosen
-for the canonical outer circuit. If that backend is Halo2/Midnight PLONKish
-over BLS12-381, then the produced artifacts should describe that proof system
-honestly rather than pretending to be Groth16.
+for the canonical outer circuit. In the current repo state, that means honest
+direct Halo2/Midnight PLONKish artifacts over `bn254`, not a pretend Groth16
+shape.
 
 ## Current State
 
@@ -55,7 +55,7 @@ What already exists:
 - generic `snarkjs` Groth16 BN254 proof / VK / public-input parsing
 - generic `ArtifactSetLoader` for complete BN254 artifact bundles
 - `Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage ->
-  WrapperExecutionResult`
+WrapperExecutionResult`
 - a real canonical `OuterWrapperCircuit`
 - strict outer statement contract validation
 - backend-side adaptation from package + artifacts into canonical outer circuit
@@ -66,13 +66,17 @@ What already exists:
 - expected/planned vs produced output modeling in `wrapper-core`
 - canonical R1CS infrastructure and Arkworks adapter as an alternate/future lane
 
-What does not exist yet:
+What now exists in addition to that:
 
-- a real direct prover / serializer for `OuterWrapperCircuit`
-- a produced outer proof payload
-- a produced outer verification key payload
-- backend-level verification for that produced outer proof
+- a real direct setup path for `OuterWrapperCircuit`
+- a real direct proving path for `OuterWrapperCircuit`
+- backend-level verification for produced direct outer proofs
 - a CLI command that runs the real outer path
+
+What is still missing:
+
+- fast always-on CI coverage for the expensive direct outer proving lane
+- broader artifact/export ergonomics beyond the current JSON execution result
 
 ## Architectural Stance
 
@@ -167,7 +171,28 @@ Primary location:
 - `wrapper-backends/src/outer.rs`
 - a dedicated backend helper module if needed
 
-This is the main blocker today.
+Selected direct stack:
+
+- prover/setup API: `midnight_proofs::plonk::keygen_vk_with_k(...)` over the
+  canonical `OuterWrapperCircuit`
+- PCS / SRS lane: `midnight_proofs::poly::kzg::KZGCommitmentScheme<midnight_curves::bn256::Bn256>`
+- serializer: `serde`-driven JSON artifacts carrying hex-encoded
+  `SerdeFormat::Processed` payloads
+- verification-key artifact contents:
+  - protocol / curve / backend labels
+  - `pcs`
+  - `circuit_k`
+  - `public_input_count`
+  - serialized PLONK verification key bytes
+  - serialized KZG verifier-parameter bytes
+
+Immediate compatibility constraints:
+
+- the current outer circuit native field is BN254 / `midnight_curves::bn256::Fr`
+- therefore the honest direct-artifact curve label is currently `bn254`, not
+  `bls12-381`
+- proof generation and verification remain later steps, but setup no longer
+  depends on canonical R1CS lowering
 
 ### 4. Implement Real Setup for the Canonical Outer Circuit
 
@@ -183,10 +208,20 @@ Tasks:
   - public-input arity
   - stable circuit build status
   - protocol / curve labels
+  - backend / PCS / top-level key labels
 
 Primary location:
 
 - `wrapper-backends`
+
+Current implementation status:
+
+- direct proof generation is now wired in `wrapper-backends/src/outer.rs`
+  through `midnight_proofs::plonk::create_proof(...)`
+- produced `wrapper-proof.json` artifacts now carry a real serialized proof
+  payload plus the honest direct-backend metadata
+- repository tests keep the real proving assertions present but marked
+  `ignore` because this outer circuit is too expensive for the default test lane
 - `wrapper-core/src/output.rs`
 
 ### 5. Implement Real Proving for the Canonical Outer Circuit
@@ -227,6 +262,14 @@ Primary location:
 - `wrapper-backends`
 - `wrapper-tests`
 
+Current implementation status:
+
+- backend-level verification is now wired in `wrapper-backends/src/outer.rs`
+  by deserializing the produced VK / verifier params / proof payloads and
+  calling the direct `midnight_proofs` verifier path
+- the default test lane keeps full `prove + verify` assertions present but
+  `ignored` because the outer circuit remains too expensive for always-run CI
+
 ### 7. Promote the Semaphore Lane to a Real End-to-End Integration Test
 
 Deliverable:
@@ -249,21 +292,28 @@ Recommended future contrast fixture:
 
 - a smaller non-ECC `.circom` circuit
 
+Current implementation status:
+
+- `wrapper-tests` now contains a real Semaphore end-to-end outer-flow test that
+  runs `setup -> prove -> verify` over the direct Halo2/Midnight backend
+- like the other real outer-proof tests, it is marked `ignore` because the
+  current outer circuit is too expensive for the default always-run test lane
+
 ### 8. Add a CLI Command for the Real Path
 
 Deliverable:
 
 - one CLI command that runs the real direct outer-circuit lane
 
-Suggested command shape:
+Implemented command shape:
 
 ```text
-wrapper-cli prove-outer \
+wrapper-cli execute-wrapper-direct \
   --proof <proof.json> \
   --public <public.json> \
   --vk <verification_key.json> \
   [--public-input-name ...] \
-  --output-dir <dir>
+  [--output <result.json>]
 ```
 
 Tasks:
@@ -272,13 +322,22 @@ Tasks:
 - build wrapper package
 - run real setup / prove / verify as requested
 - write:
-  - `wrapper-proof.json`
-  - `wrapper-public.json`
-  - `wrapper-verification-key.json`
+  - one JSON execution result containing:
+    - the setup verification key artifact
+    - the produced proof bundle
+    - the verification verdict
 - print a short summary of:
   - selected backend
   - outer circuit build status
   - verification result
+
+Current implementation status:
+
+- `wrapper-cli` now exposes `execute-wrapper-direct`
+- the command loads the inner bundle, builds the package, runs
+  `setup -> prove -> verify`, and emits one JSON result payload
+- the produced payload includes the real outer artifacts rather than only a
+  stub/planning summary
 
 ## Validation Matrix
 

@@ -7,9 +7,9 @@ use ark_ec::{
   models::short_weierstrass::SWCurveConfig, pairing::Pairing,
 };
 use ark_ff::{Field as ArkField, UniformRand};
+use ark_std::rand::RngCore;
 use midnight_circuits::midnight_proofs::{circuit::Value, plonk::Circuit};
 use midnight_proofs::dev::MockProver;
-use rand::RngCore;
 
 use super::*;
 use crate::bn254::host::Fp12Value;

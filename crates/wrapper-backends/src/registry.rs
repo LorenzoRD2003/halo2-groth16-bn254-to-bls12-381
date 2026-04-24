@@ -26,11 +26,11 @@ impl BackendRegistry {
     Self {
       entries: vec![
         BackendDescriptor {
-          id: "arkworks-groth16-bls12-381-backend",
-          description: "Selected concrete outer backend lane built around the Halo2/Midnight outer circuit and future Groth16 BLS12-381 artifact production",
+          id: "midnight-direct-halo2-outer-backend",
+          description: "Selected concrete outer backend lane built around the Halo2/Midnight outer circuit and direct PLONKish artifact production",
           proof_system: ProofSystemDescriptor {
-            kind: ProofSystemKind::Groth16Bls12_381,
-            source: "halo2-midnight-groth16-bls12-381-lane".to_owned(),
+            kind: ProofSystemKind::Halo2Outer,
+            source: "midnight-direct-halo2-outer-backend".to_owned(),
           },
         },
         BackendDescriptor {

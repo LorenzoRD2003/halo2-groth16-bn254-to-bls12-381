@@ -27,11 +27,9 @@ pub use metadata::{
 };
 pub use output::{
   CanonicalCircuitIdentity, ExpectedProofArtifactShape, ExpectedPublicInputsArtifactShape,
-  ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, PlannedGroth16G1PointJson,
-  PlannedGroth16G2PointJson, PlannedOuterGroth16ArtifactBundle, PlannedOuterGroth16ProofJson,
-  PlannedOuterGroth16VerificationKeyJson, ProducedGroth16G1PointJson, ProducedGroth16G2PointJson,
-  ProducedOuterGroth16ArtifactBundle, ProducedOuterGroth16ProofJson,
-  ProducedOuterGroth16VerificationKeyJson,
+  ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, PlannedOuterProofArtifactBundle,
+  PlannedOuterProofJson, PlannedOuterVerificationKeyJson, ProducedOuterProofArtifactBundle,
+  ProducedOuterProofJson, ProducedOuterVerificationKeyJson,
 };
 pub use package::{
   OuterStatementContract, OuterStatementContractError, OuterStatementSemantics,
@@ -57,6 +55,6 @@ mod tests {
 
     assert!(overview.phase_label.contains("week 5"));
     assert!(overview.current_implementation.contains("Groth16 BN254 verifier"));
-    assert!(overview.not_implemented.contains("proof generation"));
+    assert!(overview.not_implemented.contains("always-on"));
   }
 }

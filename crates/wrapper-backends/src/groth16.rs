@@ -59,12 +59,12 @@ impl Groth16Bn254ArtifactBundle {
     )
   }
 
-  /// Builds a wrapper job for the current migration target experiment.
+  /// Builds a wrapper job for the current direct Halo2/Midnight outer target.
   #[must_use]
-  pub fn plan_bls12_381_wrapper_job(&self) -> WrapperJob {
+  pub fn plan_halo2_outer_wrapper_job(&self) -> WrapperJob {
     self.plan_wrapper_job(ProofSystemDescriptor {
-      kind: ProofSystemKind::Groth16Bls12_381,
-      source: "planned-groth16-bls12-381-wrapper".to_owned(),
+      kind: ProofSystemKind::Halo2Outer,
+      source: "midnight-direct-halo2-outer-backend".to_owned(),
     })
   }
 
@@ -106,10 +106,10 @@ impl Groth16Bn254ArtifactBundle {
     )
   }
 
-  /// Builds a serializable execution package for the current BLS12-381 target experiment.
+  /// Builds a serializable execution package for the current Halo2/Midnight outer target.
   #[must_use]
-  pub fn build_bls12_381_execution_package(&self) -> WrapperExecutionPackage {
-    self.build_execution_package(self.plan_bls12_381_wrapper_job())
+  pub fn build_halo2_outer_execution_package(&self) -> WrapperExecutionPackage {
+    self.build_execution_package(self.plan_halo2_outer_wrapper_job())
   }
 }
 
@@ -281,7 +281,7 @@ mod tests {
   }
 
   #[test]
-  fn semaphore_bundle_can_plan_bls12_381_wrapper_job() {
+  fn semaphore_bundle_can_plan_halo2_outer_wrapper_job() {
     let bundle = parse_snarkjs_groth16_bn254_bundle_with_names(
       "semaphore-depth-10",
       semaphore_proof_json(),
@@ -290,11 +290,11 @@ mod tests {
       &SEMAPHORE_FIELD_ORDER,
     )
     .expect("named Semaphore bundle should parse");
-    let job = bundle.plan_bls12_381_wrapper_job();
+    let job = bundle.plan_halo2_outer_wrapper_job();
 
     assert_eq!(job.identifier, "semaphore-depth-10");
     assert_eq!(job.source.kind, ProofSystemKind::Groth16Bn254);
-    assert_eq!(job.target.kind, ProofSystemKind::Groth16Bls12_381);
+    assert_eq!(job.target.kind, ProofSystemKind::Halo2Outer);
     assert_eq!(job.public_input_count, 4);
     assert!(job.named_public_inputs.is_some());
   }
@@ -309,9 +309,9 @@ mod tests {
       &SEMAPHORE_FIELD_ORDER,
     )
     .expect("named Semaphore bundle should parse");
-    let package = bundle.build_bls12_381_execution_package();
+    let package = bundle.build_halo2_outer_execution_package();
 
-    assert_eq!(package.job.target.kind, ProofSystemKind::Groth16Bls12_381);
+    assert_eq!(package.job.target.kind, ProofSystemKind::Halo2Outer);
     assert_eq!(package.statement.public_inputs.field_order(), SEMAPHORE_FIELD_ORDER);
     assert_eq!(package.witness.verifier_public_inputs.field_order(), SEMAPHORE_FIELD_ORDER);
     assert!(package.witness.requires_inner_proof);
@@ -328,7 +328,7 @@ mod tests {
       &SEMAPHORE_FIELD_ORDER,
     )
     .expect("named Semaphore bundle should parse");
-    let result = bundle.build_bls12_381_execution_package().execute_stub();
+    let result = bundle.build_halo2_outer_execution_package().execute_stub();
 
     assert!(result.preflight_ok);
   }

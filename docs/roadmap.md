@@ -49,7 +49,7 @@ Goals:
 - land sparse-specialized BN254 Miller accumulator line consumption for the current D-twist `(ell_0, ell_w, ell_vw)` layout
 - land the first narrow Groth16 BN254 verifier slice: real snarkjs proof/VK parsing, IC linear combination, verifier-equation reduction to one pairing-product check, and end-to-end valid/invalid regression coverage
 - land canonical R1CS infrastructure as a deterministic identity and alternate-backend lane, without making it the critical path for the first real outer wrapper flow
-- land the direct backend surface for proving the canonical outer Halo2/Midnight circuit, without yet wiring a concrete prover/serializer
+- land the direct backend surface for the canonical outer Halo2/Midnight circuit, including real setup/prove/verify and a CLI execution path
 - measure real layout/row cost for the Week 1 primitives
 - keep host/reference BN254 tower arithmetic centralized rather than duplicated across modules
 - keep measured primitive metadata centralized so CLI reporting and benchmark-info stay in sync
@@ -102,11 +102,10 @@ path for the first real `.circom` -> outer-wrapper artifact flow.
 
 Potential goals:
 
-- wire a real prover / serializer for `OuterWrapperCircuit`
-- materialize produced proof / verification-key / public-input artifacts for
-  the direct outer path
-- add backend-level verification for those artifacts
+- keep improving performance and CI ergonomics for `OuterWrapperCircuit`
+- expand artifact/export ergonomics around the real direct outer path
 - keep the output contract honest with respect to the real proof-system family
+- add lightweight smoke coverage around the real CLI / proving lanes where practical
 
 This is currently the practical delivery critical path.
 

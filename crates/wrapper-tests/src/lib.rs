@@ -19,8 +19,8 @@ pub fn example_config() -> &'static str {
 #[cfg(test)]
 mod tests {
   use wrapper_backends::{
-    ArkworksGroth16Bls12381Backend, ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle,
-    OuterCircuitInputArtifacts, OuterGroth16Backend, PlannedGroth16Bls12381Backend,
+    ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle, MidnightDirectOuterBackend,
+    OuterCircuitInputArtifacts, OuterProofBackend, PlannedHalo2OuterBackend,
     SnarkjsGroth16Bn254ArtifactSetLoader, parse_snarkjs_groth16_bn254_bundle_with_names,
   };
   use wrapper_circuits::{
@@ -160,13 +160,13 @@ mod tests {
   #[test]
   fn semaphore_execution_package_can_materialize_placeholder_outer_bundle() {
     let bundle = load_semaphore_fixture();
-    let package = bundle.build_bls12_381_execution_package();
-    let backend = PlannedGroth16Bls12381Backend;
+    let package = bundle.build_halo2_outer_execution_package();
+    let backend = PlannedHalo2OuterBackend;
     let planned_output =
       backend.prepare(&package).expect("planned outer backend should accept the Semaphore package");
     let outer_bundle = planned_output.bundle_template;
 
-    assert_eq!(outer_bundle.proof_system.kind, ProofSystemKind::Groth16Bls12_381);
+    assert_eq!(outer_bundle.proof_system.kind, ProofSystemKind::Halo2Outer);
     assert_eq!(outer_bundle.proof_artifact, "semaphore-depth-10-wrapper-proof.json");
     assert_eq!(outer_bundle.public_inputs.len(), 4);
     assert_eq!(outer_bundle.public_inputs_artifact, "semaphore-depth-10-wrapper-public.json");
@@ -180,41 +180,35 @@ mod tests {
       .verification_key
       .as_ref()
       .expect("placeholder outer backend should materialize a VK skeleton");
-    assert_eq!(verification_key.protocol, "groth16");
-    assert_eq!(verification_key.curve, "bls12-381");
-    assert_eq!(verification_key.n_public, 4);
-    assert_eq!(verification_key.ic.len(), 5);
+    assert_eq!(verification_key.protocol, "halo2-plonkish");
+    assert_eq!(verification_key.curve, "bn254");
+    assert_eq!(verification_key.public_input_count, 4);
   }
 
   #[test]
-  fn semaphore_execution_package_can_prepare_selected_arkworks_outer_lane() {
+  fn semaphore_execution_package_can_prepare_selected_midnight_outer_lane() {
     let bundle = load_semaphore_fixture();
-    let package = bundle.build_bls12_381_execution_package();
-    let backend = ArkworksGroth16Bls12381Backend;
+    let package = bundle.build_halo2_outer_execution_package();
+    let backend = MidnightDirectOuterBackend;
     let planned_output = backend
       .prepare(&package)
-      .expect("selected arkworks backend should accept the Semaphore package");
+      .expect("selected midnight backend should accept the Semaphore package");
 
     assert!(planned_output
       .notes
       .iter()
-      .any(|note| note.contains("selected outer backend stack: canonical R1CS -> arkworks Groth16 outer lane targeting Groth16 BLS12-381 artifacts")));
+      .any(|note| note.contains("selected outer backend stack: direct halo2/midnight outer lane over the canonical outer wrapper circuit")));
     assert!(planned_output.notes.iter().any(|note| note.contains(
       "outer statement contract is frozen to mirror ordered inner verifier public inputs"
     )));
-    assert!(
-      planned_output
-        .notes
-        .iter()
-        .any(|note| note.contains("canonical circuit identity is not attached yet"))
-    );
-    assert_eq!(backend.metadata().curve, "bls12-381");
+    assert!(planned_output.notes.iter().any(|note| note.contains("midnight_proofs keygen")));
+    assert_eq!(backend.metadata().curve, "bn254");
   }
 
   #[test]
   fn semaphore_execution_package_exposes_mirrored_outer_statement_contract() {
     let bundle = load_semaphore_fixture();
-    let package = bundle.build_bls12_381_execution_package();
+    let package = bundle.build_halo2_outer_execution_package();
     let contract = package
       .validate_outer_statement_contract()
       .expect("Semaphore package should satisfy the frozen outer-statement contract");
@@ -226,10 +220,10 @@ mod tests {
   }
 
   #[test]
-  fn canonical_fixture_package_can_adapt_into_arkworks_outer_input() {
+  fn canonical_fixture_package_can_adapt_into_direct_outer_input() {
     let bundle = load_groth16_fixture();
-    let package = bundle.build_bls12_381_execution_package();
-    let backend = ArkworksGroth16Bls12381Backend;
+    let package = bundle.build_halo2_outer_execution_package();
+    let backend = MidnightDirectOuterBackend;
     let adapted = backend
       .adapt_input(
         &package,
@@ -238,7 +232,7 @@ mod tests {
           Some(groth16_fixture_raw::verification_key_json()),
         ),
       )
-      .expect("arkworks backend should adapt the canonical fixture package");
+      .expect("midnight backend should adapt the canonical fixture package");
 
     assert_eq!(adapted.source_artifact_id, "circom-multiplier2");
     assert_eq!(adapted.inner_verifier_public_inputs, adapted.outer_statement.public_inputs);
@@ -248,8 +242,8 @@ mod tests {
   #[test]
   fn canonical_fixture_package_can_build_outer_circuit_through_backend() {
     let bundle = load_groth16_fixture();
-    let package = bundle.build_bls12_381_execution_package();
-    let backend = ArkworksGroth16Bls12381Backend;
+    let package = bundle.build_halo2_outer_execution_package();
+    let backend = MidnightDirectOuterBackend;
     let circuit = backend
       .build_outer_circuit(
         &package,
@@ -269,8 +263,8 @@ mod tests {
   #[test]
   fn semaphore_fixture_package_can_build_outer_circuit_through_backend() {
     let bundle = load_semaphore_fixture();
-    let package = bundle.build_bls12_381_execution_package();
-    let backend = ArkworksGroth16Bls12381Backend;
+    let package = bundle.build_halo2_outer_execution_package();
+    let backend = MidnightDirectOuterBackend;
     let circuit = backend
       .build_outer_circuit(
         &package,
@@ -294,8 +288,8 @@ mod tests {
       &SEMAPHORE_PUBLIC_INPUT_NAMES,
     )
     .expect("named Semaphore bundle should parse");
-    let package = bundle.build_bls12_381_execution_package();
-    let backend = ArkworksGroth16Bls12381Backend;
+    let package = bundle.build_halo2_outer_execution_package();
+    let backend = MidnightDirectOuterBackend;
     let adapted = backend
       .adapt_input(
         &package,
@@ -304,9 +298,115 @@ mod tests {
           Some(include_bytes!("../fixtures/groth16/semaphore/verification_key.json")),
         ),
       )
-      .expect("arkworks backend should adapt the Semaphore package");
+      .expect("midnight backend should adapt the Semaphore package");
 
     assert_eq!(adapted.outer_statement.field_names, SEMAPHORE_PUBLIC_INPUT_NAMES);
     assert_eq!(adapted.outer_statement.public_inputs, adapted.inner_verifier_public_inputs);
+  }
+
+  #[test]
+  #[ignore = "slow outer proving"]
+  fn canonical_fixture_package_can_produce_real_outer_proof_bundle() {
+    let bundle = load_groth16_fixture();
+    let package = bundle.build_halo2_outer_execution_package();
+    let backend = MidnightDirectOuterBackend;
+    let produced = backend
+      .prove(
+        &package,
+        OuterCircuitInputArtifacts::new(
+          Some(groth16_fixture_raw::proof_json()),
+          Some(groth16_fixture_raw::verification_key_json()),
+        ),
+      )
+      .expect("backend should produce a real direct outer proof bundle");
+
+    assert_eq!(produced.proof.protocol, "halo2-plonkish");
+    assert_eq!(produced.proof.curve, "bn254");
+    assert_eq!(produced.verification_key.pcs, "kzg");
+    assert_eq!(
+      produced.public_inputs,
+      package
+        .statement
+        .public_inputs
+        .entries
+        .iter()
+        .map(|entry| entry.value.clone())
+        .collect::<Vec<_>>()
+    );
+  }
+
+  #[test]
+  #[ignore = "slow outer proving"]
+  fn canonical_fixture_package_can_verify_real_outer_proof_bundle() {
+    let bundle = load_groth16_fixture();
+    let package = bundle.build_halo2_outer_execution_package();
+    let backend = MidnightDirectOuterBackend;
+    let produced = backend
+      .prove(
+        &package,
+        OuterCircuitInputArtifacts::new(
+          Some(groth16_fixture_raw::proof_json()),
+          Some(groth16_fixture_raw::verification_key_json()),
+        ),
+      )
+      .expect("backend should produce a real direct outer proof bundle");
+
+    assert!(
+      backend
+        .verify(
+          &package,
+          &produced,
+          OuterCircuitInputArtifacts::new(
+            Some(groth16_fixture_raw::proof_json()),
+            Some(groth16_fixture_raw::verification_key_json()),
+          ),
+        )
+        .expect("backend should verify the produced direct outer proof bundle")
+    );
+  }
+
+  #[test]
+  #[ignore = "slow outer proving"]
+  fn semaphore_fixture_runs_real_end_to_end_outer_flow() {
+    let bundle = load_semaphore_fixture();
+    let package = bundle.build_halo2_outer_execution_package();
+    let backend = MidnightDirectOuterBackend;
+    let artifacts = OuterCircuitInputArtifacts::new(
+      Some(include_bytes!("../fixtures/groth16/semaphore/proof.json")),
+      Some(include_bytes!("../fixtures/groth16/semaphore/verification_key.json")),
+    );
+
+    let verification_key = backend
+      .setup(&package, artifacts)
+      .expect("setup should produce a real VK artifact for the Semaphore fixture");
+    let produced = backend
+      .prove(&package, artifacts)
+      .expect("prove should produce a real direct outer proof bundle for the Semaphore fixture");
+
+    assert_eq!(verification_key.protocol, "halo2-plonkish");
+    assert_eq!(verification_key.curve, "bn254");
+    assert_eq!(verification_key.public_input_count, 4);
+    assert_eq!(produced.proof_artifact, "semaphore-depth-10-wrapper-proof.json");
+    assert_eq!(produced.public_inputs_artifact, "semaphore-depth-10-wrapper-public.json");
+    assert_eq!(
+      produced.verification_key_artifact,
+      "semaphore-depth-10-wrapper-verification-key.json"
+    );
+    assert_eq!(
+      produced.public_inputs,
+      package
+        .statement
+        .public_inputs
+        .entries
+        .iter()
+        .map(|entry| entry.value.clone())
+        .collect::<Vec<_>>()
+    );
+    assert_eq!(produced.verification_key.public_input_count, 4);
+    assert!(
+      backend
+        .verify(&package, &produced, artifacts)
+        .expect("verify should accept the produced Semaphore outer proof bundle")
+    );
   }
 }

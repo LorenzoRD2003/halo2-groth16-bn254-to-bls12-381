@@ -81,7 +81,7 @@ pub use groth16::profiling::{
   groth16_pairing_block_miller_loop_layout_metrics,
   groth16_pairing_block_pairing_check_groth16_style_layout_metrics,
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
-  groth16_public_input_count_layout_metrics,
+  groth16_public_input_count_layout_metrics, outer_wrapper_fixture_layout_metrics,
 };
 #[cfg(feature = "test")]
 pub use groth16::reference::{
@@ -93,6 +93,7 @@ pub use groth16::{
   Groth16IcAccumulatorCircuit, Groth16VerifierError, groth16_accumulate_ic, groth16_verify,
 };
 pub use metrics::{CostEstimate, LayoutMetrics};
+use midnight_circuits::midnight_proofs::plonk::Circuit;
 pub use outer::{
   CircuitBuildStatus, OuterCanonicalR1csLoweringError, OuterCanonicalR1csLoweringReport,
   OuterCanonicalR1csSliceKind, OuterCanonicalR1csSliceReport, OuterCanonicalR1csSliceStatus,
@@ -118,3 +119,9 @@ pub use r1cs::{
   arkworks_create_random_proof, arkworks_generate_random_parameters, arkworks_verify_proof,
   export_witness, ordered_public_inputs, to_ark_lc,
 };
+
+/// Measures layout metrics for one native-field circuit using the shared cost model.
+#[must_use]
+pub fn measure_native_circuit_layout(circuit: &impl Circuit<NativeField>) -> LayoutMetrics {
+  bn254::measure_layout(circuit)
+}

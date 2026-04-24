@@ -2,9 +2,8 @@ use std::collections::BTreeMap;
 
 use ark_bn254::Fr as ArkFr;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
+use ark_std::rand::{SeedableRng, rngs::StdRng};
 use ff::Field;
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
 
 use super::{
   ArkworksR1csCircuit, CanonicalClassId, CanonicalR1csBuilder, EqualityEdge,
@@ -660,7 +659,7 @@ fn groth16_roundtrip_verifies_for_small_canonical_circuit() {
   let assignment = valid_multiplication_assignment();
   let ordered_public =
     ordered_public_inputs(&circuit, &assignment).expect("public order should resolve");
-  let mut rng = ChaCha20Rng::seed_from_u64(7);
+  let mut rng = StdRng::seed_from_u64(7);
 
   let params = arkworks_generate_random_parameters(&circuit, &mut rng)
     .expect("parameter generation should succeed");
@@ -678,7 +677,7 @@ fn groth16_rejects_wrong_public_input() {
   let assignment = valid_multiplication_assignment();
   let mut ordered_public =
     ordered_public_inputs(&circuit, &assignment).expect("public order should resolve");
-  let mut rng = ChaCha20Rng::seed_from_u64(9);
+  let mut rng = StdRng::seed_from_u64(9);
 
   let params = arkworks_generate_random_parameters(&circuit, &mut rng)
     .expect("parameter generation should succeed");
@@ -728,7 +727,7 @@ fn arkworks_adapter_does_not_change_canonical_identity() {
   let assignment = valid_multiplication_assignment();
   let original_hash = circuit.identity_hash();
   let original_bytes = circuit.canonical_bytes();
-  let mut rng = ChaCha20Rng::seed_from_u64(11);
+  let mut rng = StdRng::seed_from_u64(11);
 
   let params = arkworks_generate_random_parameters(&circuit, &mut rng)
     .expect("parameter generation should succeed");

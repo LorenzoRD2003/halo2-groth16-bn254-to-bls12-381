@@ -5,13 +5,12 @@ use ark_bn254::{
 };
 use ark_ec::{AffineRepr, CurveGroup, models::short_weierstrass::SWCurveConfig};
 use ark_ff::{Field as ArkField, Fp6Config, Fp12Config, UniformRand};
+use ark_std::rand::{SeedableRng, rngs::StdRng};
 use ff::Field;
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
 };
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
 
 use super::*;
 use crate::bn254::g2::{

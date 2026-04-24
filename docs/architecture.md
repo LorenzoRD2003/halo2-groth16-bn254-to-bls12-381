@@ -35,8 +35,9 @@ artifact parsing:
 
 `snarkjs artifacts -> Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage -> WrapperExecutionResult`
 
-That lane is still planning/stub-only. It does not synthesize or prove an outer
-Groth16 BLS12-381 proof yet.
+That lane now coexists with a real direct execution lane in
+`wrapper-backends/src/outer.rs` that can run `setup -> prove -> verify` over
+the canonical `OuterWrapperCircuit`.
 
 ## Why `wrapper-core` Stays Domain-Oriented
 
@@ -53,7 +54,7 @@ In the current repo state, `wrapper-core` now also owns:
 - wrapper-job planning types
 - wrapper execution-package types
 - expected wrapper output artifact shapes
-- stub wrapper execution results
+- execution results for both stub and direct backend flows
 
 ## Why Circuits and Backends Are Separate
 
@@ -83,9 +84,9 @@ Today it also owns:
 - generic `snarkjs` Groth16 BN254 artifact-set parsing
 - a dedicated `ArtifactSetLoader` contract for complete `proof + public + vk` bundles
 - bundle-to-wrapper-job / package adapters for planning and fixture-driven experiments
-- an `OuterGroth16Backend` contract for future outer-proof production
-- a planning-only Groth16 BLS12-381 backend that materializes the planned output bundle shape
-- a selected concrete outer backend lane, `ArkworksGroth16Bls12381Backend`, which currently treats the Halo2/Midnight outer circuit as canonical while leaving real Groth16 BLS12-381 setup/prove/verify implementation for later steps
+- an `OuterProofBackend` contract for direct outer-proof production
+- a planning-only `PlannedHalo2OuterBackend` that materializes the honest direct-output contract
+- a concrete `MidnightDirectOuterBackend` that treats the Halo2/Midnight outer circuit as canonical and now implements real setup/prove/verify
 
 The repository now also contains a canonical R1CS line under
 `wrapper-circuits/src/r1cs/`, including deterministic lowering, canonical
@@ -103,29 +104,24 @@ surface in `wrapper-backends/src/outer.rs`:
 This is the surface intended to host the first real setup / prove / verify path
 for `OuterWrapperCircuit`.
 
-The current expected outer-wrapper artifact model is intentionally
-`snarkjs`-like even though the real outer backend is still undecided. In
-particular, the planned Groth16 BLS12-381 output shape now records expected
-top-level proof keys `pi_a`, `pi_b`, `pi_c` and verification-key keys such as
-`nPublic` and `IC`, plus the expected point encodings for those fields. The
-stub execution result also carries a placeholder `bundle_template` so future
-implementors can see the intended payload skeleton for proof, public inputs,
-and verification key in one place. The current placeholder outer backend now
-materializes that bundle partially: `public_inputs` are real, the verification
-key is present as a skeleton, and the proof payload remains absent until a real
-outer prover exists.
+The current expected outer-wrapper artifact model is now honest to the direct
+backend that actually exists:
 
-The selected concrete outer lane now treats the Halo2/Midnight outer circuit as
-canonical while still targeting Groth16 BLS12-381 output artifacts.
+- protocol label: `halo2-plonkish`
+- curve label: `bn254`
+- backend label: `midnight-direct-halo2-outer-backend`
+- proof / verification-key / verifier-params payloads serialized as hex-encoded
+  `SerdeFormat::Processed` byte strings inside `serde` JSON
+
 That choice is encapsulated inside `wrapper-backends`; `wrapper-core` still
 only sees generic package, statement, and artifact-shape contracts.
 Current assumptions for that lane:
 
 - the outer circuit implementation lives in Halo2/Midnight and remains the only circuit source of truth
-- one Groth16 CRS per outer circuit configuration
-- setup output will later be serialized once and reused across proofs for the same circuit configuration
-- produced artifacts must remain compatible with the current `snarkjs`-like wrapper output model: `pi_a/pi_b/pi_c`, `protocol`, `curve`, `nPublic`, `IC`, and decimal-string point encodings
-- proving/verification backend details must not leak into `wrapper-core`
+- one direct setup per circuit size / configuration
+- setup output is reusable across proofs for the same circuit configuration
+- proof generation and verification now run through `midnight_proofs`
+- backend-specific proving details must not leak into `wrapper-core`
 
 The next unresolved architectural question is therefore not "which circuit
 stack owns the outer wrapper?" but "which prover/setup/verification backend can
@@ -328,7 +324,7 @@ The current skeleton defines:
 - backend artifact-set loader interfaces
 - BN254 field, Fp2, G1, and minimal G2 affine foundations with real layout visibility
 - a canonical primitive registry in `wrapper-circuits/src/planning.rs` that drives measured primitive metadata for CLI reporting and benchmark-info output
-- wrapper planning and export contracts for jobs, execution packages, expected output artifacts, and stub execution results
+- wrapper planning and export contracts for jobs, execution packages, expected output artifacts, and execution results
 
 These contracts are intentionally conservative and meant to support staged development rather than predict final cryptographic APIs in detail.
 

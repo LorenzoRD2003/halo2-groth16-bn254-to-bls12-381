@@ -100,7 +100,7 @@ The original project goal was never "R1CS first at all costs".
 The original goal was:
 
 - verify a real Groth16 BN254 proof inside an outer circuit
-- then emit a real outer Groth16 BLS12-381 proof
+- then emit a real outer proof from the canonical direct backend lane
 
 The existing Halo2/Midnight BN254 primitive layer already implements the
 non-native arithmetic and pairing logic needed for that verifier.

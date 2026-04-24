@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn g1_addition_matches_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([31_u8; 32]);
+  let mut rng = StdRng::from_seed([31_u8; 32]);
 
   for _ in 0..8 {
     let left = ArkG1Projective::rand(&mut rng).into_affine();
@@ -15,7 +15,7 @@ fn g1_addition_matches_arkworks() {
 
 #[test]
 fn g1_doubling_works_via_addition() {
-  let mut rng = ChaCha20Rng::from_seed([32_u8; 32]);
+  let mut rng = StdRng::from_seed([32_u8; 32]);
 
   for _ in 0..6 {
     let point = ArkG1Projective::rand(&mut rng).into_affine();
@@ -59,7 +59,7 @@ fn g2_generator_is_on_curve() {
 
 #[test]
 fn random_valid_g2_points_pass_on_curve_checks() {
-  let mut rng = ChaCha20Rng::from_seed([51_u8; 32]);
+  let mut rng = StdRng::from_seed([51_u8; 32]);
 
   for _ in 0..8 {
     let point = ArkG2Projective::rand(&mut rng).into_affine();
@@ -96,7 +96,7 @@ fn perturbed_g2_y_coordinates_are_rejected() {
 
 #[test]
 fn g2_negation_preserves_on_curve_validity() {
-  let mut rng = ChaCha20Rng::from_seed([52_u8; 32]);
+  let mut rng = StdRng::from_seed([52_u8; 32]);
 
   for _ in 0..6 {
     let point = ArkG2Projective::rand(&mut rng).into_affine();
@@ -119,7 +119,7 @@ fn g2_projective_identity_encoding_is_available() {
 
 #[test]
 fn g2_projective_from_affine_matches_the_same_affine_point() {
-  let mut rng = ChaCha20Rng::from_seed([53_u8; 32]);
+  let mut rng = StdRng::from_seed([53_u8; 32]);
 
   for _ in 0..6 {
     let point = ArkG2Projective::rand(&mut rng).into_affine();
@@ -133,7 +133,7 @@ fn g2_projective_from_affine_matches_the_same_affine_point() {
 
 #[test]
 fn g2_projective_negation_matches_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([54_u8; 32]);
+  let mut rng = StdRng::from_seed([54_u8; 32]);
 
   for _ in 0..6 {
     let point = ArkG2Projective::rand(&mut rng).into_affine();
@@ -151,7 +151,7 @@ fn g2_projective_negation_matches_arkworks() {
 
 #[test]
 fn g2_projective_doubling_matches_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([55_u8; 32]);
+  let mut rng = StdRng::from_seed([55_u8; 32]);
 
   for _ in 0..8 {
     let point = ArkG2Projective::rand(&mut rng).into_affine();
@@ -169,7 +169,7 @@ fn g2_projective_doubling_matches_arkworks() {
 
 #[test]
 fn g2_projective_addition_matches_arkworks_for_distinct_points() {
-  let mut rng = ChaCha20Rng::from_seed([56_u8; 32]);
+  let mut rng = StdRng::from_seed([56_u8; 32]);
 
   for _ in 0..8 {
     let left = ArkG2Projective::rand(&mut rng).into_affine();
@@ -230,7 +230,7 @@ fn g2_projective_addition_of_inverses_is_not_supported_in_this_slice() {
 
 #[test]
 fn g2_double_with_line_matches_arkworks_reference() {
-  let mut rng = ChaCha20Rng::from_seed([57_u8; 32]);
+  let mut rng = StdRng::from_seed([57_u8; 32]);
 
   for _ in 0..8 {
     let point = ArkG2Projective::rand(&mut rng).into_affine();
@@ -263,7 +263,7 @@ fn g2_double_with_line_matches_fixed_generator_fixture() {
 
 #[test]
 fn g2_mixed_add_with_line_matches_arkworks_reference() {
-  let mut rng = ChaCha20Rng::from_seed([58_u8; 32]);
+  let mut rng = StdRng::from_seed([58_u8; 32]);
 
   for _ in 0..8 {
     let (_seed_point, addend, doubled_state) = random_supported_mixed_add_fixture(&mut rng);

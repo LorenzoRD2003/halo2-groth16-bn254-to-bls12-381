@@ -34,7 +34,7 @@ This means:
 The repo now has two complementary backend surfaces:
 
 1. Package-oriented outer backend surface in `wrapper-backends/src/outer.rs`
-   - `OuterGroth16Backend`
+   - `OuterProofBackend`
    - package/adaptation/planning-oriented
 
 2. Direct canonical outer-circuit surface in `wrapper-backends/src/outer.rs`
@@ -46,31 +46,39 @@ Current state of the direct surface:
 
 - planning over the canonical outer circuit is implemented
 - construction and synthesis-readiness checks are implemented
-- real setup / prove / verify are not wired yet
+- real setup is now wired through `midnight_proofs` keygen
+- real proving is now wired through `midnight_proofs::plonk::create_proof(...)`
+- real verification is now wired through `midnight_proofs::plonk::prepare(...)`
+  plus PCS guard finalization
 
 ## Why This Is The Current Priority
 
 The canonical outer wrapper circuit already embeds the BN254 non-native
 verifier logic needed for the wrapper experiment.
 
-The remaining blocker for a real outer proof flow is therefore:
+The remaining blockers for a usable real outer proof flow are therefore:
 
-- a real prover / serializer backend for that canonical circuit
+- performance and ergonomics of the expensive direct proving lane
+- broader automation / CI coverage around that lane
 
-That is a smaller and more direct blocker than:
+Those are smaller and more direct blockers than:
 
 - fully lowering the entire non-native BN254 pairing core into canonical R1CS
 
-## What Still Needs To Be Decided
+## Selected Stack
 
-The real direct backend still requires one concrete proving stack choice:
+Current concrete direct stack:
 
-- exact setup API
-- exact proving API
-- exact verification API
-- verification-key serialization shape
-- proof serialization shape
-- public-input artifact serialization
+- setup API: `midnight_proofs::plonk::keygen_vk_with_k(...)`
+- PCS: `midnight_proofs::poly::kzg::KZGCommitmentScheme<midnight_curves::bn256::Bn256>`
+- serializer: `serde` JSON carrying hex-encoded `SerdeFormat::Processed` payloads
+- honest direct-artifact curve label: `bn254`
+
+Now implemented on top of that stack:
+
+- exact proof-generation API wiring
+- exact verification API wiring
+- honest produced-proof JSON payload
 
 ## Constraints
 

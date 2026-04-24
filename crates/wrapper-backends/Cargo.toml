@@ -16,7 +16,11 @@ arkworks = []
 midnight = []
 
 [dependencies]
+blake2b_simd.workspace = true
 ff.workspace = true
+midnight-curves.workspace = true
+midnight-proofs.workspace = true
+rand_core = "0.6.4"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

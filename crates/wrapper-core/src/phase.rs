@@ -64,7 +64,7 @@ impl ProjectStatusReport {
       "G2 subgroup checks",
       "broad public scalar-multiplication APIs beyond the verifier-only IC path",
       "generalized verifier frameworks",
-      "proof generation",
+      "fast always-on end-to-end outer-proof CI coverage",
       "production wrapper verifier circuits",
     ]
   }
@@ -86,8 +86,8 @@ impl ProjectStatusReport {
         "g2 support is still limited to affine checks, narrow Jacobian from_affine/neg/double/add primitives, and Miller-path double_with_line/mixed_add_with_line steps"
           .to_owned(),
         "pairing support remains intentionally narrow: real Miller loop, final exponentiation, verifier-shaped pairing checks, and the first Groth16 verifier reduction".to_owned(),
-        "Groth16 verification is currently limited to the first narrow BN254 slice: snarkjs fixture parsing, IC accumulation, and one product-check verification path".to_owned(),
-        "there is still no broad wrapper-verifier orchestration, subgroup coverage, or production serialization ecosystem support".to_owned(),
+        "the direct outer Halo2/Midnight lane now supports setup, prove, verify, and CLI execution on the canonical outer circuit, but the expensive proving tests remain ignored in the default test lane".to_owned(),
+        "there is still no broad wrapper-verifier orchestration, subgroup coverage, or production-hardened artifact ecosystem support".to_owned(),
       ],
     }
   }
@@ -96,7 +96,7 @@ impl ProjectStatusReport {
   #[must_use]
   pub fn overview() -> ProjectOverview {
     ProjectOverview {
-      phase_label: "stage 1 / week 5 (first end-to-end Groth16 BN254 verifier slice)".to_owned(),
+      phase_label: "stage 1 / week 5+ (direct outer setup/prove/verify lane landed)".to_owned(),
       purpose: "stage a serious multi-crate codebase for Halo2 wrapper research.".to_owned(),
       current_implementation: format!(
         "{}.",

@@ -7,11 +7,13 @@ use std::{fs, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::Serialize;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 use wrapper_backends::{
-  ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle,
-  SnarkjsGroth16Bn254ArtifactSetLoader, parse_snarkjs_groth16_bn254_bundle_with_names,
+  ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle, MidnightDirectOuterBackend,
+  OuterCircuitInputArtifacts, OuterProofBackend, SnarkjsGroth16Bn254ArtifactSetLoader,
+  parse_snarkjs_groth16_bn254_bundle_with_names,
 };
 use wrapper_circuits::{
   CircuitPlanningView, LayoutMetrics, PAIRING_TERM_PROFILE_COUNTS, PUBLIC_INPUT_PROFILE_COUNTS,
@@ -23,11 +25,15 @@ use wrapper_circuits::{
   groth16_pairing_block_miller_loop_layout_metrics,
   groth16_pairing_block_pairing_check_groth16_style_layout_metrics,
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
-  groth16_public_input_count_layout_metrics, primitive_definitions,
+  groth16_public_input_count_layout_metrics, measure_native_circuit_layout,
+  outer_wrapper_fixture_layout_metrics, primitive_definitions,
 };
 use wrapper_core::{
   ProjectConfig, ProjectStatusReport, WrapperExecutionPackage, WrapperExecutionResult, WrapperJob,
 };
+
+const SEMAPHORE_PROFILE_PUBLIC_INPUT_NAMES: [&str; 4] =
+  ["merkle_root", "nullifier", "message_hash", "scope_hash"];
 
 #[derive(Debug, Parser)]
 #[command(
@@ -152,6 +158,27 @@ enum Commands {
     #[arg(long)]
     output: Option<PathBuf>,
   },
+  /// Run the real direct Halo2/Midnight wrapper path over a package derived from artifacts.
+  ExecuteWrapperDirect {
+    /// Logical identifier for the artifact set / package.
+    #[arg(long, default_value = "wrapper-package")]
+    id: String,
+    /// Path to `proof.json`.
+    #[arg(long)]
+    proof: PathBuf,
+    /// Path to `public.json`.
+    #[arg(long)]
+    public: PathBuf,
+    /// Path to `verification_key.json`.
+    #[arg(long)]
+    vk: PathBuf,
+    /// Optional semantic names for the ordered public-input vector.
+    #[arg(long = "public-input-name")]
+    public_input_names: Vec<String>,
+    /// Optional output path for the JSON execution result. Prints to stdout if omitted.
+    #[arg(long)]
+    output: Option<PathBuf>,
+  },
   /// Print the current placeholder layout for the future wrapper circuit.
   PrintLayout,
   /// Validate a TOML configuration file against the current project model.
@@ -182,24 +209,13 @@ fn main() -> Result<()> {
       run_export_wrapper_job(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?;
     }
     Commands::ExportWrapperPackage { id, proof, public, vk, public_input_names, output } => {
-      run_export_wrapper_package(
-        &id,
-        &proof,
-        &public,
-        &vk,
-        &public_input_names,
-        output.as_ref(),
-      )?;
+      run_export_wrapper_package(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?;
     }
     Commands::ExecuteWrapperStub { id, proof, public, vk, public_input_names, output } => {
-      run_execute_wrapper_stub(
-        &id,
-        &proof,
-        &public,
-        &vk,
-        &public_input_names,
-        output.as_ref(),
-      )?;
+      run_execute_wrapper_stub(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?;
+    }
+    Commands::ExecuteWrapperDirect { id, proof, public, vk, public_input_names, output } => {
+      run_execute_wrapper_direct(&id, &proof, &public, &vk, &public_input_names, output.as_ref())?;
     }
     Commands::PrintLayout => run_print_layout(),
     Commands::ValidateConfig { config } => run_validate_config(&config)?,
@@ -214,6 +230,7 @@ enum ProfileFamily {
   All,
   Blocks,
   Groth16,
+  Outer,
   PairingTerms,
   PublicInputs,
 }
@@ -226,6 +243,16 @@ struct LayoutProfileRow {
   term_count: Option<usize>,
   public_input_count: Option<usize>,
   layout: LayoutMetrics,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct DirectWrapperExecutionResult {
+  job_id: String,
+  backend: String,
+  setup_verification_key: wrapper_core::ProducedOuterVerificationKeyJson,
+  produced_bundle: wrapper_core::ProducedOuterProofArtifactBundle,
+  verification_ok: bool,
+  notes: Vec<String>,
 }
 
 fn init_tracing() -> Result<()> {
@@ -443,6 +470,20 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
     ]);
   }
 
+  if matches!(family, ProfileFamily::All | ProfileFamily::Outer) {
+    rows.extend([
+      LayoutProfileRow {
+        family: "outer",
+        id: "outer_wrapper_fixture_total".to_owned(),
+        label: "outer wrapper fixture total",
+        term_count: Some(4),
+        public_input_count: Some(1),
+        layout: outer_wrapper_fixture_layout_metrics(),
+      },
+      semaphore_outer_end_to_end_layout_row(),
+    ]);
+  }
+
   if matches!(family, ProfileFamily::All | ProfileFamily::PairingTerms) {
     rows.extend(PAIRING_TERM_PROFILE_COUNTS.iter().map(|count| LayoutProfileRow {
       family: "pairing_terms",
@@ -466,6 +507,39 @@ fn layout_profile_rows(family: ProfileFamily) -> Vec<LayoutProfileRow> {
   }
 
   rows
+}
+
+fn semaphore_outer_end_to_end_layout_row() -> LayoutProfileRow {
+  let bundle = parse_snarkjs_groth16_bn254_bundle_with_names(
+    "semaphore-depth-10",
+    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json"),
+    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/public.json"),
+    include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"),
+    &SEMAPHORE_PROFILE_PUBLIC_INPUT_NAMES,
+  )
+  .expect("named Semaphore profiling bundle should parse");
+  let package = bundle.build_halo2_outer_execution_package();
+  let backend = MidnightDirectOuterBackend;
+  let circuit = backend
+    .build_outer_circuit(
+      &package,
+      OuterCircuitInputArtifacts::new(
+        Some(include_bytes!("../../wrapper-tests/fixtures/groth16/semaphore/proof.json")),
+        Some(include_bytes!(
+          "../../wrapper-tests/fixtures/groth16/semaphore/verification_key.json"
+        )),
+      ),
+    )
+    .expect("Semaphore outer profiling circuit should build");
+
+  LayoutProfileRow {
+    family: "outer",
+    id: "outer_wrapper_semaphore_end_to_end".to_owned(),
+    label: "outer wrapper semaphore end-to-end",
+    term_count: Some(4),
+    public_input_count: Some(4),
+    layout: measure_native_circuit_layout(&circuit),
+  }
 }
 
 fn optional_usize(value: Option<usize>) -> String {
@@ -532,7 +606,7 @@ fn plan_wrapper_job_from_paths(
 ) -> Result<WrapperJob> {
   let bundle =
     load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
-  Ok(bundle.plan_bls12_381_wrapper_job())
+  Ok(bundle.plan_halo2_outer_wrapper_job())
 }
 
 fn build_wrapper_execution_package_from_paths(
@@ -544,7 +618,7 @@ fn build_wrapper_execution_package_from_paths(
 ) -> Result<WrapperExecutionPackage> {
   let bundle =
     load_groth16_bundle(identifier, proof_path, public_path, vk_path, public_input_names)?;
-  Ok(bundle.build_bls12_381_execution_package())
+  Ok(bundle.build_halo2_outer_execution_package())
 }
 
 fn run_inspect_groth16_bundle(
@@ -678,24 +752,79 @@ fn run_execute_wrapper_stub(
   emit_execution_result(&result, output_path)
 }
 
+fn run_execute_wrapper_direct(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+  output_path: Option<&PathBuf>,
+) -> Result<()> {
+  info!("running direct wrapper executor {}", identifier);
+  let package = build_wrapper_execution_package_from_paths(
+    identifier,
+    proof_path,
+    public_path,
+    vk_path,
+    public_input_names,
+  )?;
+  let proof_json = fs::read(proof_path)
+    .with_context(|| format!("failed to read proof file at {}", proof_path.display()))?;
+  let verification_key_json = fs::read(vk_path)
+    .with_context(|| format!("failed to read verification-key file at {}", vk_path.display()))?;
+  let artifacts = OuterCircuitInputArtifacts::new(
+    Some(proof_json.as_slice()),
+    Some(verification_key_json.as_slice()),
+  );
+  let backend = MidnightDirectOuterBackend;
+  let setup_verification_key =
+    backend.setup(&package, artifacts).context("direct wrapper setup failed")?;
+  let produced_bundle =
+    backend.prove(&package, artifacts).context("direct wrapper proving failed")?;
+  let verification_ok = backend
+    .verify(&package, &produced_bundle, artifacts)
+    .context("direct wrapper verification failed")?;
+
+  let result = DirectWrapperExecutionResult {
+    job_id: package.job.identifier.clone(),
+    backend: backend.backend_id().to_owned(),
+    setup_verification_key,
+    produced_bundle,
+    verification_ok,
+    notes: vec![
+      "executed direct halo2/midnight outer wrapper path".to_owned(),
+      "result includes setup verification key, produced proof bundle, and backend verification verdict"
+        .to_owned(),
+    ],
+  };
+  emit_json(&result, output_path, "direct wrapper execution result")
+}
+
 fn emit_execution_result(
   result: &WrapperExecutionResult,
   output_path: Option<&PathBuf>,
 ) -> Result<()> {
-  let manifest = serde_json::to_string_pretty(result)
-    .context("failed to serialize wrapper execution result as JSON")?;
+  emit_json(result, output_path, "wrapper execution result")
+}
+
+fn emit_json<T: Serialize>(
+  value: &T,
+  output_path: Option<&PathBuf>,
+  artifact_label: &str,
+) -> Result<()> {
+  let manifest = serde_json::to_string_pretty(value)
+    .context(format!("failed to serialize {artifact_label} as JSON"))?;
 
   if let Some(path) = output_path {
     fs::write(path, format!("{manifest}\n"))
-      .with_context(|| format!("failed to write wrapper execution result to {}", path.display()))?;
-    println!("Wrote wrapper execution result to {}", path.display());
+      .with_context(|| format!("failed to write {artifact_label} to {}", path.display()))?;
+    println!("Wrote {artifact_label} to {}", path.display());
   } else {
     println!("{manifest}");
   }
 
   Ok(())
 }
-
 fn print_wrapper_job_summary(job: &WrapperJob) {
   println!("Wrapper job: {}", job.identifier);
   println!("Source proof system: {:?}", job.source.kind);

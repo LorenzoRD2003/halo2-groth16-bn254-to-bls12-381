@@ -1,8 +1,8 @@
 # Halo2 Wrapper Workspace
 
-This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based outer proof system that may eventually verify Groth16 BN254 proofs inside a Halo2 wrapper.
+This repository is a Rust workspace for a staged research and engineering effort around a Halo2-based outer proof system that wraps Groth16 BN254 proofs inside a canonical Halo2/Midnight outer circuit.
 
-The current phase is still intentionally narrow, but it is no longer just repository bootstrap: the project now includes a circuit-backed BN254 primitive layer built on `midnight-circuits` and `midnight-proofs`, together with CI, benchmarks, CLI diagnostics, and contributor documentation. Week 2 now includes a first Fp2 slice, a minimal G2 affine slice, and a narrow Jacobian-style G2 projective slice for `from_affine`, `neg`, `double`, and incomplete `add`. Week 3 now includes the extension-field slices in Fp6 and Fp12 plus Miller-oriented G2 `double_with_line` / `mixed_add_with_line` extraction. The current repository state now also includes the narrow Week 4 pairing core and the first Week 5 Groth16 BN254 verifier slice, while still stopping well short of a broad or production-ready verifier.
+The current phase is still intentionally narrow, but it is no longer just repository bootstrap. The repo now includes the BN254 primitive layer, the narrow Groth16 BN254 verifier slice, the canonical `OuterWrapperCircuit`, and a real direct Halo2/Midnight backend lane that can `setup -> prove -> verify` honest outer artifacts. It still stops well short of a broad or production-ready wrapper system.
 
 ## Current Status
 
@@ -16,21 +16,17 @@ What the repository currently contains:
 - A minimal Week 2 BN254 G2 affine layer in `wrapper-circuits`, backed by `AssignedFp2` coordinates with circuit-backed negation and twist on-curve validation.
 - A narrow Week 2 BN254 G2 projective layer in Jacobian coordinates `(X:Y:Z)` with affine embedding, negation, doubling, incomplete addition, measured costs, and arkworks-backed sanity tests.
 - A Week 3 BN254 Miller-path G2 step layer with a dedicated homogeneous-projective state, `double_with_line`, `mixed_add_with_line`, and Miller-ready sparse line coefficients.
-- Placeholder outer-wrapper planning and backend integration boundaries that are honest about what is still missing.
+- A real direct outer backend lane in `wrapper-backends/src/outer.rs` that runs setup, proof generation, and verification over the canonical `OuterWrapperCircuit`.
 - A narrow Week 4 pairing core: real Miller loop, final exponentiation, and verifier-shaped pairing check.
 - A first Week 5 Groth16 BN254 verifier slice with real `snarkjs` proof/VK/public-input parsing, verifier-only `vk_x` accumulation, and one end-to-end pairing-product-check path.
 - Generic `snarkjs` Groth16 BN254 artifact-set loading in `wrapper-backends`, including named public-input views when the caller supplies semantic names.
-- A generic `OuterGroth16Backend` contract plus a placeholder `PlannedGroth16Bls12381Backend` that materializes the planned outer artifact bundle from a wrapper execution package.
 - A real Halo2/Midnight outer wrapper circuit in `wrapper-circuits` that reuses the landed narrow Groth16 BN254 verifier slice and exposes the frozen outer statement as public inputs.
-- Domain-level wrapper planning and execution-package modeling in `wrapper-core`, including `WrapperJob`, `WrapperExecutionPackage`, expected outer artifact shapes, and stub execution results.
-- The expected outer artifact model now includes explicit `snarkjs`-like payload conventions for Groth16 BLS12-381 output artifacts, including planned `proof.json` keys `pi_a/pi_b/pi_c` and verification-key keys such as `nPublic` and `IC`.
-- The expected outer artifact model now also includes a `bundle_template` with placeholder `snarkjs`-like payloads for `proof.json`, `public.json`, and `verification_key.json`, so the future output contract is explicit even before the real outer prover exists.
-- The current placeholder outer backend now materializes a partial outer bundle more honestly: `public.json` is real, `verification_key.json` is emitted as a skeleton with placeholder coordinates, and `proof.json` remains absent until a real outer prover exists.
-- The selected concrete outer backend lane now treats the Halo2/Midnight outer circuit as canonical, can adapt raw artifacts into that circuit, and now exposes a direct canonical outer-circuit planning surface for future setup/prove/verify wiring.
+- Domain-level wrapper planning and execution-package modeling in `wrapper-core`, including `WrapperJob`, `WrapperExecutionPackage`, honest outer artifact shapes, and execution-result modeling.
+- The direct outer artifact model is now honest to the actual backend: `halo2-plonkish` / `bn254`, serialized with `serde` JSON carrying hex-encoded `SerdeFormat::Processed` payloads for proofs, PLONK verification keys, and KZG verifier params.
 - A canonical R1CS line now exists under `crates/wrapper-circuits/src/r1cs/`, including deterministic lowering, identity hashing, zkInterface-style export, and a first Arkworks adapter, but it should currently be treated as an alternate / future backend lane rather than the critical path for the real outer wrapper flow.
-- A real Semaphore Groth16 BN254 fixture under `crates/wrapper-tests/fixtures/groth16/semaphore/` used to validate the artifact-set -> job -> package -> stub-execution lane on an ECC-heavy application circuit.
+- A real Semaphore Groth16 BN254 fixture under `crates/wrapper-tests/fixtures/groth16/semaphore/` used to validate the direct outer lane through a real end-to-end integration test.
 - Contributor-oriented documentation covering architecture, roadmap, and initial design decisions.
-- A `wrapper-cli` binary with honest developer commands for environment inspection, configuration validation, primitive reporting, and narrow layout profiling.
+- A `wrapper-cli` binary with honest developer commands for environment inspection, configuration validation, primitive reporting, narrow layout profiling, and real direct outer execution.
 
 What is explicitly not implemented yet:
 
@@ -38,7 +34,7 @@ What is explicitly not implemented yet:
 - Generalized Groth16 verifier frameworks beyond the first narrow BN254 slice
 - G2 subgroup checks or scalar multiplication
 - Broad backend adapters beyond the current narrow `snarkjs` BN254 parser path
-- Real outer Groth16 BLS12-381 proof generation
+- Fast always-on CI for the expensive direct outer `setup/prove/verify` lane
 - Cryptographic soundness claims of any kind
 
 This repository now includes the primitive BN254 foundation plus the first narrow Groth16 BN254 verifier slice, but it is still far from a broad or production-ready wrapper verifier.
@@ -54,7 +50,7 @@ Use the shortest route that matches the task:
 - Real `.circom` integration plan: `docs/real-circom-wrapper-integration-plan.md`
 - Canonical R1CS backend status: `docs/r1cs-backend-status.md`
 - Outer prover strategy: `docs/outer-prover-strategy-plan.md`
-- Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/final-exponentiation-audit.md`
+- Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/groth16-optimization-summary.md`
 - Layout profiling / optimization: `crates/wrapper-circuits/src/groth16/profiling.rs` -> `crates/wrapper-cli/src/main.rs` -> `docs/profiling.md`
 - Scope / stage boundaries: `AGENTS.md` `Current Phase and Scope Boundaries` -> `docs/roadmap.md`
 
@@ -74,7 +70,7 @@ Top-level doc roles:
 The intended shape of the project is:
 
 - `wrapper-core`: domain-oriented types, traits, config, errors, metadata, and public architectural contracts
-- `wrapper-core`: also owns wrapper-job planning, execution-package modeling, expected output-artifact shapes, and stub execution results
+- `wrapper-core`: also owns wrapper-job planning, execution-package modeling, expected output-artifact shapes, and execution-result modeling
 - `wrapper-circuits`: Halo2-facing circuits, current Midnight-backed BN254 primitive layer, layout descriptions, and future gadget integration points
 - `wrapper-backends`: artifact loading, parser adapters, proof/VK material ingestion, generic Groth16 BN254 bundles, and future external backend bridges
 - `wrapper-cli`: developer-facing commands for validation, inspection, and future orchestration
@@ -92,7 +88,6 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 ├── docs/
 │   ├── architecture.md
 │   ├── benchmarking.md
-│   ├── final-exponentiation-audit.md
 │   ├── groth16-optimization-summary.md
 │   ├── outer-prover-strategy-plan.md
 │   ├── profiling.md
@@ -112,7 +107,7 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 - Go to `AGENTS.md` before editing code or docs so you inherit repo-specific constraints.
 - Go to `docs/architecture.md` when deciding where code should live.
 - Go to `docs/roadmap.md` when checking whether an idea belongs in the current stage.
-- Go to `docs/profiling.md` and `docs/final-exponentiation-audit.md` for optimization work.
+- Go to `docs/profiling.md` and `docs/groth16-optimization-summary.md` for optimization work.
 - Go to `docs/groth16-optimization-summary.md` when you need the consolidated before/after history of completed optimization phases.
 
 ## Build Instructions
@@ -172,6 +167,7 @@ Useful family-specific runs are:
 
 ```bash
 cargo run -p wrapper-cli -- profile-layout --family groth16
+cargo run -p wrapper-cli -- profile-layout --family outer
 cargo run -p wrapper-cli -- profile-layout --family pairing-terms
 cargo run -p wrapper-cli -- profile-layout --family public-inputs
 cargo run -p wrapper-cli -- profile-layout --family blocks
@@ -186,7 +182,7 @@ Notes:
 - if you inspect the output file before the command exits, it may look empty or
   incomplete; wait for the command to finish before comparing baselines
 - `blocks` now includes `final exponentiation easy part`, `final exponentiation hard part`, and total `final exponentiation`
-- for final-exponentiation work specifically, start with `docs/final-exponentiation-audit.md`
+- for final-exponentiation work specifically, start with `docs/groth16-optimization-summary.md`
 - for the consolidated optimization history and current bottleneck picture, start with `docs/groth16-optimization-summary.md`
 - the current Groth16 verifier route also precomputes Miller-step line
   coefficients off-circuit for constant verifier-key G2 terms (`beta_g2`,
@@ -259,6 +255,7 @@ cargo run -p wrapper-cli -- plan-wrapper-job --proof ... --public ... --vk ...
 cargo run -p wrapper-cli -- export-wrapper-job --proof ... --public ... --vk ...
 cargo run -p wrapper-cli -- export-wrapper-package --proof ... --public ... --vk ...
 cargo run -p wrapper-cli -- execute-wrapper-stub --proof ... --public ... --vk ...
+cargo run -p wrapper-cli -- execute-wrapper-direct --proof ... --public ... --vk ...
 ```
 
 ## Development Workflow

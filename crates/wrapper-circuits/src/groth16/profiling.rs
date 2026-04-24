@@ -14,6 +14,7 @@ use crate::bn254::{
   final_exponentiation_layout_metrics, measure_layout, miller_loop_layout_metrics,
   pairing_check_layout_metrics,
 };
+use crate::outer::{OuterWrapperCircuit, OuterWrapperCircuitInput};
 
 use super::{
   Groth16Bn254G1Point, Groth16Bn254VerifierCircuit, Groth16Bn254VerifyingKey,
@@ -96,6 +97,17 @@ pub fn groth16_fixture_ic_accumulator_layout_metrics() -> LayoutMetrics {
     fixtures::typed::public_inputs(),
     ForeignCurve::identity(),
   ))
+}
+
+/// Measures the canonical outer wrapper circuit on the committed Week 5 fixture.
+#[must_use]
+pub fn outer_wrapper_fixture_layout_metrics() -> LayoutMetrics {
+  measure_layout(&OuterWrapperCircuit::from_input(OuterWrapperCircuitInput::mirrored(
+    fixtures::typed::proof(),
+    fixtures::typed::verifying_key(),
+    fixtures::typed::public_inputs(),
+    vec!["public_input_0".to_owned()],
+  )))
 }
 
 /// Measures an isolated pairing-check circuit for a given number of pairing terms.

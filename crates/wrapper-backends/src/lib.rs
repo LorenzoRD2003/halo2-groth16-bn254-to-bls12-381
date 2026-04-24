@@ -18,11 +18,11 @@ pub use groth16::{
 };
 pub use loader::{ArtifactLoader, ArtifactLoaderError, ArtifactSetLoader, LoaderSummary};
 pub use outer::{
-  ArkworksGroth16Bls12381Backend, ArkworksGroth16OuterCircuitInput,
-  ArkworksGroth16OuterStatementInput, ArkworksGroth16ProofPlan, ArkworksGroth16SetupPlan,
   CanonicalOuterCircuitProofArtifacts, CanonicalOuterCircuitProofBackend,
-  CanonicalOuterCircuitSetupArtifacts, OuterCircuitInputArtifacts, OuterGroth16Backend,
-  OuterGroth16BackendError, OuterGroth16BackendMetadata, PlannedGroth16Bls12381Backend,
+  CanonicalOuterCircuitSetupArtifacts, DirectOuterCircuitInput, DirectOuterProofPlan,
+  DirectOuterSetupPlan, DirectOuterStatementInput, MidnightDirectOuterBackend,
+  OuterCircuitInputArtifacts, OuterProofBackend, OuterProofBackendError, OuterProofBackendMetadata,
+  PlannedHalo2OuterBackend,
 };
 pub use registry::{BackendDescriptor, BackendRegistry};
 pub use snarkjs::{

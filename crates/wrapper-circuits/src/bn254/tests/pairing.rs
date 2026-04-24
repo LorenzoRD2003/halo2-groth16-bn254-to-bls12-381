@@ -4,12 +4,11 @@ use ark_bn254::{
 };
 use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
 use ark_ff::Field as _;
+use ark_std::rand::{SeedableRng, rngs::StdRng};
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner, Value},
   plonk::{Circuit, ConstraintSystem, Error},
 };
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
 
 use super::support::{
   ArkMillerStep, ark_bn254_final_exponentiation, ark_bn254_miller_loop_accumulate,
@@ -131,7 +130,7 @@ fn miller_loop_real_bn254_schedule_matches_arkworks_reference_on_generator() {
 #[test]
 #[ignore = "slow pairing-core"]
 fn miller_loop_real_bn254_schedule_matches_arkworks_reference() {
-  let mut rng = ChaCha20Rng::from_seed([66_u8; 32]);
+  let mut rng = StdRng::from_seed([66_u8; 32]);
   let g1_point = random_nonzero_g1_affine(&mut rng);
   let g2_point = random_nonzero_g2_affine(&mut rng);
   let expected = ark_bn254_miller_loop_accumulate(g2_point, g1_point);
@@ -172,7 +171,7 @@ fn final_exponentiation_hard_part_sample_matches_host_decomposition() {
 #[test]
 #[ignore = "slow pairing-core"]
 fn final_exponentiation_matches_arkworks_on_deterministic_random_miller_outputs() {
-  let mut rng = ChaCha20Rng::from_seed([67_u8; 32]);
+  let mut rng = StdRng::from_seed([67_u8; 32]);
 
   for _ in 0..3 {
     let g1_point = random_nonzero_g1_affine(&mut rng);
@@ -204,7 +203,7 @@ fn miller_loop_then_final_exponentiation_matches_arkworks_pairing_on_generator()
 #[test]
 #[ignore = "slow pairing-core"]
 fn miller_loop_then_final_exponentiation_matches_arkworks_pairing() {
-  let mut rng = ChaCha20Rng::from_seed([68_u8; 32]);
+  let mut rng = StdRng::from_seed([68_u8; 32]);
 
   for _ in 0..2 {
     let g1_point = random_nonzero_g1_affine(&mut rng);
@@ -247,7 +246,7 @@ fn multi_miller_loop_two_term_circuit_matches_arkworks_reference() {
 #[test]
 #[ignore = "slow pairing-core"]
 fn multi_miller_loop_three_term_circuit_matches_arkworks_reference() {
-  let mut rng = ChaCha20Rng::from_seed([71_u8; 32]);
+  let mut rng = StdRng::from_seed([71_u8; 32]);
   let q = random_nonzero_g2_affine(&mut rng);
   let p1 = random_nonzero_g1_affine(&mut rng);
   let p2 = random_nonzero_g1_affine(&mut rng);
@@ -354,7 +353,7 @@ fn pairing_check_two_term_negative_matches_arkworks() {
 #[test]
 #[ignore = "slow pairing-core"]
 fn pairing_check_three_term_cancellation_matches_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([69_u8; 32]);
+  let mut rng = StdRng::from_seed([69_u8; 32]);
   let q = random_nonzero_g2_affine(&mut rng);
   let p1 = random_nonzero_g1_affine(&mut rng);
   let p2 = random_nonzero_g1_affine(&mut rng);
@@ -370,7 +369,7 @@ fn pairing_check_three_term_cancellation_matches_arkworks() {
 #[test]
 #[ignore = "slow pairing-core"]
 fn pairing_check_three_term_negative_matches_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([70_u8; 32]);
+  let mut rng = StdRng::from_seed([70_u8; 32]);
   let q1 = random_nonzero_g2_affine(&mut rng);
   let q2 = random_nonzero_g2_affine(&mut rng);
   let p1 = random_nonzero_g1_affine(&mut rng);

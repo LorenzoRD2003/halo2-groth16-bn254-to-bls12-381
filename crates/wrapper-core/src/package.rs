@@ -225,10 +225,7 @@ mod tests {
     let job = WrapperJob::new(
       "job-1",
       ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
-      ProofSystemDescriptor {
-        kind: ProofSystemKind::Groth16Bls12_381,
-        source: "planner".to_owned(),
-      },
+      ProofSystemDescriptor { kind: ProofSystemKind::Halo2Outer, source: "planner".to_owned() },
       2,
       Some(named.clone()),
       vec![],
@@ -261,10 +258,7 @@ mod tests {
       WrapperJob::new(
         "job-1",
         ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
-        ProofSystemDescriptor {
-          kind: ProofSystemKind::Groth16Bls12_381,
-          source: "planner".to_owned(),
-        },
+        ProofSystemDescriptor { kind: ProofSystemKind::Halo2Outer, source: "planner".to_owned() },
         2,
         Some(named.clone()),
         vec![],

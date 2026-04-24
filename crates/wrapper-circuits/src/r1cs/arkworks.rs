@@ -9,8 +9,8 @@ use ark_relations::r1cs::{
   ConstraintSynthesizer, ConstraintSystemRef, LinearCombination as ArkLinearCombination,
   SynthesisError, Variable,
 };
+use ark_std::rand::{CryptoRng, RngCore};
 use ff::{Field, PrimeField};
-use rand::{CryptoRng, RngCore};
 
 use super::{LinearCombination, R1csBuildError, R1csCircuit, VariableId};
 use crate::NativeField;

@@ -15,7 +15,7 @@ fn field_edge_cases_match_arkworks() {
 
 #[test]
 fn randomized_additions_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([21_u8; 32]);
+  let mut rng = StdRng::from_seed([21_u8; 32]);
 
   for _ in 0..12 {
     let left = ArkFq::rand(&mut rng);
@@ -27,7 +27,7 @@ fn randomized_additions_match_arkworks() {
 
 #[test]
 fn randomized_multiplications_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([22_u8; 32]);
+  let mut rng = StdRng::from_seed([22_u8; 32]);
 
   for _ in 0..12 {
     let left = ArkFq::rand(&mut rng);
@@ -62,7 +62,7 @@ fn fp2_x_plus_neg_x_is_zero() {
 
 #[test]
 fn fp2_randomized_additions_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([41_u8; 32]);
+  let mut rng = StdRng::from_seed([41_u8; 32]);
 
   for _ in 0..12 {
     let left = ArkFq2::rand(&mut rng);
@@ -74,7 +74,7 @@ fn fp2_randomized_additions_match_arkworks() {
 
 #[test]
 fn fp2_randomized_multiplications_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([42_u8; 32]);
+  let mut rng = StdRng::from_seed([42_u8; 32]);
 
   for _ in 0..12 {
     let left = ArkFq2::rand(&mut rng);
@@ -86,7 +86,7 @@ fn fp2_randomized_multiplications_match_arkworks() {
 
 #[test]
 fn fp2_randomized_squares_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([43_u8; 32]);
+  let mut rng = StdRng::from_seed([43_u8; 32]);
 
   for _ in 0..12 {
     let value = ArkFq2::rand(&mut rng);
@@ -189,7 +189,7 @@ fn fp6_x_plus_neg_x_is_zero() {
 
 #[test]
 fn fp6_randomized_additions_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([61_u8; 32]);
+  let mut rng = StdRng::from_seed([61_u8; 32]);
 
   for _ in 0..10 {
     let left = ArkFq6::rand(&mut rng);
@@ -201,7 +201,7 @@ fn fp6_randomized_additions_match_arkworks() {
 
 #[test]
 fn fp6_randomized_multiplications_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([62_u8; 32]);
+  let mut rng = StdRng::from_seed([62_u8; 32]);
 
   for _ in 0..10 {
     let left = ArkFq6::rand(&mut rng);
@@ -213,7 +213,7 @@ fn fp6_randomized_multiplications_match_arkworks() {
 
 #[test]
 fn fp6_randomized_squares_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([63_u8; 32]);
+  let mut rng = StdRng::from_seed([63_u8; 32]);
 
   for _ in 0..10 {
     let value = ArkFq6::rand(&mut rng);
@@ -350,7 +350,7 @@ fn fp12_x_plus_neg_x_is_zero() {
 
 #[test]
 fn fp12_randomized_additions_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([71_u8; 32]);
+  let mut rng = StdRng::from_seed([71_u8; 32]);
 
   for _ in 0..10 {
     let left = ArkFq12::rand(&mut rng);
@@ -365,7 +365,7 @@ fn fp12_randomized_additions_match_arkworks() {
 
 #[test]
 fn fp12_randomized_multiplications_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([72_u8; 32]);
+  let mut rng = StdRng::from_seed([72_u8; 32]);
 
   for _ in 0..10 {
     let left = ArkFq12::rand(&mut rng);
@@ -380,7 +380,7 @@ fn fp12_randomized_multiplications_match_arkworks() {
 
 #[test]
 fn fp12_randomized_squares_match_arkworks() {
-  let mut rng = ChaCha20Rng::from_seed([73_u8; 32]);
+  let mut rng = StdRng::from_seed([73_u8; 32]);
 
   for _ in 0..10 {
     let value = ArkFq12::rand(&mut rng);
@@ -391,7 +391,7 @@ fn fp12_randomized_squares_match_arkworks() {
 
 #[test]
 fn fp12_cyclotomic_square_host_matches_generic_square_on_random_cyclotomic_elements() {
-  let mut rng = ChaCha20Rng::from_seed([74_u8; 32]);
+  let mut rng = StdRng::from_seed([74_u8; 32]);
 
   for _ in 0..6 {
     let g1 = random_nonzero_g1_affine(&mut rng);
@@ -410,7 +410,7 @@ fn fp12_cyclotomic_square_host_matches_generic_square_on_random_cyclotomic_eleme
 
 #[test]
 fn fp12_cyclotomic_square_circuit_matches_host_on_random_cyclotomic_elements() {
-  let mut rng = ChaCha20Rng::from_seed([75_u8; 32]);
+  let mut rng = StdRng::from_seed([75_u8; 32]);
 
   for _ in 0..6 {
     let g1 = random_nonzero_g1_affine(&mut rng);

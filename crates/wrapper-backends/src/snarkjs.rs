@@ -136,7 +136,9 @@ fn parse_g1_point(
     "0" if coords[0] == "0" && coords[1] == "1" => Ok(Groth16Bn254G1Point::Identity),
     other => Err(SnarkjsGroth16ParseError::InvalidPointEncoding {
       point_kind,
-      reason: format!("expected affine z = 1 or the snarkjs G1 identity [0, 1, 0], got z = {other}"),
+      reason: format!(
+        "expected affine z = 1 or the snarkjs G1 identity [0, 1, 0], got z = {other}"
+      ),
     }),
   }
 }
