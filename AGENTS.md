@@ -160,11 +160,13 @@ If you need pairing-core / final-exponentiation context:
 If you need Midnight-local optimization context:
 
 1. `docs/midnight-local-optimization-notes.md`
-2. `crates/wrapper-circuits/src/bn254/types.rs`
-3. `crates/wrapper-circuits/src/bn254/fp2.rs`
-4. `crates/wrapper-circuits/src/bn254/fp6.rs`
-5. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
-6. `docs/profiling.md`
+2. `docs/decisions/0002-bn254-local-optimization-policy.md`
+3. `docs/cyclotomic-unitary-kernel-design.md`
+4. `crates/wrapper-circuits/src/bn254/types.rs`
+5. `crates/wrapper-circuits/src/bn254/fp2.rs`
+6. `crates/wrapper-circuits/src/bn254/fp6.rs`
+7. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
+8. `docs/profiling.md`
 
 If you need BN254 primitive structure / ownership context:
 
@@ -229,6 +231,8 @@ Use each top-level doc for one job:
 - `docs/profiling.md`: how to measure layout cost and compare optimization baselines
 - `docs/benchmarking.md`: benchmark naming, bench-info wiring, and benchmark/reporting sync rules
 - `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates that already proved useful or look promising for the BN254 tower / pairing path
+- `docs/decisions/0002-bn254-local-optimization-policy.md`: durable retained/rejected optimization decisions for the BN254 pairing-core lane
+- `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus-region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` sites in the hard part
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current status of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision and direct backend surface for the canonical Halo2/Midnight outer circuit
@@ -250,6 +254,7 @@ future agents know when to read it.
 - `docs/midnight-local-optimization-notes.md`: local Midnight-backed optimization guidance for repeated tower operations and fixed-constant arithmetic
 - `docs/outer-prover-strategy-plan.md`: strategy document for the remaining prover/backend decision on the outer Halo2/Midnight circuit
 - `docs/decisions/0001-initial-workspace-structure.md`: ADR for the workspace split
+- `docs/decisions/0002-bn254-local-optimization-policy.md`: ADR for retained versus rejected BN254 local pairing-core optimizations
 
 ## Crate Responsibilities
 
@@ -336,6 +341,7 @@ future agents know when to read it.
 - Keep arithmetic, ECC, pairing, and verifier logic explicit and reviewable.
 - Do not hide critical behavior behind abstractions that obscure invariants or cost.
 - Record major cryptographic architecture choices in `docs/decisions/`.
+- Treat retained or rejected local pairing-core optimization directions as ADR-worthy once they materially change the measured baseline or future search space.
 - Prefer extending the existing Midnight-backed BN254 layer over creating a second incompatible primitive stack.
 
 ## Specific Current Primitive Guidance
@@ -360,7 +366,7 @@ When touching the current BN254 primitive code:
 - keep final exponentiation work aligned with the standard BN easy-part / hard-part decomposition used by arkworks unless a measured circuit-oriented rewrite clearly improves the current slice
 - keep pairing-check work verifier-shaped: accumulate Miller outputs first, apply exactly one final exponentiation to the total product, and avoid per-term final exponentiation
 - for final-exponentiation and local tower optimization work, read `docs/midnight-local-optimization-notes.md` first so you inherit the current proved-useful Midnight primitives and ruled-out local paths
-- when looking for local tower wins, read `docs/midnight-local-optimization-notes.md` before inventing new gadgets; it records which `midnight-circuits` primitives (`mul_by_constant`, `linear_combination`, `add_constant`, etc.) already paid off in this repo
+- when looking for local tower wins, read `docs/midnight-local-optimization-notes.md` before inventing new gadgets; it records which `midnight-circuits` primitives (`mul_by_constant`, `linear_combination`, `add_constant`, etc.) already paid off in this repo, which ones were explicitly tried and ruled out, and which wins are only local instead of pairing-core-wide
 - when a public method contains a full algebraic step, prefer extracting the formula into a well-named internal helper such as `double_step_jacobian`, `double_step_hom_projective`, or `mixed_add_step_hom_projective`
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
@@ -389,6 +395,13 @@ Concrete BN254 conventions already in use:
 - the current final-exponentiation code now exposes `final_exponentiation_easy_part(...)` and `final_exponentiation_hard_part(...)` as audit-friendly internal helpers without changing semantics
 - the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/profiling.md` plus `docs/midnight-local-optimization-notes.md` before changing it so you inherit the current measured state and the local Midnight primitives that already paid off
 - the current best class of local wins came from replacing generic constant multiplies in repeated tower helpers with Midnight-backed `mul_by_constant(...)`; check `docs/midnight-local-optimization-notes.md` before changing repeated `Fp2` / `Fp6` / `Fp12` transforms
+- the current repo evidence says foreign-field `linear_combination(...)` is not an automatic optimization win: an April 27, 2026 pass that rewrote `AssignedFp2::mul_by_constant(...)`, `AssignedFp6::mul_by_nonresidue_fp2(...)`, and the Fp12 `3t +/- 2z` helpers regressed `fp12 cyclotomic square` (`1622 -> 1886`), `final exponentiation` (`587420 -> 678119`), and `pairing check` (`1682524 -> 1805233`), so treat that exact rewrite family as ruled out unless you have a materially different constraint shape
+- if you revisit `linear_combination(...)` in the BN254 tower, compare against the retained `mul_by_constant(...)` baseline and do not keep the rewrite unless `wrapper-cli doctor` or `profile-layout --family blocks` shows a clear row win
+- the current repo evidence says `add_constant(...)` does have one retained win: folding the fixed BN254 twist coefficient directly into `AssignedG2Affine::assert_on_curve(...)` improved `g2 on_curve` (`400 -> 378`), `g2 neg` (`930 -> 886`), `g2 proj from_affine` (`970 -> 948`), `g2 proj double` (`2594 -> 2550`), `g2 proj add` (`4582 -> 4516`), `g2 double_with_line` (`2698 -> 2654`), and `g2 mixed_add_with_line` (`3374 -> 3330`)
+- treat that `add_constant(...)` result as a local G2 / Miller-prep win, not as proof that pairing-core blocks will move; `miller loop`, `final exponentiation`, and `pairing check` rows stayed unchanged in `profile-layout --family blocks`
+- the current repo evidence says the obvious `select` / `is_equal*` / `is_zero` cleanup on the final GT identity check is row-neutral: an April 27, 2026 pass that wrapped the manual coordinate checks into composite `Fp2` / `Fp6` / `Fp12` boolean equality helpers left both `wrapper-cli doctor` and `profile-layout --family blocks` unchanged, so do not keep that rewrite for performance alone
+- the current retained `exp_by_neg_x(...)` chain is now a signed-window schedule from `35` with steps `<<6,-35`, `<<9,+101`, `<<8,-83`, `<<9,+37`, `<<9,+105`, `<<11,+79`, `<<5,+17`; it wins because one extra cyclotomic square in precomputation is cheaper than the saved main-chain multiplication
+- the first torus-style prototype for `cyclotomic * unitary_inverse(cyclotomic)` was also a non-win when applied only to `y7` inside the hard part: it regressed `final_exponentiation_hard_part` from `561254` to `571604` and `final_exponentiation` from `574562` to `584912`, so do not retry isolated call-site torus substitutions
 - the fixed BN254 `exp_by_neg_x(...)` recipe now lives in `crates/wrapper-circuits/src/bn254/final_exp_chain.rs` and is consumed by both host/reference code and the circuit path; keep that module canonical
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
@@ -402,26 +415,26 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `fp2 mul`: 152 rows / 58 queries, `k=9`
 - `fp2 square`: 114 rows / 58 queries, `k=9`
 - `fp6 add`: 240 rows / 58 queries, `k=9`
-- `fp6 mul`: 1384 rows / 58 queries, `k=11`
-- `fp6 square`: 868 rows / 58 queries, `k=10`
+- `fp6 mul`: 1252 rows / 58 queries, `k=11`
+- `fp6 square`: 736 rows / 58 queries, `k=10`
 - `fp12 add`: 480 rows / 58 queries, `k=9`
-- `fp12 mul`: 4538 rows / 58 queries, `k=13`
-- `fp12 square`: 3056 rows / 58 queries, `k=12`
-- `fp12 cyclotomic square`: 1994 rows / 58 queries, `k=11`
+- `fp12 mul`: 4076 rows / 58 queries, `k=12`
+- `fp12 square`: 2594 rows / 58 queries, `k=12`
+- `fp12 cyclotomic square`: 1622 rows / 58 queries, `k=11`
 - `g1 add`: 319 rows / 105 queries, `k=9`
-- `g2 on_curve`: 400 rows / 58 queries, `k=9`
-- `g2 neg`: 930 rows / 58 queries, `k=10`
-- `g2 proj from_affine`: 970 rows / 58 queries, `k=10`
-- `g2 proj double`: 2594 rows / 58 queries, `k=12`
-- `g2 proj add`: 4582 rows / 58 queries, `k=13`
-- `g2 double_with_line`: 2768 rows / 58 queries, `k=12`
-- `g2 mixed_add_with_line`: 3374 rows / 58 queries, `k=12`
-- `miller accumulator square`: 3176 rows / 58 queries, `k=12`
-- `miller accumulator mul_by_line`: 4710 rows / 58 queries, `k=13`
-- `miller accumulator mul_by_line sparse`: 2790 rows / 58 queries, `k=12`
-- `miller loop narrow`: 503854 rows / 58 queries, `k=19`
-- `final exponentiation`: 705596 rows / 58 queries, `k=20`
-- `pairing check`: 1873660 rows / 94 queries, `k=21`
+- `g2 on_curve`: 378 rows / 58 queries, `k=9`
+- `g2 neg`: 886 rows / 58 queries, `k=10`
+- `g2 proj from_affine`: 948 rows / 58 queries, `k=10`
+- `g2 proj double`: 2550 rows / 58 queries, `k=12`
+- `g2 proj add`: 4516 rows / 58 queries, `k=13`
+- `g2 double_with_line`: 2654 rows / 58 queries, `k=12`
+- `g2 mixed_add_with_line`: 3330 rows / 58 queries, `k=12`
+- `miller accumulator square`: 2714 rows / 58 queries, `k=12`
+- `miller accumulator mul_by_line`: 4248 rows / 58 queries, `k=13`
+- `miller accumulator mul_by_line sparse`: 2592 rows / 58 queries, `k=12`
+- `miller loop narrow`: 457060 rows / 58 queries, `k=19`
+- `final exponentiation`: 574562 rows / 58 queries, `k=20`
+- `pairing check`: 1669666 rows / 94 queries, `k=21`
 
 Interpretation guidance:
 
@@ -432,10 +445,15 @@ Interpretation guidance:
 - `miller accumulator mul_by_line` is the generic baseline path, while `miller accumulator mul_by_line sparse` is the optimized public accumulator path for the current BN254 D-twist `(ell_0, ell_w, ell_vw)` layout
 - `miller loop narrow` now measures the real fixed single-pair BN254 optimal-ate Miller traversal, not the earlier synthetic schedule
 - `final exponentiation` measures the narrow single-pair BN254 final-exponentiation sanity circuit over a Miller-loop output, not a verifier-facing full pairing API
-- `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `13884` rows / `k=14` for the easy part and `690782` rows / `k=20` for the hard part, so future optimization work should focus overwhelmingly on the hard part
+- `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `12288` rows / `k=14` for the easy part and `561254` rows / `k=20` for the hard part, so future optimization work should focus overwhelmingly on the hard part
 - `docs/midnight-local-optimization-notes.md` is the canonical short list of Midnight primitives and local optimization targets; keep it updated when a new `midnight-circuits` primitive proves useful or a local candidate is ruled out
 - `pairing check` should always be described as the narrow verifier-shaped product-check slice with one shared final exponentiation, not as a full pairing engine or Groth16 verifier
 - as of the current repo state, local accumulator-square rewrites that only swap formulas inside the existing Fp12 tower did not beat the generic `miller accumulator square` cost; future square optimization likely needs a more structural/cross-step design rather than a small algebraic rewrite, so do not keep partial `square_optimized` experiments in the tree unless they measurably win in `wrapper-cli doctor`
+- as of the current repo state, the obvious foreign-field `linear_combination(...)` replacements for short `Fp2` affine transforms are also ruled out by measurement; do not re-land that family of rewrites without fresh `doctor` / `profile-layout --family blocks` evidence
+- as of the current repo state, the retained `add_constant(...)` win is specifically the fixed-twist-coefficient path inside G2 on-curve arithmetic; if a new `add_constant(...)` idea does not involve a truly fixed offset already present in the formula, be skeptical and measure it before keeping the rewrite
+- as of the current repo state, the tested `select` / `is_equal*` / `is_zero` cleanup for GT-identity checking is performance-neutral; only keep a rewrite in that family if it buys clarity or unlocks later branching logic, not because it is expected to lower rows by itself
+- as of the current repo state, the most promising structural local lever after the easy wins was indeed the `exp_by_neg_x(...)` chain itself; signed windows are now the retained direction, so future attempts should compare against the current signed schedule rather than the older all-positive one
+- as of the current repo state, torus/compressed representations for cyclotomic-unitary products remain only a design path, not a retained optimization; the `y7`-only prototype already lost, so future work must amortize compression across a longer region or it is unlikely to win
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
 
 ## Coding Standards

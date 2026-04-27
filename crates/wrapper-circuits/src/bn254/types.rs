@@ -188,6 +188,26 @@ where
     self.field_chip.add(layouter, left, right)
   }
 
+  /// Adds a fixed BN254 base-field constant to one assigned value.
+  pub fn add_constant(
+    &self,
+    layouter: &mut impl Layouter<FHost>,
+    value: &AssignedFp<FHost>,
+    constant: ForeignField,
+  ) -> Result<AssignedFp<FHost>, Error> {
+    self.field_chip.add_constant(layouter, value, constant)
+  }
+
+  /// Adds a fixed BN254 base-field constant to each assigned value in a slice.
+  pub fn add_constants(
+    &self,
+    layouter: &mut impl Layouter<FHost>,
+    values: &[AssignedFp<FHost>],
+    constants: &[ForeignField],
+  ) -> Result<Vec<AssignedFp<FHost>>, Error> {
+    self.field_chip.add_constants(layouter, values, constants)
+  }
+
   /// Multiplies two BN254 base-field values inside the circuit.
   pub fn mul(
     &self,

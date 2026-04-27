@@ -11,12 +11,12 @@ pub(crate) const BN254_X_ABS: u64 = 4_965_661_367_192_848_881;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Bn254ExpByXWindow {
   X17,
-  X25,
-  X29,
-  X39,
-  X41,
-  X43,
-  X49,
+  X35,
+  X37,
+  X79,
+  X83,
+  X101,
+  X105,
 }
 
 impl Bn254ExpByXWindow {
@@ -26,33 +26,89 @@ impl Bn254ExpByXWindow {
   pub(crate) const fn value(self) -> u64 {
     match self {
       Self::X17 => 17,
-      Self::X25 => 25,
-      Self::X29 => 29,
-      Self::X39 => 39,
-      Self::X41 => 41,
-      Self::X43 => 43,
-      Self::X49 => 49,
+      Self::X35 => 35,
+      Self::X37 => 37,
+      Self::X79 => 79,
+      Self::X83 => 83,
+      Self::X101 => 101,
+      Self::X105 => 105,
+    }
+  }
+}
+
+/// One signed step in the fixed `exp_by_neg_x(...)` chain.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Bn254ExpByXChainStep {
+  /// Number of cyclotomic squarings to apply before consuming the next window.
+  pub square_count: u8,
+  /// Whether the consumed window is added or subtracted.
+  pub sign: Bn254ExpByXWindowSign,
+  /// Window consumed after the squaring block.
+  pub window: Bn254ExpByXWindow,
+}
+
+/// Sign of one consumed `exp_by_neg_x(...)` window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Bn254ExpByXWindowSign {
+  Positive,
+  Negative,
+}
+
+impl Bn254ExpByXWindowSign {
+  #[must_use]
+  #[cfg(test)]
+  pub(crate) const fn apply(self, accumulator: u64, window: u64) -> u64 {
+    match self {
+      Self::Positive => accumulator + window,
+      Self::Negative => accumulator - window,
     }
   }
 }
 
 /// Starting window of the fixed `exp_by_neg_x(...)` chain.
-pub(crate) const BN254_EXP_BY_X_CHAIN_START: Bn254ExpByXWindow = Bn254ExpByXWindow::X17;
+pub(crate) const BN254_EXP_BY_X_CHAIN_START: Bn254ExpByXWindow = Bn254ExpByXWindow::X35;
 
 /// Shift-and-add plan for the fixed `exp_by_neg_x(...)` chain.
 ///
-/// Starting from `17`, each step means:
+/// Starting from `35`, each step means:
 ///
-/// `acc = (acc << square_count) + next_window`
-pub(crate) const BN254_EXP_BY_X_CHAIN_STEPS: &[(u8, Bn254ExpByXWindow)] = &[
-  (7, Bn254ExpByXWindow::X29),
-  (7, Bn254ExpByXWindow::X25),
-  (8, Bn254ExpByXWindow::X43),
-  (6, Bn254ExpByXWindow::X17),
-  (8, Bn254ExpByXWindow::X41),
-  (6, Bn254ExpByXWindow::X41),
-  (10, Bn254ExpByXWindow::X39),
-  (6, Bn254ExpByXWindow::X49),
+/// `acc = (acc << square_count) +/- next_window`
+pub(crate) const BN254_EXP_BY_X_CHAIN_STEPS: &[Bn254ExpByXChainStep] = &[
+  Bn254ExpByXChainStep {
+    square_count: 6,
+    sign: Bn254ExpByXWindowSign::Negative,
+    window: Bn254ExpByXWindow::X35,
+  },
+  Bn254ExpByXChainStep {
+    square_count: 9,
+    sign: Bn254ExpByXWindowSign::Positive,
+    window: Bn254ExpByXWindow::X101,
+  },
+  Bn254ExpByXChainStep {
+    square_count: 8,
+    sign: Bn254ExpByXWindowSign::Negative,
+    window: Bn254ExpByXWindow::X83,
+  },
+  Bn254ExpByXChainStep {
+    square_count: 9,
+    sign: Bn254ExpByXWindowSign::Positive,
+    window: Bn254ExpByXWindow::X37,
+  },
+  Bn254ExpByXChainStep {
+    square_count: 9,
+    sign: Bn254ExpByXWindowSign::Positive,
+    window: Bn254ExpByXWindow::X105,
+  },
+  Bn254ExpByXChainStep {
+    square_count: 11,
+    sign: Bn254ExpByXWindowSign::Positive,
+    window: Bn254ExpByXWindow::X79,
+  },
+  Bn254ExpByXChainStep {
+    square_count: 5,
+    sign: Bn254ExpByXWindowSign::Positive,
+    window: Bn254ExpByXWindow::X17,
+  },
 ];
 
 #[cfg(test)]
@@ -63,8 +119,8 @@ mod tests {
   fn exp_by_x_chain_reconstructs_bn254_parameter() {
     let mut value = BN254_EXP_BY_X_CHAIN_START.value();
 
-    for (square_count, window) in BN254_EXP_BY_X_CHAIN_STEPS {
-      value = (value << square_count) + window.value();
+    for step in BN254_EXP_BY_X_CHAIN_STEPS {
+      value = step.sign.apply(value << step.square_count, step.window.value());
     }
 
     assert_eq!(value, BN254_X_ABS);

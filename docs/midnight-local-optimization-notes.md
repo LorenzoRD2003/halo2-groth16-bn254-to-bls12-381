@@ -25,6 +25,94 @@ This was especially effective in:
 That change materially reduced the verifier and was enough to move the current
 Groth16 verifier total from `k = 22` down to `k = 21`.
 
+The most recent retained pairing-core win was:
+
+- replace the old positive-window `exp_by_neg_x(...)` chain with a signed-window
+  chain that spends one extra cyclotomic square in precomputation to save one
+  main-chain multiplication per call
+
+The retained signed chain starts from `35` and then consumes:
+
+- `<< 6, -35`
+- `<< 9, +101`
+- `<< 8, -83`
+- `<< 9, +37`
+- `<< 9, +105`
+- `<< 11, +79`
+- `<< 5, +17`
+
+That rewrite improved the hard part and every final pairing-facing total that
+depends on it:
+
+- `final exponentiation hard part`: `574112 -> 561254`
+- `final exponentiation`: `587420 -> 574562`
+- `pairing check` sample: `1682524 -> 1669666`
+- `pairing check` Groth16-style: `1949238 -> 1936380`
+
+Takeaway:
+
+- at the current cost model, one fewer cyclotomic-subgroup multiplication per
+  `exp_by_neg_x(...)` call is worth more than one extra cyclotomic square in
+  precomputation
+- `exp_by_neg_x(...)` is still the dominant local hotspot inside the hard part,
+  but its fixed chain is now materially better than the earlier all-positive
+  window schedule
+
+The most recent measured local win was:
+
+- use `FieldChip::add_constant(...)` for the fixed BN254 G2 twist coefficient
+  in `AssignedG2Affine::assert_on_curve(...)` instead of assigning `b` as an
+  `Fp2` witness and then adding it as a variable term
+
+That change improved the current curve / Miller-prep slice while leaving the
+pairing-core totals unchanged:
+
+- `g2 on_curve`: `400 -> 378`
+- `g2 neg`: `930 -> 886`
+- `g2 proj from_affine`: `970 -> 948`
+- `g2 proj double`: `2594 -> 2550`
+- `g2 proj add`: `4582 -> 4516`
+- `g2 double_with_line`: `2698 -> 2654`
+- `g2 mixed_add_with_line`: `3374 -> 3330`
+
+Takeaway:
+
+- `add_constant(...)` is worthwhile when the offset is truly fixed and already
+  part of the algebraic definition, like the BN254 twist coefficient
+- this is currently a local G2 / prep win, not a pairing-core win:
+  `miller loop`, `final exponentiation`, and `pairing check` rows stayed the
+  same
+
+The most recent measured non-win was:
+
+- a focused `FieldChip::linear_combination(...)` pass over `AssignedFp2::mul_by_constant(...)`,
+  `AssignedFp6::mul_by_nonresidue_fp2(...)`, and the `3t +/- 2z` helpers used
+  by Fp12 cyclotomic square
+
+That pass was reverted after profiling because it increased rows across the
+current tower / pairing hot path. Relative to the current retained baseline, it
+regressed:
+
+- `fp6 mul`: `1252 -> 1318`
+- `fp6 square`: `736 -> 802`
+- `fp12 mul`: `4076 -> 4307`
+- `fp12 square`: `2594 -> 2825`
+- `fp12 cyclotomic square`: `1622 -> 1886`
+- `miller accumulator square`: `2714 -> 2945`
+- `miller accumulator mul_by_line`: `4248 -> 4479`
+- `miller accumulator mul_by_line sparse`: `2592 -> 2691`
+- `miller loop narrow`: `457060 -> 480457`
+- `final exponentiation`: `587420 -> 678119`
+- `pairing check`: `1682524 -> 1805233`
+
+Takeaway:
+
+- in Midnight's current foreign-field implementation, `linear_combination(...)`
+  is not automatically a win just because the algebra looks affine
+- for the specific short BN254 tower transforms above, the retained
+  `mul_by_constant(...)`-first rewrites are better than the attempted
+  `linear_combination(...)` replacements
+
 ## Confirmed Useful Midnight Primitives
 
 ## 1. `mul_by_constant`
@@ -64,6 +152,32 @@ Likely follow-up target:
 
 - a tighter version of `AssignedFp2::mul_by_constant(...)`
 
+Current repo-specific caution:
+
+- do not assume `linear_combination(...)` beats hand-written short
+  `mul_by_constant(...)` plus `add/sub` chains on the foreign-field path
+- the April 27, 2026 pass that rewrote `AssignedFp2::mul_by_constant(...)`,
+  `AssignedFp6::mul_by_nonresidue_fp2(...)`, and the `Fp12` `3t +/- 2z`
+  helpers was measured and reverted because it made every relevant block worse
+
+## 2a. signed `exp_by_neg_x(...)` windows
+
+Priority: high
+
+Why it matters:
+
+- the hard part still dominates final exponentiation cost
+- `exp_by_neg_x(...)` is called three times inside the hard part
+- cyclotomic squares are cheaper than cyclotomic-subgroup multiplies in the
+  current repo, so a chain that trades one extra square for one fewer multiply
+  can win materially
+
+Best use cases:
+
+- fixed exponent chains in the cyclotomic subgroup
+- situations where negative windows can be consumed through unitary inverse /
+  conjugation instead of a full generic multiply
+
 ## 3. `add_constant` / `add_constants`
 
 Priority: high
@@ -77,6 +191,13 @@ Best use cases:
 
 - affine transforms in the tower
 - repeated coordinate adjustments with fixed offsets
+
+Current repo-specific note:
+
+- the retained win so far is narrow: adding the fixed BN254 G2 twist
+  coefficient directly in `AssignedG2Affine::assert_on_curve(...)`
+- there is not yet evidence that `add_constant(...)` materially changes the
+  final-exponentiation or pairing-check hotspots
 
 ## 4. `select`, `is_equal`, `is_equal_to_fixed`, `is_zero`
 
@@ -92,6 +213,19 @@ Best use cases:
 - inversion helpers
 - case splits on fixed values
 - keeping unsupported cases explicit without broadening public APIs
+
+Current repo-specific note:
+
+- an April 27, 2026 pass that encapsulated the final GT identity check into
+  composite `Fp2` / `Fp6` / `Fp12` boolean equality helpers was measured and
+  then reverted because it left `wrapper-cli doctor` and
+  `profile-layout --family blocks` unchanged in rows
+- treat this family as useful for clarity or future branching logic, but not as
+  a retained row-count optimization on the current pairing-check path
+- a later April 27, 2026 torus-style prototype that replaced only the `y7`
+  hard-part site (`cyclotomic * unitary_inverse(cyclotomic)`) also lost after
+  measurement, because the compression/decompression overhead outweighed the
+  local kernel specialization
 
 ## 5. decomposition / canonicity / biguint gadgets
 
@@ -162,6 +296,14 @@ Why this is next:
 - it can probably be reduced further with `linear_combination(...)`
 - it feeds directly into fixed `Fp2` coefficient multiplies in the pairing path
 
+Status update:
+
+- attempted and measured
+- the straightforward `linear_combination(...)` rewrite regressed rows and was
+  reverted
+- any future revisit should start from the retained `mul_by_constant(...)`
+  version and must show a real `wrapper-cli doctor` win before landing
+
 ## 2. more fixed-constant `Fp2` multiplies in the variable Miller path
 
 Why this is next:
@@ -177,6 +319,12 @@ Why this is next:
 - once a reusable pattern exists for one helper, the same Midnight primitives
   can often be reused elsewhere
 
+Status update:
+
+- one real fixed-offset win has landed on the G2 on-curve path
+- future `add_constant(...)` work should look for similarly honest fixed-offset
+  additions, not variable affine combinations disguised as constants
+
 ## Practical Guidance
 
 When evaluating a local optimization idea, ask these questions first:
@@ -188,6 +336,10 @@ When evaluating a local optimization idea, ask these questions first:
    values?
 4. Is the operation repeated enough times that a local improvement will
    compound across the verifier?
+5. Has this exact algebraic rewrite already been tried and ruled out in this repo?
 
 If the answer is “yes” to questions 2 through 4, it is probably a good local
 Midnight optimization candidate.
+
+If yes for question 5, only retry it when you also have a concrete reason the generated
+constraint shape will differ materially from the reverted version.

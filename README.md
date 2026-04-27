@@ -63,9 +63,11 @@ Top-level doc roles:
 - `docs/roadmap.md`: stage intent and explicit non-goals
 - `docs/profiling.md`: how to measure layout-cost changes
 - `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates for repeated BN254 tower operations
+- `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` work in the hard part
 - `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current state of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision for the canonical outer circuit and the direct backend surface
+- `docs/decisions/0002-bn254-local-optimization-policy.md`: retained and rejected local BN254 pairing-core optimization directions
 
 ## Planned Architecture
 
@@ -90,11 +92,14 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 ├── docs/
 │   ├── architecture.md
 │   ├── benchmarking.md
+│   ├── cyclotomic-unitary-kernel-design.md
 │   ├── midnight-local-optimization-notes.md
 │   ├── outer-prover-strategy-plan.md
 │   ├── profiling.md
 │   ├── roadmap.md
-│   └── decisions/0001-initial-workspace-structure.md
+│   └── decisions/
+│       ├── 0001-initial-workspace-structure.md
+│       └── 0002-bn254-local-optimization-policy.md
 └── crates/
     ├── wrapper-core/
     ├── wrapper-circuits/
@@ -111,7 +116,9 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 - Go to `docs/roadmap.md` when checking whether an idea belongs in the current stage.
 - Go to `docs/profiling.md` and `docs/midnight-local-optimization-notes.md` for optimization work.
 - Go to `docs/midnight-local-optimization-notes.md` when you want the current prioritized list of local Midnight-backed optimization opportunities.
-- Go to `docs/midnight-local-optimization-notes.md` when you want local tower wins driven by existing `midnight-circuits` primitives such as `mul_by_constant`, `add_constant`, or `linear_combination`.
+- Go to `docs/midnight-local-optimization-notes.md` when you want local tower wins driven by existing `midnight-circuits` primitives such as `mul_by_constant` and `add_constant`, or when you need the current record of which `linear_combination` rewrites were already measured and ruled out and which `add_constant` uses actually paid off.
+- Go to `docs/midnight-local-optimization-notes.md` when working on `exp_by_neg_x(...)`; it now records the retained signed-window chain that improved the final-exponentiation hard part.
+- Go to `docs/cyclotomic-unitary-kernel-design.md` when evaluating whether to keep a short run of hard-part intermediates in torus/compressed form for repeated `cyclotomic * unitary_inverse(cyclotomic)` products.
 
 ## Build Instructions
 

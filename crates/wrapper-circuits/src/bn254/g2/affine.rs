@@ -95,11 +95,7 @@ where
     let y_square = self.y.square(chip, layouter)?;
     let x_square = self.x.square(chip, layouter)?;
     let x_cube = x_square.mul(chip, layouter, &self.x)?;
-    let coeff_b = {
-      let coeff_b = g2_curve_coeff_b();
-      AssignedFp2::assign(chip, layouter, Value::known(coeff_b.0), Value::known(coeff_b.1))?
-    };
-    let rhs = x_cube.add(chip, layouter, &coeff_b)?;
+    let rhs = x_cube.add_constant(chip, layouter, g2_curve_coeff_b())?;
 
     y_square.assert_equal(chip, layouter, &rhs)
   }

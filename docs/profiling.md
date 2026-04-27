@@ -204,6 +204,27 @@ Important workflow note:
 - for local follow-up targets that specifically leverage `midnight-circuits`
   primitives such as `mul_by_constant`, read
   `docs/midnight-local-optimization-notes.md`
+- treat `linear_combination(...)` as a measured hypothesis, not as a presumed
+  optimization:
+  the April 27, 2026 foreign-field pass regressed the retained baseline and was
+  reverted, so future local tower rewrites should compare against the current
+  `mul_by_constant(...)` path rather than assuming affine-looking formulas are
+  cheaper
+- treat `add_constant(...)` more narrowly:
+  the retained April 27, 2026 win only improved local G2 / Miller-prep metrics
+  by folding the fixed BN254 twist coefficient into `assert_on_curve(...)`;
+  it did not change the `blocks` rows for Miller loop, final exponentiation, or
+  pairing check
+- treat `select` / `is_equal*` / `is_zero` similarly as measured control-flow
+  hypotheses:
+  the April 27, 2026 attempt to replace the manual GT identity check with
+  composite boolean equality helpers was row-neutral and was not retained as an
+  optimization
+- for `exp_by_neg_x(...)`, the retained direction is chain-level rather than
+  formula-local:
+  the April 27, 2026 signed-window replacement improved
+  `bn254_final_exponentiation_hard_part` from `574112` to `561254` rows and
+  `bn254_pairing_check_sample_2_terms` from `1682524` to `1669666`
 - `bn254_pairing_check_groth16_style` is the current optimized verifier-shaped
   pairing-core snapshot:
   one variable proof term plus three prepared constant verifier-key terms
@@ -220,3 +241,12 @@ Before starting optimization work:
 4. diff the rows that correspond to the block you changed
 
 This keeps optimization work grounded in hard measurements instead of intuition.
+
+Recent example worth remembering:
+
+- a `linear_combination(...)` rewrite of `Fp2 * const`, `Fp6` nonresidue
+  multiplication, and the `Fp12` `3t +/- 2z` helpers looked locally plausible
+  but made the retained baseline worse, including
+  `fp12 cyclotomic square` (`1622 -> 1886` rows),
+  `final exponentiation` (`587420 -> 678119` rows), and
+  `pairing check` (`1682524 -> 1805233` rows)

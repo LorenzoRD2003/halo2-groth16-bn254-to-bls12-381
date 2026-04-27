@@ -1067,64 +1067,8 @@ where
 {
   use crate::bn254::{
     BN254_EXP_BY_X_CHAIN_START, BN254_EXP_BY_X_CHAIN_STEPS, BN254_X_ABS, Bn254ExpByXWindow,
+    Bn254ExpByXWindowSign,
   };
-
-  fn cyclotomic_square_6_times<FHost>(
-    chip: &Bn254FieldChip<FHost>,
-    layouter: &mut impl Layouter<FHost>,
-    value: &AssignedFp12<FHost>,
-  ) -> Result<AssignedFp12<FHost>, Error>
-  where
-    FHost: PrimeField + Field,
-    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
-  {
-    let value = value.cyclotomic_square(chip, layouter)?;
-    let value = value.cyclotomic_square(chip, layouter)?;
-    let value = value.cyclotomic_square(chip, layouter)?;
-    let value = value.cyclotomic_square(chip, layouter)?;
-    let value = value.cyclotomic_square(chip, layouter)?;
-    value.cyclotomic_square(chip, layouter)
-  }
-
-  fn cyclotomic_square_7_times<FHost>(
-    chip: &Bn254FieldChip<FHost>,
-    layouter: &mut impl Layouter<FHost>,
-    value: &AssignedFp12<FHost>,
-  ) -> Result<AssignedFp12<FHost>, Error>
-  where
-    FHost: PrimeField + Field,
-    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
-  {
-    let value = cyclotomic_square_6_times::<FHost>(chip, layouter, value)?;
-    value.cyclotomic_square(chip, layouter)
-  }
-
-  fn cyclotomic_square_8_times<FHost>(
-    chip: &Bn254FieldChip<FHost>,
-    layouter: &mut impl Layouter<FHost>,
-    value: &AssignedFp12<FHost>,
-  ) -> Result<AssignedFp12<FHost>, Error>
-  where
-    FHost: PrimeField + Field,
-    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
-  {
-    let value = cyclotomic_square_7_times::<FHost>(chip, layouter, value)?;
-    value.cyclotomic_square(chip, layouter)
-  }
-
-  fn cyclotomic_square_10_times<FHost>(
-    chip: &Bn254FieldChip<FHost>,
-    layouter: &mut impl Layouter<FHost>,
-    value: &AssignedFp12<FHost>,
-  ) -> Result<AssignedFp12<FHost>, Error>
-  where
-    FHost: PrimeField + Field,
-    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
-  {
-    let value = cyclotomic_square_8_times::<FHost>(chip, layouter, value)?;
-    let value = value.cyclotomic_square(chip, layouter)?;
-    value.cyclotomic_square(chip, layouter)
-  }
 
   fn cyclotomic_square_n_times<FHost>(
     chip: &Bn254FieldChip<FHost>,
@@ -1136,23 +1080,21 @@ where
     FHost: PrimeField + Field,
     MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
   {
-    match square_count {
-      6 => cyclotomic_square_6_times::<FHost>(chip, layouter, value),
-      7 => cyclotomic_square_7_times::<FHost>(chip, layouter, value),
-      8 => cyclotomic_square_8_times::<FHost>(chip, layouter, value),
-      10 => cyclotomic_square_10_times::<FHost>(chip, layouter, value),
-      _ => unreachable!("unsupported BN254 exp-by-x square block"),
+    let mut squared = value.clone();
+    for _ in 0..square_count {
+      squared = squared.cyclotomic_square(chip, layouter)?;
     }
+    Ok(squared)
   }
 
   fn exp_by_x_window<'a, FHost>(
     x17: &'a AssignedFp12<FHost>,
-    x25: &'a AssignedFp12<FHost>,
-    x29: &'a AssignedFp12<FHost>,
-    x39: &'a AssignedFp12<FHost>,
-    x41: &'a AssignedFp12<FHost>,
-    x43: &'a AssignedFp12<FHost>,
-    x49: &'a AssignedFp12<FHost>,
+    x35: &'a AssignedFp12<FHost>,
+    x37: &'a AssignedFp12<FHost>,
+    x79: &'a AssignedFp12<FHost>,
+    x83: &'a AssignedFp12<FHost>,
+    x101: &'a AssignedFp12<FHost>,
+    x105: &'a AssignedFp12<FHost>,
     window: Bn254ExpByXWindow,
   ) -> &'a AssignedFp12<FHost>
   where
@@ -1161,23 +1103,23 @@ where
   {
     match window {
       Bn254ExpByXWindow::X17 => x17,
-      Bn254ExpByXWindow::X25 => x25,
-      Bn254ExpByXWindow::X29 => x29,
-      Bn254ExpByXWindow::X39 => x39,
-      Bn254ExpByXWindow::X41 => x41,
-      Bn254ExpByXWindow::X43 => x43,
-      Bn254ExpByXWindow::X49 => x49,
+      Bn254ExpByXWindow::X35 => x35,
+      Bn254ExpByXWindow::X37 => x37,
+      Bn254ExpByXWindow::X79 => x79,
+      Bn254ExpByXWindow::X83 => x83,
+      Bn254ExpByXWindow::X101 => x101,
+      Bn254ExpByXWindow::X105 => x105,
     }
   }
 
   fn exp_by_x_window_sum<'a, FHost>(
     x17: &'a AssignedFp6<FHost>,
-    x25: &'a AssignedFp6<FHost>,
-    x29: &'a AssignedFp6<FHost>,
-    x39: &'a AssignedFp6<FHost>,
-    x41: &'a AssignedFp6<FHost>,
-    x43: &'a AssignedFp6<FHost>,
-    x49: &'a AssignedFp6<FHost>,
+    x35: &'a AssignedFp6<FHost>,
+    x37: &'a AssignedFp6<FHost>,
+    x79: &'a AssignedFp6<FHost>,
+    x83: &'a AssignedFp6<FHost>,
+    x101: &'a AssignedFp6<FHost>,
+    x105: &'a AssignedFp6<FHost>,
     window: Bn254ExpByXWindow,
   ) -> &'a AssignedFp6<FHost>
   where
@@ -1186,12 +1128,37 @@ where
   {
     match window {
       Bn254ExpByXWindow::X17 => x17,
-      Bn254ExpByXWindow::X25 => x25,
-      Bn254ExpByXWindow::X29 => x29,
-      Bn254ExpByXWindow::X39 => x39,
-      Bn254ExpByXWindow::X41 => x41,
-      Bn254ExpByXWindow::X43 => x43,
-      Bn254ExpByXWindow::X49 => x49,
+      Bn254ExpByXWindow::X35 => x35,
+      Bn254ExpByXWindow::X37 => x37,
+      Bn254ExpByXWindow::X79 => x79,
+      Bn254ExpByXWindow::X83 => x83,
+      Bn254ExpByXWindow::X101 => x101,
+      Bn254ExpByXWindow::X105 => x105,
+    }
+  }
+
+  fn exp_by_x_window_diff<'a, FHost>(
+    x17: &'a AssignedFp6<FHost>,
+    x35: &'a AssignedFp6<FHost>,
+    x37: &'a AssignedFp6<FHost>,
+    x79: &'a AssignedFp6<FHost>,
+    x83: &'a AssignedFp6<FHost>,
+    x101: &'a AssignedFp6<FHost>,
+    x105: &'a AssignedFp6<FHost>,
+    window: Bn254ExpByXWindow,
+  ) -> &'a AssignedFp6<FHost>
+  where
+    FHost: PrimeField + Field,
+    MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+  {
+    match window {
+      Bn254ExpByXWindow::X17 => x17,
+      Bn254ExpByXWindow::X35 => x35,
+      Bn254ExpByXWindow::X37 => x37,
+      Bn254ExpByXWindow::X79 => x79,
+      Bn254ExpByXWindow::X83 => x83,
+      Bn254ExpByXWindow::X101 => x101,
+      Bn254ExpByXWindow::X105 => x105,
     }
   }
 
@@ -1209,46 +1176,87 @@ where
   let x8 = x4.cyclotomic_square(chip, layouter)?;
   let x16 = x8.cyclotomic_square(chip, layouter)?;
   let x32 = x16.cyclotomic_square(chip, layouter)?;
+  let x64 = x32.cyclotomic_square(chip, layouter)?;
   let value_sum = value.sum_components(chip, layouter)?;
   let x2_sum = x2.sum_components(chip, layouter)?;
   let x4_sum = x4.sum_components(chip, layouter)?;
-  let x8_sum = x8.sum_components(chip, layouter)?;
+  let x4_diff = x4.diff_components(chip, layouter)?;
   let x16_sum = x16.sum_components(chip, layouter)?;
-  let x32_sum = x32.sum_components(chip, layouter)?;
-
-  let x10 = x8.mul_with_precomputed_sums(chip, layouter, &x2, &x8_sum, &x2_sum)?;
-  let x10_sum = x10.sum_components(chip, layouter)?;
+  let x64_sum = x64.sum_components(chip, layouter)?;
   let x17 = x16.mul_with_precomputed_sums(chip, layouter, value, &x16_sum, &value_sum)?;
   let x17_sum = x17.sum_components(chip, layouter)?;
-  let x25 = x17.mul_with_precomputed_sums(chip, layouter, &x8, &x17_sum, &x8_sum)?;
-  let x25_sum = x25.sum_components(chip, layouter)?;
-  let x29 = x25.mul_with_precomputed_sums(chip, layouter, &x4, &x25_sum, &x4_sum)?;
-  let x29_sum = x29.sum_components(chip, layouter)?;
-  let x39 = x29.mul_with_precomputed_sums(chip, layouter, &x10, &x29_sum, &x10_sum)?;
-  let x39_sum = x39.sum_components(chip, layouter)?;
-  let x41 = x25.mul_with_precomputed_sums(chip, layouter, &x16, &x25_sum, &x16_sum)?;
-  let x41_sum = x41.sum_components(chip, layouter)?;
-  let x43 = x41.mul_with_precomputed_sums(chip, layouter, &x2, &x41_sum, &x2_sum)?;
-  let x43_sum = x43.sum_components(chip, layouter)?;
-  let x49 = x32.mul_with_precomputed_sums(chip, layouter, &x17, &x32_sum, &x17_sum)?;
-  let x49_sum = x49.sum_components(chip, layouter)?;
+  let x19 = x17.mul_with_precomputed_sums(chip, layouter, &x2, &x17_sum, &x2_sum)?;
+  let x19_sum = x19.sum_components(chip, layouter)?;
+  let x35 = x19.mul_with_precomputed_sums(chip, layouter, &x16, &x19_sum, &x16_sum)?;
+  let x35_sum = x35.sum_components(chip, layouter)?;
+  let x35_diff = x35.diff_components(chip, layouter)?;
+  let x37 = x35.mul_with_precomputed_sums(chip, layouter, &x2, &x35_sum, &x2_sum)?;
+  let x37_sum = x37.sum_components(chip, layouter)?;
+  let x83 = x19.mul_with_precomputed_sums(chip, layouter, &x64, &x19_sum, &x64_sum)?;
+  let x83_sum = x83.sum_components(chip, layouter)?;
+  let x83_diff = x83.diff_components(chip, layouter)?;
+  let x79 =
+    x83.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, &x4, &x83_sum, &x4_diff)?;
+  let x79_sum = x79.sum_components(chip, layouter)?;
+  let x101 = x37.mul_with_precomputed_sums(chip, layouter, &x64, &x37_sum, &x64_sum)?;
+  let x101_sum = x101.sum_components(chip, layouter)?;
+  let x105 = x101.mul_with_precomputed_sums(chip, layouter, &x4, &x101_sum, &x4_sum)?;
+  let x105_sum = x105.sum_components(chip, layouter)?;
 
-  let mut exp =
-    exp_by_x_window::<FHost>(&x17, &x25, &x29, &x39, &x41, &x43, &x49, BN254_EXP_BY_X_CHAIN_START)
-      .clone();
+  let mut exp = exp_by_x_window::<FHost>(
+    &x17,
+    &x35,
+    &x37,
+    &x79,
+    &x83,
+    &x101,
+    &x105,
+    BN254_EXP_BY_X_CHAIN_START,
+  )
+  .clone();
 
-  for (square_count, window) in BN254_EXP_BY_X_CHAIN_STEPS {
-    exp = cyclotomic_square_n_times::<FHost>(chip, layouter, &exp, *square_count)?;
-    let exp_sum = exp.sum_components(chip, layouter)?;
-    exp = exp.mul_with_precomputed_sums(
-      chip,
-      layouter,
-      exp_by_x_window::<FHost>(&x17, &x25, &x29, &x39, &x41, &x43, &x49, *window),
-      &exp_sum,
-      exp_by_x_window_sum::<FHost>(
-        &x17_sum, &x25_sum, &x29_sum, &x39_sum, &x41_sum, &x43_sum, &x49_sum, *window,
-      ),
-    )?;
+  for step in BN254_EXP_BY_X_CHAIN_STEPS {
+    exp = cyclotomic_square_n_times::<FHost>(chip, layouter, &exp, step.square_count)?;
+    match step.sign {
+      Bn254ExpByXWindowSign::Positive => {
+        let exp_sum = exp.sum_components(chip, layouter)?;
+        exp = exp.mul_with_precomputed_sums(
+          chip,
+          layouter,
+          exp_by_x_window::<FHost>(&x17, &x35, &x37, &x79, &x83, &x101, &x105, step.window),
+          &exp_sum,
+          exp_by_x_window_sum::<FHost>(
+            &x17_sum,
+            &x35_sum,
+            &x37_sum,
+            &x79_sum,
+            &x83_sum,
+            &x101_sum,
+            &x105_sum,
+            step.window,
+          ),
+        )?;
+      }
+      Bn254ExpByXWindowSign::Negative => {
+        let exp_sum = exp.sum_components(chip, layouter)?;
+        exp = exp.mul_by_unitary_inverse_with_precomputed_sums(
+          chip,
+          layouter,
+          exp_by_x_window::<FHost>(&x17, &x35, &x37, &x79, &x83, &x101, &x105, step.window),
+          &exp_sum,
+          exp_by_x_window_diff::<FHost>(
+            &x17_sum,
+            &x35_diff,
+            &x37_sum,
+            &x79_sum,
+            &x83_diff,
+            &x101_sum,
+            &x105_sum,
+            step.window,
+          ),
+        )?;
+      }
+    }
   }
 
   exp.unitary_inverse(chip, layouter)
@@ -1298,9 +1306,9 @@ where
   let y3 = y2.mul_with_precomputed_sums(chip, layouter, &y1, &y2_sum, &y1_sum)?;
   let y3_diff = y3.diff_components(chip, layouter)?;
   let y4 = exp_by_neg_x(chip, layouter, &y3)?;
-  let y4_sum = y4.sum_components(chip, layouter)?;
   let y5 = y4.cyclotomic_square(chip, layouter)?;
   let y6 = exp_by_neg_x(chip, layouter, &y5)?;
+  let y4_sum = y4.sum_components(chip, layouter)?;
   let y6_diff = y6.diff_components(chip, layouter)?;
   // cyclotomic * unitary_inverse(cyclotomic)
   let y7 =

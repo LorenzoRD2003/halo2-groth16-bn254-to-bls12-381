@@ -1,6 +1,7 @@
 use super::*;
 use crate::bn254::{
   BN254_EXP_BY_X_CHAIN_START, BN254_EXP_BY_X_CHAIN_STEPS, BN254_X_ABS, Bn254ExpByXWindow,
+  Bn254ExpByXWindowSign,
 };
 
 #[cfg(test)]
@@ -23,59 +24,32 @@ fn fp12_pow_constant_exp(value: &Fp12Constant, exp: &[u64]) -> Fp12Constant {
   result
 }
 
-fn fp12_cyclotomic_square_6_times(value: &Fp12Constant) -> Fp12Constant {
-  let value = fp12_cyclotomic_square_constant(value);
-  let value = fp12_cyclotomic_square_constant(&value);
-  let value = fp12_cyclotomic_square_constant(&value);
-  let value = fp12_cyclotomic_square_constant(&value);
-  let value = fp12_cyclotomic_square_constant(&value);
-  fp12_cyclotomic_square_constant(&value)
-}
-
-fn fp12_cyclotomic_square_7_times(value: &Fp12Constant) -> Fp12Constant {
-  let value = fp12_cyclotomic_square_6_times(value);
-  fp12_cyclotomic_square_constant(&value)
-}
-
-fn fp12_cyclotomic_square_8_times(value: &Fp12Constant) -> Fp12Constant {
-  let value = fp12_cyclotomic_square_7_times(value);
-  fp12_cyclotomic_square_constant(&value)
-}
-
-fn fp12_cyclotomic_square_10_times(value: &Fp12Constant) -> Fp12Constant {
-  let value = fp12_cyclotomic_square_8_times(value);
-  let value = fp12_cyclotomic_square_constant(&value);
-  fp12_cyclotomic_square_constant(&value)
-}
-
 fn fp12_cyclotomic_square_n_times(value: &Fp12Constant, square_count: u8) -> Fp12Constant {
-  match square_count {
-    6 => fp12_cyclotomic_square_6_times(value),
-    7 => fp12_cyclotomic_square_7_times(value),
-    8 => fp12_cyclotomic_square_8_times(value),
-    10 => fp12_cyclotomic_square_10_times(value),
-    _ => unreachable!("unsupported BN254 exp-by-x square block"),
+  let mut squared = *value;
+  for _ in 0..square_count {
+    squared = fp12_cyclotomic_square_constant(&squared);
   }
+  squared
 }
 
 fn fp12_exp_by_x_window_constant(
   x17: &Fp12Constant,
-  x25: &Fp12Constant,
-  x29: &Fp12Constant,
-  x39: &Fp12Constant,
-  x41: &Fp12Constant,
-  x43: &Fp12Constant,
-  x49: &Fp12Constant,
+  x35: &Fp12Constant,
+  x37: &Fp12Constant,
+  x79: &Fp12Constant,
+  x83: &Fp12Constant,
+  x101: &Fp12Constant,
+  x105: &Fp12Constant,
   window: Bn254ExpByXWindow,
 ) -> Fp12Constant {
   match window {
     Bn254ExpByXWindow::X17 => *x17,
-    Bn254ExpByXWindow::X25 => *x25,
-    Bn254ExpByXWindow::X29 => *x29,
-    Bn254ExpByXWindow::X39 => *x39,
-    Bn254ExpByXWindow::X41 => *x41,
-    Bn254ExpByXWindow::X43 => *x43,
-    Bn254ExpByXWindow::X49 => *x49,
+    Bn254ExpByXWindow::X35 => *x35,
+    Bn254ExpByXWindow::X37 => *x37,
+    Bn254ExpByXWindow::X79 => *x79,
+    Bn254ExpByXWindow::X83 => *x83,
+    Bn254ExpByXWindow::X101 => *x101,
+    Bn254ExpByXWindow::X105 => *x105,
   }
 }
 
@@ -93,33 +67,38 @@ pub(crate) fn fp12_exp_by_neg_x_constant(value: &Fp12Constant) -> Fp12Constant {
   let x8 = fp12_cyclotomic_square_constant(&x4);
   let x16 = fp12_cyclotomic_square_constant(&x8);
   let x32 = fp12_cyclotomic_square_constant(&x16);
+  let x64 = fp12_cyclotomic_square_constant(&x32);
 
-  let x10 = fp12_mul_constant(&x8, &x2);
   let x17 = fp12_mul_constant(&x16, value);
-  let x25 = fp12_mul_constant(&x17, &x8);
-  let x29 = fp12_mul_constant(&x25, &x4);
-  let x39 = fp12_mul_constant(&x29, &x10);
-  let x41 = fp12_mul_constant(&x25, &x16);
-  let x43 = fp12_mul_constant(&x41, &x2);
-  let x49 = fp12_mul_constant(&x32, &x17);
+  let x19 = fp12_mul_constant(&x17, &x2);
+  let x35 = fp12_mul_constant(&x19, &x16);
+  let x37 = fp12_mul_constant(&x35, &x2);
+  let x83 = fp12_mul_constant(&x19, &x64);
+  let x79 = fp12_mul_constant(&x83, &fp12_conjugate_constant(&x4));
+  let x101 = fp12_mul_constant(&x37, &x64);
+  let x105 = fp12_mul_constant(&x101, &x4);
 
   let mut exp = fp12_exp_by_x_window_constant(
     &x17,
-    &x25,
-    &x29,
-    &x39,
-    &x41,
-    &x43,
-    &x49,
+    &x35,
+    &x37,
+    &x79,
+    &x83,
+    &x101,
+    &x105,
     BN254_EXP_BY_X_CHAIN_START,
   );
 
-  for (square_count, window) in BN254_EXP_BY_X_CHAIN_STEPS {
-    exp = fp12_cyclotomic_square_n_times(&exp, *square_count);
-    exp = fp12_mul_constant(
-      &exp,
-      &fp12_exp_by_x_window_constant(&x17, &x25, &x29, &x39, &x41, &x43, &x49, *window),
-    );
+  for step in BN254_EXP_BY_X_CHAIN_STEPS {
+    exp = fp12_cyclotomic_square_n_times(&exp, step.square_count);
+    let window_value =
+      fp12_exp_by_x_window_constant(&x17, &x35, &x37, &x79, &x83, &x101, &x105, step.window);
+    exp = match step.sign {
+      Bn254ExpByXWindowSign::Positive => fp12_mul_constant(&exp, &window_value),
+      Bn254ExpByXWindowSign::Negative => {
+        fp12_mul_constant(&exp, &fp12_conjugate_constant(&window_value))
+      }
+    };
   }
 
   fp12_conjugate_constant(&exp)

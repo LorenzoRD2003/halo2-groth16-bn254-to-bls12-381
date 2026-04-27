@@ -19,6 +19,7 @@ pub use ecc::{G1AddCircuit, G1OnCurveCircuit};
 pub use field::{FpAddCircuit, FpMulCircuit};
 pub(crate) use final_exp_chain::{
   BN254_EXP_BY_X_CHAIN_START, BN254_EXP_BY_X_CHAIN_STEPS, BN254_X_ABS, Bn254ExpByXWindow,
+  Bn254ExpByXWindowSign,
 };
 pub use fp2::{AssignedFp2, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit};
 pub use fp6::{AssignedFp6, Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit, fp6_nonresidue};

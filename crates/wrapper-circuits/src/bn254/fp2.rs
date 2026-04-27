@@ -181,6 +181,18 @@ where
     ))
   }
 
+  pub(crate) fn add_constant(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    constant: Fp2Constant,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      chip.add_constant(layouter, &self.c0, constant.0)?,
+      chip.add_constant(layouter, &self.c1, constant.1)?,
+    ))
+  }
+
   pub(crate) fn mul_by_constant(
     &self,
     chip: &Bn254FieldChip<FHost>,
