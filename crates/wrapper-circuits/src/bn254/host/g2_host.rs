@@ -43,6 +43,14 @@ pub(crate) fn g2_projective_from_affine_constant(point: G2AffineConstant) -> G2P
   (point.0, point.1, (ForeignField::ONE, ForeignField::ZERO))
 }
 
+pub(crate) fn g2_affine_from_projective_constant(point: G2ProjectiveConstant) -> G2AffineConstant {
+  let z_inv = fp2_inv_constant(point.2);
+  let z_inv_square = fp2_square_constant(z_inv);
+  let z_inv_cubed = fp2_mul_constant(z_inv, z_inv_square);
+
+  (fp2_mul_constant(point.0, z_inv_square), fp2_mul_constant(point.1, z_inv_cubed))
+}
+
 pub(crate) fn g2_projective_double_constant(point: G2AffineConstant) -> G2ProjectiveConstant {
   let (x_coord, y_coord, z_coord) = g2_projective_from_affine_constant(point);
   let x_sq = fp2_square_constant(x_coord);

@@ -1,0 +1,39 @@
+{
+  "identifier": "zk-email-header-only",
+  "upstream_repo": "https://github.com/zkemail/zk-email-verify",
+  "upstream_commit": "9f0197917166dbd39c841100d2912cd9316342ef",
+  "upstream_email_fixture_path": "packages/circuits/tests/test-emails/test.eml",
+  "published_packages": {
+    "@zk-email/helpers": "6.4.2",
+    "@zk-email/circuits": "6.3.4"
+  },
+  "wrapper_circuit": "email_verifier_header_only.circom",
+  "email_verifier_parameters": {
+    "maxHeadersLength": 576,
+    "maxBodyLength": 64,
+    "n": 121,
+    "k": 17,
+    "ignoreBodyHashCheck": 1,
+    "enableHeaderMasking": 0,
+    "enableBodyMasking": 0,
+    "removeSoftLineBreaks": 0
+  },
+  "input_generation": {
+    "fallbackToZKEmailDNSArchive": true
+  },
+  "ptau": {
+    "path_convention": "~/.cache/snarkjs/powersOfTau28_hez_final_21.ptau",
+    "kind": "local development ptau",
+    "production_acceptable": false
+  },
+  "public_signal_count": 3,
+  "public_signal_order": [
+    "public_output_0",
+    "public_output_1",
+    "public_output_2"
+  ],
+  "notes": [
+    "The public signal order is positional because this fixture intentionally keeps generic snarkjs semantics only.",
+    "This fixture intentionally adds no ZK Email-specific Rust-side semantics."
+  ]
+}

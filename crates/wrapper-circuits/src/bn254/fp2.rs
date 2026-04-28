@@ -7,8 +7,8 @@ use midnight_circuits::midnight_proofs::{
 use midnight_circuits::types::InnerValue;
 
 use super::{
-  AssignedCircuitValue, AssignedFieldExt, AssignedFp, Bn254FieldChip, Bn254FieldConfig,
-  ForeignField, NativeField,
+  AssignedBool, AssignedCircuitValue, AssignedFieldExt, AssignedFp, Bn254FieldChip,
+  Bn254FieldConfig, ForeignField, NativeField,
   host::{Fp2Constant, Fp2Value, fp2_mul_constant, fp2_square_constant},
   synthesize_binary_value_circuit, synthesize_unary_value_circuit,
 };
@@ -191,6 +191,30 @@ where
       chip.add_constant(layouter, &self.c0, constant.0)?,
       chip.add_constant(layouter, &self.c1, constant.1)?,
     ))
+  }
+
+  pub(crate) fn select(
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    cond: &AssignedBool<FHost>,
+    when_true: &Self,
+    when_false: &Self,
+  ) -> Result<Self, Error> {
+    Ok(Self::new(
+      chip.select(layouter, cond, &when_true.c0, &when_false.c0)?,
+      chip.select(layouter, cond, &when_true.c1, &when_false.c1)?,
+    ))
+  }
+
+  pub(crate) fn is_zero(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+  ) -> Result<AssignedBool<FHost>, Error> {
+    let c0_sq = chip.square(layouter, &self.c0)?;
+    let c1_sq = chip.square(layouter, &self.c1)?;
+    let norm = chip.add(layouter, &c0_sq, &c1_sq)?;
+    chip.is_zero(layouter, &norm)
   }
 
   pub(crate) fn mul_by_constant(

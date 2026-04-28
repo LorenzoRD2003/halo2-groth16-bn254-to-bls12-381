@@ -24,12 +24,15 @@ fn fp12_pow_constant_exp(value: &Fp12Constant, exp: &[u64]) -> Fp12Constant {
   result
 }
 
-fn fp12_cyclotomic_square_n_times(value: &Fp12Constant, square_count: u8) -> Fp12Constant {
-  let mut squared = *value;
+fn fp12_cyclotomic_square_n_times_compressed(
+  value: &Fp12Constant,
+  square_count: u8,
+) -> Fp12Constant {
+  let mut compressed = fp12_cyclotomic_compress_constant(value);
   for _ in 0..square_count {
-    squared = fp12_cyclotomic_square_constant(&squared);
+    compressed = fp12_cyclotomic_square_compressed_constant(&compressed);
   }
-  squared
+  fp12_cyclotomic_decompress_constant(&compressed)
 }
 
 fn fp12_exp_by_x_window_constant(
@@ -90,7 +93,7 @@ pub(crate) fn fp12_exp_by_neg_x_constant(value: &Fp12Constant) -> Fp12Constant {
   );
 
   for step in BN254_EXP_BY_X_CHAIN_STEPS {
-    exp = fp12_cyclotomic_square_n_times(&exp, step.square_count);
+    exp = fp12_cyclotomic_square_n_times_compressed(&exp, step.square_count);
     let window_value =
       fp12_exp_by_x_window_constant(&x17, &x35, &x37, &x79, &x83, &x101, &x105, step.window);
     exp = match step.sign {

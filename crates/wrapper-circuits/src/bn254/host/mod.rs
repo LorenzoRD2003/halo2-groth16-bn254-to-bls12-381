@@ -7,8 +7,8 @@ mod g2_host;
 mod pairing_host;
 
 pub(crate) use g2_host::{
-  g1_generator_constant, g2_affine_from_miller_point_constant, g2_curve_coeff_b_constant,
-  g2_line_evaluation_constant, g2_miller_double_with_line_constant,
+  g1_generator_constant, g2_affine_from_miller_point_constant, g2_affine_from_projective_constant,
+  g2_curve_coeff_b_constant, g2_line_evaluation_constant, g2_miller_double_with_line_constant,
   g2_miller_mixed_add_with_line_constant, g2_miller_point_from_affine_constant,
   g2_projective_add_constant, g2_projective_double_constant, g2_projective_from_affine_constant,
   g2_projective_identity_constant,
@@ -24,6 +24,8 @@ pub(crate) type Fp6Value = (Fp2Value, Fp2Value, Fp2Value);
 pub(crate) type Fp6Constant = (Fp2Constant, Fp2Constant, Fp2Constant);
 pub(crate) type Fp12Value = (Fp6Value, Fp6Value);
 pub(crate) type Fp12Constant = (Fp6Constant, Fp6Constant);
+pub(crate) type CompressedCyclotomicFp12Constant =
+  (Fp2Constant, Fp2Constant, Fp2Constant, Fp2Constant);
 pub(crate) type G2AffineConstant = (Fp2Constant, Fp2Constant);
 pub(crate) type G2ProjectiveConstant = (Fp2Constant, Fp2Constant, Fp2Constant);
 pub(crate) type G2MillerPointConstant = (Fp2Constant, Fp2Constant, Fp2Constant);
@@ -375,6 +377,92 @@ pub(crate) fn fp12_cyclotomic_square_constant(value: &Fp12Constant) -> Fp12Const
   let z5 = fp2_three_t_plus_two_z_constant(t3, value.1.2);
 
   ((z0, z4, z3), (z2, z1, z5))
+}
+
+pub(crate) fn fp12_cyclotomic_compress_constant(
+  value: &Fp12Constant,
+) -> CompressedCyclotomicFp12Constant {
+  (value.1.0, value.0.2, value.0.1, value.1.2)
+}
+
+pub(crate) fn fp12_cyclotomic_square_compressed_constant(
+  value: &CompressedCyclotomicFp12Constant,
+) -> CompressedCyclotomicFp12Constant {
+  let g2 = value.0;
+  let g3 = value.1;
+  let g4 = value.2;
+  let g5 = value.3;
+
+  let b45 = fp2_mul_constant(g4, g5);
+  let nr_b45 = fp2_mul_by_fp6_nonresidue_constant(b45);
+  let nr_g5 = fp2_mul_by_fp6_nonresidue_constant(g5);
+  let a45 = fp2_mul_constant(fp2_add_constant(g4, g5), fp2_add_constant(g4, nr_g5));
+
+  let b23 = fp2_mul_constant(g2, g3);
+  let nr_b23 = fp2_mul_by_fp6_nonresidue_constant(b23);
+  let nr_g3 = fp2_mul_by_fp6_nonresidue_constant(g3);
+  let a23 = fp2_mul_constant(fp2_add_constant(g2, g3), fp2_add_constant(g2, nr_g3));
+
+  let three_nr_b45 = fp2_add_constant(fp2_add_constant(nr_b45, nr_b45), nr_b45);
+  let h2 = fp2_add_constant(fp2_add_constant(g2, three_nr_b45), fp2_add_constant(g2, three_nr_b45));
+
+  let ten_plus_u_b45 = fp2_add_constant(nr_b45, b45);
+  let a45_minus_ten_b45 = fp2_sub_constant(a45, ten_plus_u_b45);
+  let three_a45_minus_ten_b45 =
+    fp2_add_constant(fp2_add_constant(a45_minus_ten_b45, a45_minus_ten_b45), a45_minus_ten_b45);
+  let h3 = fp2_sub_constant(three_a45_minus_ten_b45, fp2_add_constant(g3, g3));
+
+  let ten_plus_u_b23 = fp2_add_constant(nr_b23, b23);
+  let a23_minus_ten_b23 = fp2_sub_constant(a23, ten_plus_u_b23);
+  let three_a23_minus_ten_b23 =
+    fp2_add_constant(fp2_add_constant(a23_minus_ten_b23, a23_minus_ten_b23), a23_minus_ten_b23);
+  let h4 = fp2_sub_constant(three_a23_minus_ten_b23, fp2_add_constant(g4, g4));
+
+  let three_b23 = fp2_add_constant(fp2_add_constant(b23, b23), b23);
+  let h5 = fp2_add_constant(fp2_add_constant(g5, three_b23), fp2_add_constant(g5, three_b23));
+
+  (h2, h3, h4, h5)
+}
+
+pub(crate) fn fp12_cyclotomic_decompress_constant(
+  value: &CompressedCyclotomicFp12Constant,
+) -> Fp12Constant {
+  let g2 = value.0;
+  let g3 = value.1;
+  let g4 = value.2;
+  let g5 = value.3;
+
+  let g1 = if g2 == (ForeignField::ZERO, ForeignField::ZERO) {
+    let numerator = fp2_add_constant(fp2_mul_constant(g4, g5), fp2_mul_constant(g4, g5));
+    fp2_mul_constant(numerator, fp2_inv_constant(g3))
+  } else {
+    let g5_sq_nr = fp2_mul_by_fp6_nonresidue_constant(fp2_square_constant(g5));
+    let three_g4_sq = fp2_add_constant(
+      fp2_add_constant(fp2_square_constant(g4), fp2_square_constant(g4)),
+      fp2_square_constant(g4),
+    );
+    let numerator =
+      fp2_sub_constant(fp2_add_constant(g5_sq_nr, three_g4_sq), fp2_add_constant(g3, g3));
+    let four_g2 = fp2_add_constant(fp2_add_constant(g2, g2), fp2_add_constant(g2, g2));
+    fp2_mul_constant(numerator, fp2_inv_constant(four_g2))
+  };
+
+  let two_g1_sq = fp2_add_constant(fp2_square_constant(g1), fp2_square_constant(g1));
+  let three_g3g4 = {
+    let g3g4 = fp2_mul_constant(g3, g4);
+    fp2_add_constant(fp2_add_constant(g3g4, g3g4), g3g4)
+  };
+  let inner = if g2 == (ForeignField::ZERO, ForeignField::ZERO) {
+    fp2_sub_constant(two_g1_sq, three_g3g4)
+  } else {
+    fp2_sub_constant(fp2_add_constant(two_g1_sq, fp2_mul_constant(g2, g5)), three_g3g4)
+  };
+  let g0 = fp2_add_constant(
+    fp2_mul_by_fp6_nonresidue_constant(inner),
+    (ForeignField::ONE, ForeignField::ZERO),
+  );
+
+  ((g0, g4, g3), (g2, g1, g5))
 }
 
 pub(crate) fn fp12_conjugate_constant(value: &Fp12Constant) -> Fp12Constant {

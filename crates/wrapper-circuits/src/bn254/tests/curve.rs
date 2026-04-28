@@ -218,6 +218,12 @@ fn g2_projective_doubling_matches_generator_edge_case() {
 }
 
 #[test]
+fn g2_projective_sample_circuits_are_satisfied() {
+  assert_satisfied(&G2ProjectiveDoubleCircuit::sample());
+  assert_satisfied(&G2ProjectiveAddCircuit::sample());
+}
+
+#[test]
 fn g2_projective_addition_matches_generator_plus_double_generator() {
   let generator = ArkG2Affine::generator();
   let double_generator = (generator.into_group() + generator).into_affine();

@@ -11,7 +11,7 @@ use midnight_circuits::{
   },
   instructions::{
     ArithInstructions, AssertionInstructions, AssignmentInstructions, BinaryInstructions,
-    EccInstructions, EqualityInstructions, ZeroInstructions,
+    ControlFlowInstructions, EccInstructions, EqualityInstructions, ZeroInstructions,
   },
   midnight_proofs::{
     circuit::{Layouter, Value},
@@ -284,6 +284,26 @@ where
     expected: ForeignField,
   ) -> Result<AssignedBool<FHost>, Error> {
     self.field_chip.is_equal_to_fixed(layouter, value, expected)
+  }
+
+  /// Returns a native boolean indicating whether an assigned BN254 value is zero.
+  pub fn is_zero(
+    &self,
+    layouter: &mut impl Layouter<FHost>,
+    value: &AssignedFp<FHost>,
+  ) -> Result<AssignedBool<FHost>, Error> {
+    self.field_chip.is_zero(layouter, value)
+  }
+
+  /// Selects between two assigned BN254 values based on a native boolean.
+  pub fn select(
+    &self,
+    layouter: &mut impl Layouter<FHost>,
+    cond: &AssignedBool<FHost>,
+    when_true: &AssignedFp<FHost>,
+    when_false: &AssignedFp<FHost>,
+  ) -> Result<AssignedFp<FHost>, Error> {
+    self.field_chip.select(layouter, cond, when_true, when_false)
   }
 }
 

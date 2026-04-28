@@ -27,6 +27,27 @@ Groth16 verifier total from `k = 22` down to `k = 21`.
 
 The most recent retained pairing-core win was:
 
+- replace repeated full cyclotomic squaring blocks inside `exp_by_neg_x(...)`
+  with compressed cyclotomic squaring plus verified decompression
+
+That rewrite improved the hard part and every final pairing-facing total that
+depends on it:
+
+- `final exponentiation hard part`: `561254 -> 492083`
+- `final exponentiation`: `574562 -> 505391`
+- `pairing check` sample: `1669666 -> 1600495`
+- `pairing check` Groth16-style: `1936380 -> 1867209`
+
+Takeaway:
+
+- the first subgroup-aware direction that materially beat the retained signed
+  chain and generic cyclotomic arithmetic was not a new multiply kernel, but
+  compressed squaring amortized over the long square blocks in `exp_by_neg_x(...)`
+- this is now the strongest retained local optimization in the pairing-core
+  lane because it lowers both rows and `k` for final exponentiation
+
+The previous retained pairing-core win was:
+
 - replace the old positive-window `exp_by_neg_x(...)` chain with a signed-window
   chain that spends one extra cyclotomic square in precomputation to save one
   main-chain multiplication per call
@@ -171,12 +192,20 @@ Why it matters:
 - cyclotomic squares are cheaper than cyclotomic-subgroup multiplies in the
   current repo, so a chain that trades one extra square for one fewer multiply
   can win materially
+- compressed cyclotomic squaring inside the retained signed chain now wins even
+  more materially by shrinking the repeated square blocks themselves
 
 Best use cases:
 
 - fixed exponent chains in the cyclotomic subgroup
 - situations where negative windows can be consumed through unitary inverse /
   conjugation instead of a full generic multiply
+
+Status update:
+
+- retained and measured
+- compressed cyclotomic squaring is now the preferred implementation for the
+  repeated `square_count > 1` blocks inside `exp_by_neg_x(...)`
 
 ## 3. `add_constant` / `add_constants`
 
@@ -226,6 +255,13 @@ Current repo-specific note:
   hard-part site (`cyclotomic * unitary_inverse(cyclotomic)`) also lost after
   measurement, because the compression/decompression overhead outweighed the
   local kernel specialization
+- a later broad `CyclotomicFp12MulChip` rollout over the repeated
+  `cyclotomic * cyclotomic` hard-part sites (`y3`, `y9`, `y10`, `y11`) also
+  lost slightly, so a mere chip-level repackaging of the current ambient Fp12
+  multiplication formula is not enough to win rows
+- by contrast, compressed cyclotomic squaring *did* win once it was restricted
+  to the repeated square blocks in `exp_by_neg_x(...)`, which is the current
+  retained subgroup-aware direction
 
 ## 5. decomposition / canonicity / biguint gadgets
 

@@ -20,6 +20,10 @@ Current status:
 
 - the first incremental circuit prototype was attempted only at `y7`
 - that prototype was reverted because it regressed measured cost
+- the later broad `CyclotomicFp12MulChip` rollout over `y3`, `y9`, `y10`, and
+  `y11` was also reverted because it still regressed measured cost
+- this line is now closed in favor of the retained compressed-cyclotomic-square
+  optimization inside `exp_by_neg_x(...)`
 
 ## Current Situation
 
@@ -178,6 +182,33 @@ Interpretation:
   this direction if we are willing to keep a longer run of intermediates in
   compressed form
 
+## Broad CyclotomicFp12MulChip Trial
+
+An explicit chip-style rollout was also attempted for the repeated
+`cyclotomic * cyclotomic` family, using the exact ambient Fp12 multiplication
+formula but packaged as a dedicated subgroup-aware gadget and applied to:
+
+- `y3 = y2 * y1`
+- `y9 = y8 * y1`
+- `y10 = y8 * y4`
+- `y11 = y10 * r`
+
+Measured result:
+
+- reverted
+- `bn254_final_exponentiation_hard_part`: `561254 -> 561344`
+- `bn254_final_exponentiation`: `574562 -> 574652`
+- `bn254_pairing_check_sample_2_terms`: `1669666 -> 1669756`
+- `bn254_pairing_check_groth16_style`: `1936380 -> 1936470`
+
+Interpretation:
+
+- fusing the current generic quadratic-over-`Fp6` product into an explicit chip
+  name without changing the underlying arithmetic kernel is not enough to win
+- if this area is revisited, the next attempt must introduce a genuinely
+  cheaper multiplication formula, not just a different packaging of the same
+  one
+
 ### Phase 3: short-run torus region
 
 If the single-site prototype suggests promise, keep the intermediates compressed
@@ -250,4 +281,7 @@ That is the proposal this document is asking to approve.
 After the first prototype result, the decision gate is narrower still:
 
 - do **not** retry the `y7`-only substitution
-- only proceed if we want to prototype a multi-step compressed region
+- do **not** retry the broad `CyclotomicFp12MulChip` rollout that only repackages
+  the ambient Fp12 product
+- only proceed if we have a genuinely different subgroup multiplication formula
+  or a stronger region-level amortization story than the two reverted attempts

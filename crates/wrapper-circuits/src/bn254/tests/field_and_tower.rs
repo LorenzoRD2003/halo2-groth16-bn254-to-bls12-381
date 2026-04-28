@@ -425,6 +425,51 @@ fn fp12_cyclotomic_square_circuit_matches_host_on_random_cyclotomic_elements() {
 }
 
 #[test]
+fn fp12_cyclotomic_compress_square_decompress_matches_full_square_on_random_elements() {
+  let mut rng = StdRng::from_seed([97_u8; 32]);
+
+  for _ in 0..12 {
+    let value = ArkFq12::rand(&mut rng);
+    let cyclotomic = super::super::host::bn254_final_exponentiation_easy_part_constant(
+      &ark_to_midnight_fq12(&value),
+    );
+    let compressed = super::super::host::fp12_cyclotomic_compress_constant(&cyclotomic);
+    let squared_compressed =
+      super::super::host::fp12_cyclotomic_square_compressed_constant(&compressed);
+    let decompressed = super::super::host::fp12_cyclotomic_decompress_constant(&squared_compressed);
+
+    assert_eq!(decompressed, super::super::host::fp12_cyclotomic_square_constant(&cyclotomic));
+  }
+}
+
+#[test]
+fn fp12_compressed_square_blocks_match_repeated_full_square_on_random_elements() {
+  let mut rng = StdRng::from_seed([98_u8; 32]);
+
+  for square_count in [5_u8, 6, 8, 9, 11] {
+    for _ in 0..6 {
+      let value = ArkFq12::rand(&mut rng);
+      let cyclotomic = super::super::host::bn254_final_exponentiation_easy_part_constant(
+        &ark_to_midnight_fq12(&value),
+      );
+
+      let mut compressed = super::super::host::fp12_cyclotomic_compress_constant(&cyclotomic);
+      for _ in 0..square_count {
+        compressed = super::super::host::fp12_cyclotomic_square_compressed_constant(&compressed);
+      }
+      let decompressed = super::super::host::fp12_cyclotomic_decompress_constant(&compressed);
+
+      let mut expected = cyclotomic;
+      for _ in 0..square_count {
+        expected = super::super::host::fp12_cyclotomic_square_constant(&expected);
+      }
+
+      assert_eq!(decompressed, expected);
+    }
+  }
+}
+
+#[test]
 fn fp12_structured_cases_match_arkworks() {
   let c0_only = ArkFq12::new(
     ArkFq6::new(

@@ -117,7 +117,7 @@ Layout / constraint cost is still the primary signal.
 The command prints TSV with a stable header:
 
 ```text
-family	id	label	term_count	public_input_count	elapsed_ms	rows	column_queries	k	table_rows	max_degree	advice_columns	fixed_columns	lookups	permutations	point_sets
+family	id	label	term_count	public_input_count	parse_elapsed_ms	package_elapsed_ms	build_circuit_elapsed_ms	build_elapsed_ms	layout_elapsed_ms	elapsed_ms	rows	column_queries	k	table_rows	max_degree	advice_columns	fixed_columns	lookups	permutations	point_sets
 ```
 
 This is designed to be:
@@ -126,6 +126,7 @@ This is designed to be:
 - redirectable to a file
 - easy to diff before and after an optimization PR
 - explicit about the wall-clock time spent producing each row
+- split for `outer` rows between circuit build/adaptation time and layout-modeling time
 
 ## Commands
 
@@ -225,6 +226,10 @@ Important workflow note:
   the April 27, 2026 signed-window replacement improved
   `bn254_final_exponentiation_hard_part` from `574112` to `561254` rows and
   `bn254_pairing_check_sample_2_terms` from `1682524` to `1669666`
+- the next retained step after that was compressed cyclotomic squaring inside
+  the repeated square blocks of `exp_by_neg_x(...)`, which improved
+  `bn254_final_exponentiation_hard_part` again from `561254` to `492083` rows
+  and `bn254_pairing_check_sample_2_terms` from `1669666` to `1600495`
 - `bn254_pairing_check_groth16_style` is the current optimized verifier-shaped
   pairing-core snapshot:
   one variable proof term plus three prepared constant verifier-key terms

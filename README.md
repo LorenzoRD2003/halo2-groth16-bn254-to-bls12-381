@@ -47,6 +47,7 @@ Use the shortest route that matches the task:
 - Groth16 verifier slice: `crates/wrapper-circuits/src/groth16.rs` -> `crates/wrapper-backends/src/snarkjs.rs` -> `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/README.md`
 - Wrapper planning / package flow: `crates/wrapper-backends/src/groth16.rs` -> `crates/wrapper-core/src/job.rs` -> `crates/wrapper-core/src/package.rs` -> `crates/wrapper-core/src/output.rs` -> `crates/wrapper-core/src/execution.rs`
 - Semaphore migration fixture: `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `crates/wrapper-tests/src/lib.rs` -> `crates/wrapper-cli/src/main.rs`
+- ZK Email integration study: `docs/zk-email-integration-plan.md` -> `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `docs/plutus-aiken-integration-plan.md`
 - Real `.circom` integration plan: `docs/real-circom-wrapper-integration-plan.md`
 - Canonical R1CS backend status: `docs/r1cs-backend-status.md`
 - Outer prover strategy: `docs/outer-prover-strategy-plan.md`
@@ -64,6 +65,7 @@ Top-level doc roles:
 - `docs/profiling.md`: how to measure layout-cost changes
 - `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates for repeated BN254 tower operations
 - `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` work in the hard part
+- `docs/zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
 - `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current state of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision for the canonical outer circuit and the direct backend surface
@@ -118,6 +120,7 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 - Go to `docs/midnight-local-optimization-notes.md` when you want the current prioritized list of local Midnight-backed optimization opportunities.
 - Go to `docs/midnight-local-optimization-notes.md` when you want local tower wins driven by existing `midnight-circuits` primitives such as `mul_by_constant` and `add_constant`, or when you need the current record of which `linear_combination` rewrites were already measured and ruled out and which `add_constant` uses actually paid off.
 - Go to `docs/midnight-local-optimization-notes.md` when working on `exp_by_neg_x(...)`; it now records the retained signed-window chain that improved the final-exponentiation hard part.
+- Go to `docs/midnight-local-optimization-notes.md` when working on compressed cyclotomic squaring; it now records the retained compressed-square rewrite inside `exp_by_neg_x(...)` that materially improved the hard part.
 - Go to `docs/cyclotomic-unitary-kernel-design.md` when evaluating whether to keep a short run of hard-part intermediates in torus/compressed form for repeated `cyclotomic * unitary_inverse(cyclotomic)` products.
 
 ## Build Instructions

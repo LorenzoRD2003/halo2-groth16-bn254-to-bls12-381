@@ -243,8 +243,8 @@ impl Halo2CellAssignmentMap {
     let public_inputs = self.public_variables.clone();
     let witnesses = self
       .class_to_variable
-      .iter()
-      .filter_map(|(_, variable)| (!public_input_set.contains(variable)).then_some(*variable))
+      .values()
+      .filter_map(|variable| (!public_input_set.contains(variable)).then_some(*variable))
       .collect::<Vec<_>>();
 
     Ok((public_inputs, witnesses))

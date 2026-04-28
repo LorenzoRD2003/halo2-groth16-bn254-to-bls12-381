@@ -23,7 +23,8 @@ pub use types::{
   CanonicalOuterCircuitProofArtifacts, CanonicalOuterCircuitSetupArtifacts,
   DirectOuterCircuitInput, DirectOuterProofPlan, DirectOuterSetupPlan, DirectOuterStatementInput,
   OuterBackendCapabilities, OuterCircuitInputArtifacts, OuterProofBackendMetadata,
-  OuterProofSerialization, OuterVerificationKeySerialization,
+  OuterProofSerialization, OuterVerificationKeySerialization, ProducedOuterProvingKeyJson,
+  ProducedOuterSetupArtifactBundle,
 };
 
 #[cfg(test)]

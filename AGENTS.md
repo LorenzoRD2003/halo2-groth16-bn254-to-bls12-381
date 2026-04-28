@@ -130,6 +130,14 @@ If you need the current Semaphore migration fixture context:
 3. `crates/wrapper-backends/src/groth16.rs`
 4. `crates/wrapper-cli/src/main.rs`
 
+If you need the ZK Email integration study context:
+
+1. `docs/zk-email-integration-plan.md`
+2. `crates/wrapper-tests/fixtures/groth16/semaphore/README.md`
+3. `crates/wrapper-tests/src/lib.rs`
+4. `crates/wrapper-backends/src/groth16.rs`
+5. `docs/plutus-aiken-integration-plan.md`
+
 If you need the remaining path to a real `.circom` end-to-end wrapper flow:
 
 1. `docs/outer-prover-strategy-plan.md`
@@ -233,6 +241,7 @@ Use each top-level doc for one job:
 - `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates that already proved useful or look promising for the BN254 tower / pairing path
 - `docs/decisions/0002-bn254-local-optimization-policy.md`: durable retained/rejected optimization decisions for the BN254 pairing-core lane
 - `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus-region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` sites in the hard part
+- `docs/zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current status of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision and direct backend surface for the canonical Halo2/Midnight outer circuit
@@ -401,7 +410,9 @@ Concrete BN254 conventions already in use:
 - treat that `add_constant(...)` result as a local G2 / Miller-prep win, not as proof that pairing-core blocks will move; `miller loop`, `final exponentiation`, and `pairing check` rows stayed unchanged in `profile-layout --family blocks`
 - the current repo evidence says the obvious `select` / `is_equal*` / `is_zero` cleanup on the final GT identity check is row-neutral: an April 27, 2026 pass that wrapped the manual coordinate checks into composite `Fp2` / `Fp6` / `Fp12` boolean equality helpers left both `wrapper-cli doctor` and `profile-layout --family blocks` unchanged, so do not keep that rewrite for performance alone
 - the current retained `exp_by_neg_x(...)` chain is now a signed-window schedule from `35` with steps `<<6,-35`, `<<9,+101`, `<<8,-83`, `<<9,+37`, `<<9,+105`, `<<11,+79`, `<<5,+17`; it wins because one extra cyclotomic square in precomputation is cheaper than the saved main-chain multiplication
+- the next retained subgroup-aware win after that was compressed cyclotomic squaring inside the repeated square blocks of `exp_by_neg_x(...)`; it improved `final_exponentiation_hard_part` from `561254` to `492083` and `final_exponentiation` from `574562` to `505391`
 - the first torus-style prototype for `cyclotomic * unitary_inverse(cyclotomic)` was also a non-win when applied only to `y7` inside the hard part: it regressed `final_exponentiation_hard_part` from `561254` to `571604` and `final_exponentiation` from `574562` to `584912`, so do not retry isolated call-site torus substitutions
+- the broad `CyclotomicFp12MulChip` rollout over `y3`, `y9`, `y10`, and `y11` was also a non-win: it regressed `final_exponentiation_hard_part` from `561254` to `561344` and `final_exponentiation` from `574562` to `574652`, so do not retry chip-level repackaging of the ambient Fp12 multiplication formula without a genuinely different subgroup arithmetic kernel
 - the fixed BN254 `exp_by_neg_x(...)` recipe now lives in `crates/wrapper-circuits/src/bn254/final_exp_chain.rs` and is consumed by both host/reference code and the circuit path; keep that module canonical
 - minimal G2 affine on-curve checks use the arkworks BN254 twist equation `y^2 = x^3 + b`
 - the twist coefficient is `b = 3 / (u + 9)` with the exact arkworks value
@@ -433,8 +444,8 @@ Current measured primitive costs from `wrapper-cli doctor`:
 - `miller accumulator mul_by_line`: 4248 rows / 58 queries, `k=13`
 - `miller accumulator mul_by_line sparse`: 2592 rows / 58 queries, `k=12`
 - `miller loop narrow`: 457060 rows / 58 queries, `k=19`
-- `final exponentiation`: 574562 rows / 58 queries, `k=20`
-- `pairing check`: 1669666 rows / 94 queries, `k=21`
+- `final exponentiation`: 505391 rows / 58 queries, `k=19`
+- `pairing check`: 1600495 rows / 94 queries, `k=21`
 
 Interpretation guidance:
 
@@ -445,7 +456,7 @@ Interpretation guidance:
 - `miller accumulator mul_by_line` is the generic baseline path, while `miller accumulator mul_by_line sparse` is the optimized public accumulator path for the current BN254 D-twist `(ell_0, ell_w, ell_vw)` layout
 - `miller loop narrow` now measures the real fixed single-pair BN254 optimal-ate Miller traversal, not the earlier synthetic schedule
 - `final exponentiation` measures the narrow single-pair BN254 final-exponentiation sanity circuit over a Miller-loop output, not a verifier-facing full pairing API
-- `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `12288` rows / `k=14` for the easy part and `561254` rows / `k=20` for the hard part, so future optimization work should focus overwhelmingly on the hard part
+- `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `12288` rows / `k=14` for the easy part and `492083` rows / `k=19` for the hard part, so future optimization work should focus overwhelmingly on the hard part
 - `docs/midnight-local-optimization-notes.md` is the canonical short list of Midnight primitives and local optimization targets; keep it updated when a new `midnight-circuits` primitive proves useful or a local candidate is ruled out
 - `pairing check` should always be described as the narrow verifier-shaped product-check slice with one shared final exponentiation, not as a full pairing engine or Groth16 verifier
 - as of the current repo state, local accumulator-square rewrites that only swap formulas inside the existing Fp12 tower did not beat the generic `miller accumulator square` cost; future square optimization likely needs a more structural/cross-step design rather than a small algebraic rewrite, so do not keep partial `square_optimized` experiments in the tree unless they measurably win in `wrapper-cli doctor`
@@ -454,6 +465,8 @@ Interpretation guidance:
 - as of the current repo state, the tested `select` / `is_equal*` / `is_zero` cleanup for GT-identity checking is performance-neutral; only keep a rewrite in that family if it buys clarity or unlocks later branching logic, not because it is expected to lower rows by itself
 - as of the current repo state, the most promising structural local lever after the easy wins was indeed the `exp_by_neg_x(...)` chain itself; signed windows are now the retained direction, so future attempts should compare against the current signed schedule rather than the older all-positive one
 - as of the current repo state, torus/compressed representations for cyclotomic-unitary products remain only a design path, not a retained optimization; the `y7`-only prototype already lost, so future work must amortize compression across a longer region or it is unlikely to win
+- as of the current repo state, an explicit `CyclotomicFp12MulChip` that simply packages the current quadratic-over-`Fp6` product as a subgroup-aware gadget is also ruled out by measurement; future Halo2-side gadget work must bring genuinely different arithmetic, not just a different wrapper over the same tower operations
+- as of the current repo state, compressed cyclotomic squaring *is* the retained subgroup-aware arithmetic optimization; future work should compare against that implementation before revisiting any torus or explicit-mul-chip design
 - cost numbers should always be described as measurements of the actual sanity circuits, not abstract algebraic lower bounds
 
 ## Coding Standards

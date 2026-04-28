@@ -7,9 +7,9 @@ use midnight_circuits::midnight_proofs::{
 
 use super::{
   AssignedFp2, AssignedG2Affine, Bn254FieldChip, Bn254FieldConfig, ForeignField, G2AffineConstant,
-  G2AffineValue, G2ProjectiveConstant, NativeField, g2_generator, g2_projective_add_constant,
-  g2_projective_double_constant, g2_projective_from_affine_constant,
-  g2_projective_identity_constant,
+  G2AffineValue, G2ProjectiveConstant, NativeField, g2_affine_from_projective_constant,
+  g2_generator, g2_projective_add_constant, g2_projective_double_constant,
+  g2_projective_from_affine_constant, g2_projective_identity_constant,
 };
 
 fn double_step_jacobian<FHost>(
@@ -482,7 +482,7 @@ impl G2ProjectiveDoubleCircuit {
     let point = g2_generator();
     let doubled = g2_projective_double_constant(point);
 
-    Self::new(point, (doubled.0, doubled.1))
+    Self::new(point, g2_affine_from_projective_constant(doubled))
   }
 }
 
@@ -559,13 +559,13 @@ impl G2ProjectiveAddCircuit {
   pub fn sample() -> Self {
     let left = g2_generator();
     let doubled = g2_projective_double_constant(left);
-    let right = (doubled.0, doubled.1);
+    let right = g2_affine_from_projective_constant(doubled);
     let added = g2_projective_add_constant(
       g2_projective_from_affine_constant(left),
       g2_projective_from_affine_constant(right),
     );
 
-    Self::new(left, right, (added.0, added.1))
+    Self::new(left, right, g2_affine_from_projective_constant(added))
   }
 }
 

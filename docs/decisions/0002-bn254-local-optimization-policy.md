@@ -127,7 +127,42 @@ Implementation rule:
   source of truth for the chain metadata
 - host and circuit paths must continue consuming the same chain description
 
-### 6. Evaluate future local optimizations by measured circuit cost, not elegance
+### 6. Retain compressed cyclotomic squaring inside `exp_by_neg_x(...)`
+
+Retained rewrite:
+
+- keep the signed-window chain metadata unchanged
+- replace the repeated `square_count > 1` cyclotomic-square blocks inside
+  `exp_by_neg_x(...)` with compressed cyclotomic squaring plus verified
+  decompression
+
+Measured effect:
+
+- `final exponentiation hard part`: `561254 -> 492083`
+- `final exponentiation`: `574562 -> 505391`
+- `pairing check` sample: `1669666 -> 1600495`
+- `pairing check` Groth16-style: `1936380 -> 1867209`
+
+Circuit-model effect:
+
+- `final exponentiation hard part`: `k=20 -> k=19`
+- `final exponentiation`: `k=20 -> k=19`
+
+Interpretation:
+
+- the retained subgroup-aware win came from the repeated squaring structure,
+  not from a new multiply kernel
+- this is currently the strongest retained local pairing-core optimization in
+  the repository
+
+Implementation rule:
+
+- compressed representation stays internal to the Fp12 layer
+- the optimization applies only to repeated square blocks inside
+  `exp_by_neg_x(...)`
+- host and circuit compressed-square logic must stay aligned
+
+### 7. Evaluate future local optimizations by measured circuit cost, not elegance
 
 Required evaluation path:
 

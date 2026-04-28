@@ -56,6 +56,10 @@ pub fn example_config() -> &'static str {
 }
 
 /// Loads one committed Groth16 fixture bundle.
+///
+/// # Panics
+///
+/// Panics if one of the committed fixture bundles no longer parses.
 #[must_use]
 pub fn load_outer_bench_fixture_bundle(fixture: OuterBenchFixture) -> Groth16Bn254ArtifactBundle {
   match fixture {
@@ -82,6 +86,11 @@ pub fn load_outer_bench_fixture_bundle(fixture: OuterBenchFixture) -> Groth16Bn2
 }
 
 /// Builds the canonical BN254-hosted outer circuit for one committed fixture.
+///
+/// # Panics
+///
+/// Panics if the committed fixture package can no longer build the canonical
+/// BN254-hosted outer circuit.
 #[must_use]
 pub fn build_outer_bench_circuit_bn254(
   fixture: OuterBenchFixture,
@@ -112,6 +121,11 @@ pub fn build_outer_bench_circuit_bn254(
 }
 
 /// Builds the canonical BLS12-381-hosted outer circuit for one committed fixture.
+///
+/// # Panics
+///
+/// Panics if the committed fixture package can no longer build the canonical
+/// BLS12-381-hosted outer circuit.
 #[must_use]
 pub fn build_outer_bench_circuit_bls12(
   fixture: OuterBenchFixture,

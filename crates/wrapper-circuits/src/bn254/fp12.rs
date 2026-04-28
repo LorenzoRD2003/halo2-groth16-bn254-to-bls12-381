@@ -9,9 +9,11 @@ use super::{
   AssignedCircuitValue, AssignedFieldExt, AssignedFp2, AssignedFp6, Bn254FieldChip,
   Bn254FieldConfig, ForeignField, NativeField,
   host::{
-    Fp6Constant, Fp6Value, Fp12Constant, Fp12Value, bn254_final_exponentiation_easy_part_constant,
-    fp12_add_constant, fp12_cyclotomic_square_constant, fp12_frobenius_map_constant,
-    fp12_inv_constant, fp12_mul_constant, fp12_nonresidue_constant, fp12_square_constant,
+    Fp2Constant, Fp6Constant, Fp6Value, Fp12Constant, Fp12Value,
+    bn254_final_exponentiation_easy_part_constant, fp12_add_constant,
+    fp12_cyclotomic_decompress_constant, fp12_cyclotomic_square_constant,
+    fp12_frobenius_map_constant, fp12_inv_constant, fp12_mul_constant, fp12_nonresidue_constant,
+    fp12_square_constant,
   },
   synthesize_binary_value_circuit, synthesize_unary_value_circuit,
 };
@@ -48,6 +50,18 @@ where
   pub c0: AssignedFp6<FHost>,
   /// `w` coefficient in Fp6.
   pub c1: AssignedFp6<FHost>,
+}
+
+#[derive(Clone, Debug)]
+struct CompressedCyclotomicFp12<FHost = NativeField>
+where
+  FHost: PrimeField,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  g2: AssignedFp2<FHost>,
+  g3: AssignedFp2<FHost>,
+  g4: AssignedFp2<FHost>,
+  g5: AssignedFp2<FHost>,
 }
 
 fn fp2_value_witness(
@@ -353,6 +367,19 @@ where
     Ok(Self::new(AssignedFp6::<FHost>::new(z0, z4, z3), AssignedFp6::<FHost>::new(z2, z1, z5)))
   }
 
+  pub(crate) fn compressed_cyclotomic_square_n_times(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    square_count: u8,
+  ) -> Result<Self, Error> {
+    let mut compressed = CompressedCyclotomicFp12::compress(self);
+    for _ in 0..square_count {
+      compressed = compressed.square(chip, layouter)?;
+    }
+    compressed.decompress(chip, layouter)
+  }
+
   pub(crate) fn value(&self) -> Value<Fp12Constant> {
     Value::from_iter([self.c0.value(), self.c1.value()])
       .map(|coords: Vec<Fp6Constant>| (coords[0], coords[1]))
@@ -424,6 +451,137 @@ where
     expected: Fp12Constant,
   ) -> Result<(), Error> {
     <Self as AssignedFieldExt<FHost>>::assert_equal_to_fixed(self, chip, layouter, expected)
+  }
+}
+
+impl<FHost> CompressedCyclotomicFp12<FHost>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  fn compress(value: &AssignedFp12<FHost>) -> Self {
+    Self {
+      g2: value.c1.c0.clone(),
+      g3: value.c0.c2.clone(),
+      g4: value.c0.c1.clone(),
+      g5: value.c1.c2.clone(),
+    }
+  }
+
+  fn square(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+  ) -> Result<Self, Error> {
+    let b45 = self.g4.mul(chip, layouter, &self.g5)?;
+    let nr_b45 = AssignedFp6::<FHost>::mul_by_nonresidue_fp2(&b45, chip, layouter)?;
+    let nr_g5 = AssignedFp6::<FHost>::mul_by_nonresidue_fp2(&self.g5, chip, layouter)?;
+    let g4_plus_g5 = self.g4.add(chip, layouter, &self.g5)?;
+    let g4_plus_nr_g5 = self.g4.add(chip, layouter, &nr_g5)?;
+    let a45 = g4_plus_g5.mul(chip, layouter, &g4_plus_nr_g5)?;
+
+    let b23 = self.g2.mul(chip, layouter, &self.g3)?;
+    let nr_b23 = AssignedFp6::<FHost>::mul_by_nonresidue_fp2(&b23, chip, layouter)?;
+    let nr_g3 = AssignedFp6::<FHost>::mul_by_nonresidue_fp2(&self.g3, chip, layouter)?;
+    let g2_plus_g3 = self.g2.add(chip, layouter, &self.g3)?;
+    let g2_plus_nr_g3 = self.g2.add(chip, layouter, &nr_g3)?;
+    let a23 = g2_plus_g3.mul(chip, layouter, &g2_plus_nr_g3)?;
+
+    let three_nr_b45 = nr_b45.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?;
+    let h2 = self.g2.add(chip, layouter, &three_nr_b45)?.scale_by_constant(
+      chip,
+      layouter,
+      ForeignField::from(2_u64),
+    )?;
+
+    let ten_plus_u_b45 = nr_b45.add(chip, layouter, &b45)?;
+    let h3 = a45.sub(chip, layouter, &ten_plus_u_b45)?.scale_by_constant(
+      chip,
+      layouter,
+      ForeignField::from(3_u64),
+    )?;
+    let two_g3 = self.g3.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?;
+    let h3 = h3.sub(chip, layouter, &two_g3)?;
+
+    let ten_plus_u_b23 = nr_b23.add(chip, layouter, &b23)?;
+    let h4 = a23.sub(chip, layouter, &ten_plus_u_b23)?.scale_by_constant(
+      chip,
+      layouter,
+      ForeignField::from(3_u64),
+    )?;
+    let two_g4 = self.g4.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?;
+    let h4 = h4.sub(chip, layouter, &two_g4)?;
+
+    let three_b23 = b23.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?;
+    let h5 = self.g5.add(chip, layouter, &three_b23)?.scale_by_constant(
+      chip,
+      layouter,
+      ForeignField::from(2_u64),
+    )?;
+
+    Ok(Self { g2: h2, g3: h3, g4: h4, g5: h5 })
+  }
+
+  fn decompress(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+  ) -> Result<AssignedFp12<FHost>, Error> {
+    let compressed_value =
+      Value::from_iter([self.g2.value(), self.g3.value(), self.g4.value(), self.g5.value()])
+        .map(|coords: Vec<Fp2Constant>| (coords[0], coords[1], coords[2], coords[3]));
+    let witness =
+      fp12_value_witness(compressed_value.map(|value| fp12_cyclotomic_decompress_constant(&value)));
+    let output = AssignedFp12::assign(chip, layouter, witness.0, witness.1)?;
+
+    let g0 = output.c0.c0.clone();
+    let g1 = output.c1.c1.clone();
+    let g2 = self.g2.clone();
+    let g3 = self.g3.clone();
+    let g4 = self.g4.clone();
+    let g5 = self.g5.clone();
+
+    output.c1.c0.assert_equal(chip, layouter, &g2)?;
+    output.c0.c2.assert_equal(chip, layouter, &g3)?;
+    output.c0.c1.assert_equal(chip, layouter, &g4)?;
+    output.c1.c2.assert_equal(chip, layouter, &g5)?;
+
+    let g2_is_zero = g2.is_zero(chip, layouter)?;
+
+    let g5_sq_nr =
+      AssignedFp6::<FHost>::mul_by_nonresidue_fp2(&g5.square(chip, layouter)?, chip, layouter)?;
+    let three_g4_sq =
+      g4.square(chip, layouter)?.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?;
+    let two_g3 = g3.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?;
+    let numerator_nonzero =
+      g5_sq_nr.add(chip, layouter, &three_g4_sq)?.sub(chip, layouter, &two_g3)?;
+    let four_g2 = g2.scale_by_constant(chip, layouter, ForeignField::from(4_u64))?;
+    let lhs_nonzero = g1.mul(chip, layouter, &four_g2)?;
+
+    let lhs_zero = g1.mul(chip, layouter, &g3)?;
+    let rhs_zero =
+      g4.mul(chip, layouter, &g5)?.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?;
+
+    let selected_lhs = AssignedFp2::select(chip, layouter, &g2_is_zero, &lhs_zero, &lhs_nonzero)?;
+    let selected_rhs =
+      AssignedFp2::select(chip, layouter, &g2_is_zero, &rhs_zero, &numerator_nonzero)?;
+    selected_lhs.assert_equal(chip, layouter, &selected_rhs)?;
+
+    let two_g1_sq =
+      g1.square(chip, layouter)?.scale_by_constant(chip, layouter, ForeignField::from(2_u64))?;
+    let three_g3g4 =
+      g3.mul(chip, layouter, &g4)?.scale_by_constant(chip, layouter, ForeignField::from(3_u64))?;
+    let g2g5 = g2.mul(chip, layouter, &g5)?;
+    let candidate_nonzero =
+      two_g1_sq.add(chip, layouter, &g2g5)?.sub(chip, layouter, &three_g3g4)?;
+    let candidate_zero = two_g1_sq.sub(chip, layouter, &three_g3g4)?;
+    let selected_inner =
+      AssignedFp2::select(chip, layouter, &g2_is_zero, &candidate_zero, &candidate_nonzero)?;
+    let expected_g0 = AssignedFp6::<FHost>::mul_by_nonresidue_fp2(&selected_inner, chip, layouter)?
+      .add_constant(chip, layouter, (ForeignField::ONE, ForeignField::ZERO))?;
+    g0.assert_equal(chip, layouter, &expected_g0)?;
+
+    Ok(output)
   }
 }
 

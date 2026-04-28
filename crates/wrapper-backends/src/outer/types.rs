@@ -4,6 +4,7 @@ use wrapper_circuits::{
   OuterStatementSemantics, OuterWrapperCircuitInput,
 };
 use wrapper_core::{ProducedOuterProofJson, ProducedOuterVerificationKeyJson};
+use serde::{Deserialize, Serialize};
 
 /// Stable capability summary for one selected outer backend lane.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -255,6 +256,42 @@ pub struct DirectOuterProofPlan {
   /// Expected transcript family used by the direct backend.
   pub expected_transcript: String,
   /// Proving notes for the selected backend lane.
+  pub notes: Vec<String>,
+}
+
+/// Produced JSON payload for one reusable outer proving key.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProducedOuterProvingKeyJson {
+  /// Proof-system protocol label.
+  pub protocol: String,
+  /// Commitment-curve label.
+  pub curve: String,
+  /// Stable backend identifier.
+  pub backend: String,
+  /// Polynomial-commitment scheme label.
+  pub pcs: String,
+  /// Payload encoding label.
+  pub encoding: String,
+  /// Real circuit size parameter used during setup.
+  pub circuit_k: u32,
+  /// Ordered public-input count.
+  pub public_input_count: usize,
+  /// File name for the serialized proving-key sidecar payload.
+  pub proving_key_artifact: String,
+}
+
+/// Strict reusable setup bundle emitted by a real direct backend.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProducedOuterSetupArtifactBundle {
+  /// Stable backend identifier.
+  pub backend: String,
+  /// Selected outer host lane.
+  pub outer_host: String,
+  /// Produced verification-key payload.
+  pub verification_key: ProducedOuterVerificationKeyJson,
+  /// Produced reusable proving-key payload.
+  pub proving_key: ProducedOuterProvingKeyJson,
+  /// Notes about production/setup state.
   pub notes: Vec<String>,
 }
 

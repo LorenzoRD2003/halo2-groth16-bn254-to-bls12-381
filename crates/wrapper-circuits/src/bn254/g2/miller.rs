@@ -1070,7 +1070,7 @@ where
     Bn254ExpByXWindowSign,
   };
 
-  fn cyclotomic_square_n_times<FHost>(
+  fn cyclotomic_square_n_times_compressed<FHost>(
     chip: &Bn254FieldChip<FHost>,
     layouter: &mut impl Layouter<FHost>,
     value: &AssignedFp12<FHost>,
@@ -1080,11 +1080,7 @@ where
     FHost: PrimeField + Field,
     MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
   {
-    let mut squared = value.clone();
-    for _ in 0..square_count {
-      squared = squared.cyclotomic_square(chip, layouter)?;
-    }
-    Ok(squared)
+    value.compressed_cyclotomic_square_n_times(chip, layouter, square_count)
   }
 
   fn exp_by_x_window<'a, FHost>(
@@ -1182,7 +1178,7 @@ where
   let x4_sum = x4.sum_components(chip, layouter)?;
   let x4_diff = x4.diff_components(chip, layouter)?;
   let x16_sum = x16.sum_components(chip, layouter)?;
-  let x64_sum = x64.sum_components(chip, layouter)?;
+  let x64_components_sum = x64.sum_components(chip, layouter)?;
   let x17 = x16.mul_with_precomputed_sums(chip, layouter, value, &x16_sum, &value_sum)?;
   let x17_sum = x17.sum_components(chip, layouter)?;
   let x19 = x17.mul_with_precomputed_sums(chip, layouter, &x2, &x17_sum, &x2_sum)?;
@@ -1192,13 +1188,13 @@ where
   let x35_diff = x35.diff_components(chip, layouter)?;
   let x37 = x35.mul_with_precomputed_sums(chip, layouter, &x2, &x35_sum, &x2_sum)?;
   let x37_sum = x37.sum_components(chip, layouter)?;
-  let x83 = x19.mul_with_precomputed_sums(chip, layouter, &x64, &x19_sum, &x64_sum)?;
+  let x83 = x19.mul_with_precomputed_sums(chip, layouter, &x64, &x19_sum, &x64_components_sum)?;
   let x83_sum = x83.sum_components(chip, layouter)?;
   let x83_diff = x83.diff_components(chip, layouter)?;
   let x79 =
     x83.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, &x4, &x83_sum, &x4_diff)?;
   let x79_sum = x79.sum_components(chip, layouter)?;
-  let x101 = x37.mul_with_precomputed_sums(chip, layouter, &x64, &x37_sum, &x64_sum)?;
+  let x101 = x37.mul_with_precomputed_sums(chip, layouter, &x64, &x37_sum, &x64_components_sum)?;
   let x101_sum = x101.sum_components(chip, layouter)?;
   let x105 = x101.mul_with_precomputed_sums(chip, layouter, &x4, &x101_sum, &x4_sum)?;
   let x105_sum = x105.sum_components(chip, layouter)?;
@@ -1216,7 +1212,7 @@ where
   .clone();
 
   for step in BN254_EXP_BY_X_CHAIN_STEPS {
-    exp = cyclotomic_square_n_times::<FHost>(chip, layouter, &exp, step.square_count)?;
+    exp = cyclotomic_square_n_times_compressed::<FHost>(chip, layouter, &exp, step.square_count)?;
     match step.sign {
       Bn254ExpByXWindowSign::Positive => {
         let exp_sum = exp.sum_components(chip, layouter)?;
@@ -1323,27 +1319,33 @@ where
   // cyclotomic * cyclotomic
   let y10 = y8.mul_with_precomputed_sums(chip, layouter, &y4, &y8_sum, &y4_sum)?;
   // cyclotomic * cyclotomic
-  let y10_sum = y10.sum_components(chip, layouter)?;
-  let y11 = y10.mul_with_precomputed_sums(chip, layouter, &r, &y10_sum, &r_sum)?;
+  let y10_components_sum = y10.sum_components(chip, layouter)?;
+  let y11 = y10.mul_with_precomputed_sums(chip, layouter, &r, &y10_components_sum, &r_sum)?;
   let mut y12 = y9.frobenius_map(chip, layouter, 1)?;
   // frobenius(cyclotomic) * cyclotomic
-  let y12_sum = y12.sum_components(chip, layouter)?;
-  let y11_sum = y11.sum_components(chip, layouter)?;
-  y12 = y12.mul_with_precomputed_sums(chip, layouter, &y11, &y12_sum, &y11_sum)?;
+  let y12_components_sum = y12.sum_components(chip, layouter)?;
+  let y11_components_sum = y11.sum_components(chip, layouter)?;
+  y12 = y12.mul_with_precomputed_sums(
+    chip,
+    layouter,
+    &y11,
+    &y12_components_sum,
+    &y11_components_sum,
+  )?;
   y8 = y8.frobenius_map(chip, layouter, 2)?;
   // frobenius(cyclotomic) * cyclotomic
   let y8_frob_sum = y8.sum_components(chip, layouter)?;
-  let y12_sum = y12.sum_components(chip, layouter)?;
-  let y14 = y8.mul_with_precomputed_sums(chip, layouter, &y12, &y8_frob_sum, &y12_sum)?;
+  let y12_after_mul_sum = y12.sum_components(chip, layouter)?;
+  let y14 = y8.mul_with_precomputed_sums(chip, layouter, &y12, &y8_frob_sum, &y12_after_mul_sum)?;
   // cyclotomic * unitary_inverse(cyclotomic)
   let y9_sum = y9.sum_components(chip, layouter)?;
   let mut y15 =
     y9.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, &r, &y9_sum, &r_diff)?;
   y15 = y15.frobenius_map(chip, layouter, 3)?;
   // frobenius(cyclotomic) * cyclotomic
-  let y15_sum = y15.sum_components(chip, layouter)?;
-  let y14_sum = y14.sum_components(chip, layouter)?;
-  y15.mul_with_precomputed_sums(chip, layouter, &y14, &y15_sum, &y14_sum)
+  let y15_components_sum = y15.sum_components(chip, layouter)?;
+  let y14_components_sum = y14.sum_components(chip, layouter)?;
+  y15.mul_with_precomputed_sums(chip, layouter, &y14, &y15_components_sum, &y14_components_sum)
 }
 
 pub fn final_exponentiation_on_host<FHost>(
