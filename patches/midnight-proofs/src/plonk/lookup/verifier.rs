@@ -175,10 +175,10 @@ impl<F: WithSmallOrderMulGroup<3>, CS: PolynomialCommitmentScheme<F>> Evaluated<
     }
 
     pub(in crate::plonk) fn queries(
-        &self,
+        &'_ self,
         vk: &VerifyingKey<F, CS>,
         x: F,
-    ) -> impl Iterator<Item = VerifierQuery<F, CS>> + Clone {
+    ) -> impl Iterator<Item = VerifierQuery<'_, F, CS>> + Clone {
         let x_inv = vk.domain.rotate_omega(x, Rotation::prev());
         let x_next = vk.domain.rotate_omega(x, Rotation::next());
 

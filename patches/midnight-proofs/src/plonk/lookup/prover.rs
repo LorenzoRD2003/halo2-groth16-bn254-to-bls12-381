@@ -5,7 +5,7 @@ use group::ff::BatchInvert;
 use rand_core::{CryptoRng, RngCore};
 
 use super::{
-    super::{circuit::Expression, Error, ProvingKey},
+    super::{circuit::Expression, Error, FinalizingKey, ProvingKey, VerifyingKey},
     Argument,
 };
 use crate::{
@@ -133,6 +133,85 @@ impl<F: WithSmallOrderMulGroup<3> + Ord + Hash> Argument<F> {
         transcript.write(&permuted_input_commitment)?;
 
         // Hash permuted table commitment
+        transcript.write(&permuted_table_commitment)?;
+
+        Ok(Permuted {
+            compressed_input_expression,
+            permuted_input_expression,
+            permuted_input_poly,
+            compressed_table_expression,
+            permuted_table_expression,
+            permuted_table_poly,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_permuted_base<
+        'a,
+        'params: 'a,
+        CS: PolynomialCommitmentScheme<F>,
+        R: RngCore,
+        T: Transcript,
+    >(
+        &self,
+        vk: &VerifyingKey<F, CS>,
+        params: &'params CS::Parameters,
+        domain: &EvaluationDomain<F>,
+        theta: F,
+        advice_values: &'a [Polynomial<F, LagrangeCoeff>],
+        fixed_values: &'a [Polynomial<F, LagrangeCoeff>],
+        instance_values: &'a [Polynomial<F, LagrangeCoeff>],
+        challenges: &'a [F],
+        mut rng: R,
+        transcript: &mut T,
+    ) -> Result<Permuted<F>, Error>
+    where
+        F: FromUniformBytes<64>,
+        CS::Commitment: Hashable<T::Hash>,
+    {
+        let compress_expressions = |expressions: &[Expression<F>]| {
+            let compressed_expression = expressions
+                .iter()
+                .map(|expression| {
+                    vk.get_domain().lagrange_from_vec(evaluate(
+                        expression,
+                        domain.n as usize,
+                        1,
+                        fixed_values,
+                        advice_values,
+                        instance_values,
+                        challenges,
+                    ))
+                })
+                .fold(domain.empty_lagrange(), |acc, expression| {
+                    acc * theta + &expression
+                });
+            compressed_expression
+        };
+
+        let compressed_input_expression = compress_expressions(&self.input_expressions);
+        let compressed_table_expression = compress_expressions(&self.table_expressions);
+
+        let (permuted_input_expression, permuted_table_expression) = permute_expression_pair_base(
+            vk,
+            domain,
+            &mut rng,
+            &compressed_input_expression,
+            &compressed_table_expression,
+        )?;
+
+        let commit_values = |values: &Polynomial<F, LagrangeCoeff>| {
+            let poly = vk.get_domain().lagrange_to_coeff(values.clone());
+            let commitment = CS::commit_lagrange(params, values);
+            (poly, commitment)
+        };
+
+        let (permuted_input_poly, permuted_input_commitment) =
+            commit_values(&permuted_input_expression);
+        let (permuted_table_poly, permuted_table_commitment) =
+            commit_values(&permuted_table_expression);
+
+        transcript.write(&permuted_input_commitment)?;
         transcript.write(&permuted_table_commitment)?;
 
         Ok(Permuted {
@@ -293,6 +372,125 @@ impl<F: WithSmallOrderMulGroup<3>> Permuted<F> {
             product_poly: z,
         })
     }
+
+    pub(crate) fn commit_product_base<CS: PolynomialCommitmentScheme<F>, T: Transcript>(
+        self,
+        vk: &VerifyingKey<F, CS>,
+        params: &CS::Parameters,
+        beta: F,
+        gamma: F,
+        mut rng: impl RngCore + CryptoRng,
+        transcript: &mut T,
+    ) -> Result<Committed<F>, Error>
+    where
+        F: WithSmallOrderMulGroup<3> + FromUniformBytes<64>,
+        CS::Commitment: Hashable<T::Hash>,
+    {
+        let blinding_factors = vk.cs.blinding_factors();
+        let mut lookup_product = vec![F::ZERO; vk.n() as usize];
+        parallelize(&mut lookup_product, |lookup_product, start| {
+            for ((lookup_product, permuted_input_value), permuted_table_value) in lookup_product
+                .iter_mut()
+                .zip(self.permuted_input_expression[start..].iter())
+                .zip(self.permuted_table_expression[start..].iter())
+            {
+                *lookup_product = (beta + permuted_input_value) * &(gamma + permuted_table_value);
+            }
+        });
+        lookup_product.iter_mut().batch_invert();
+        parallelize(&mut lookup_product, |product, start| {
+            for (i, product) in product.iter_mut().enumerate() {
+                let i = i + start;
+                *product *= &(self.compressed_input_expression[i] + &beta);
+                *product *= &(self.compressed_table_expression[i] + &gamma);
+            }
+        });
+
+        let z = iter::once(F::ONE)
+            .chain(lookup_product)
+            .scan(F::ONE, |state, cur| {
+                *state *= &cur;
+                Some(*state)
+            })
+            .take(vk.n() as usize - blinding_factors)
+            .chain((0..blinding_factors).map(|_| F::random(&mut rng)))
+            .collect::<Vec<_>>();
+        assert_eq!(z.len(), vk.n() as usize);
+        let z = vk.get_domain().lagrange_from_vec(z);
+        let product_commitment = CS::commit_lagrange(params, &z);
+        let z = vk.get_domain().lagrange_to_coeff(z);
+        transcript.write(&product_commitment)?;
+
+        Ok(Committed::<F> {
+            permuted_input_poly: self.permuted_input_poly,
+            permuted_table_poly: self.permuted_table_poly,
+            product_poly: z,
+        })
+    }
+}
+
+fn permute_expression_pair_base<
+    F: WithSmallOrderMulGroup<3> + Ord + Hash + FromUniformBytes<64>,
+    CS: PolynomialCommitmentScheme<F>,
+>(
+    vk: &VerifyingKey<F, CS>,
+    domain: &EvaluationDomain<F>,
+    mut rng: impl RngCore,
+    compressed_input_expression: &Polynomial<F, LagrangeCoeff>,
+    compressed_table_expression: &Polynomial<F, LagrangeCoeff>,
+) -> Result<
+    (Polynomial<F, LagrangeCoeff>, Polynomial<F, LagrangeCoeff>),
+    Error,
+> {
+    let blinding_factors = vk.cs.blinding_factors();
+    let usable_rows = vk.n() as usize - (blinding_factors + 1);
+
+    let mut permuted_input_expression: Vec<F> = compressed_input_expression.to_vec();
+    permuted_input_expression.truncate(usable_rows);
+    permuted_input_expression.sort();
+
+    let mut leftover_table_map = HashMap::<F, u32>::with_capacity(compressed_table_expression.len());
+    compressed_table_expression.iter().take(usable_rows).for_each(|coeff| {
+        *leftover_table_map.entry(*coeff).or_insert(0) += 1;
+    });
+    let mut permuted_table_coeffs = vec![F::ZERO; usable_rows];
+
+    let mut repeated_input_rows = permuted_input_expression
+        .iter()
+        .zip(permuted_table_coeffs.iter_mut())
+        .enumerate()
+        .filter_map(|(row, (input_value, table_value))| {
+            if row == 0 || *input_value != permuted_input_expression[row - 1] {
+                *table_value = *input_value;
+                if let Some(count) = leftover_table_map.get_mut(input_value) {
+                    assert!(*count > 0);
+                    *count -= 1;
+                    None
+                } else {
+                    Some(Err(Error::ConstraintSystemFailure))
+                }
+            } else {
+                Some(Ok(row))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for (coeff, count) in leftover_table_map.iter() {
+        for _ in 0..*count {
+            permuted_table_coeffs[repeated_input_rows.pop().unwrap()] = *coeff;
+        }
+    }
+    assert!(repeated_input_rows.is_empty());
+
+    permuted_input_expression.extend((0..(blinding_factors + 1)).map(|_| F::random(&mut rng)));
+    permuted_table_coeffs.extend((0..(blinding_factors + 1)).map(|_| F::random(&mut rng)));
+    assert_eq!(permuted_input_expression.len(), vk.n() as usize);
+    assert_eq!(permuted_table_coeffs.len(), vk.n() as usize);
+
+    Ok((
+        domain.lagrange_from_vec(permuted_input_expression),
+        domain.lagrange_from_vec(permuted_table_coeffs),
+    ))
 }
 
 impl<F: WithSmallOrderMulGroup<3>> Committed<F> {
@@ -316,6 +514,38 @@ impl<F: WithSmallOrderMulGroup<3>> Committed<F> {
         let permuted_table_eval = eval_polynomial(&self.permuted_table_poly, x);
 
         // Hash each advice evaluation
+        for eval in iter::empty()
+            .chain(Some(product_eval))
+            .chain(Some(product_next_eval))
+            .chain(Some(permuted_input_eval))
+            .chain(Some(permuted_input_inv_eval))
+            .chain(Some(permuted_table_eval))
+        {
+            transcript.write(&eval)?;
+        }
+
+        Ok(Evaluated { constructed: self })
+    }
+
+    pub(crate) fn evaluate_finalizing<T: Transcript, CS: PolynomialCommitmentScheme<F>>(
+        self,
+        pk: &FinalizingKey<F, CS>,
+        x: F,
+        transcript: &mut T,
+    ) -> Result<Evaluated<F>, Error>
+    where
+        F: Hashable<T::Hash>,
+    {
+        let domain = &pk.vk.domain;
+        let x_inv = domain.rotate_omega(x, Rotation::prev());
+        let x_next = domain.rotate_omega(x, Rotation::next());
+
+        let product_eval = eval_polynomial(&self.product_poly, x);
+        let product_next_eval = eval_polynomial(&self.product_poly, x_next);
+        let permuted_input_eval = eval_polynomial(&self.permuted_input_poly, x);
+        let permuted_input_inv_eval = eval_polynomial(&self.permuted_input_poly, x_inv);
+        let permuted_table_eval = eval_polynomial(&self.permuted_table_poly, x);
+
         for eval in iter::empty()
             .chain(Some(product_eval))
             .chain(Some(product_next_eval))
@@ -361,6 +591,37 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluated<F> {
                 poly: &self.constructed.permuted_input_poly,
             }))
             // Open lookup product commitments at x_next
+            .chain(Some(ProverQuery {
+                point: x_next,
+                poly: &self.constructed.product_poly,
+            }))
+    }
+
+    pub(crate) fn open_finalizing<'a, CS: PolynomialCommitmentScheme<F>>(
+        &'a self,
+        pk: &'a FinalizingKey<F, CS>,
+        x: F,
+    ) -> impl Iterator<Item = ProverQuery<'a, F>> + Clone {
+        let x_inv = pk.vk.domain.rotate_omega(x, Rotation::prev());
+        let x_next = pk.vk.domain.rotate_omega(x, Rotation::next());
+
+        iter::empty()
+            .chain(Some(ProverQuery {
+                point: x,
+                poly: &self.constructed.product_poly,
+            }))
+            .chain(Some(ProverQuery {
+                point: x,
+                poly: &self.constructed.permuted_input_poly,
+            }))
+            .chain(Some(ProverQuery {
+                point: x,
+                poly: &self.constructed.permuted_table_poly,
+            }))
+            .chain(Some(ProverQuery {
+                point: x_inv,
+                poly: &self.constructed.permuted_input_poly,
+            }))
             .chain(Some(ProverQuery {
                 point: x_next,
                 poly: &self.constructed.product_poly,

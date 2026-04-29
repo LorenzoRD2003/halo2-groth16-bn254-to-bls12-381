@@ -3,10 +3,16 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::trivially_copy_pass_by_ref)]
 
-use std::{fs, io::{BufReader, BufWriter}, path::PathBuf, time::Instant};
+use std::{
+  fs,
+  io::{BufReader, BufWriter},
+  path::PathBuf,
+  time::Instant,
+};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
+use rayon::ThreadPoolBuilder;
 use serde::Serialize;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -18,17 +24,23 @@ use wrapper_backends::{
   parse_snarkjs_groth16_bn254_bundle_with_names,
 };
 use wrapper_circuits::{
-  CircuitPlanningView, LayoutMetrics, OuterHostFlavor, PAIRING_TERM_PROFILE_COUNTS,
-  PUBLIC_INPUT_PROFILE_COUNTS, PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,
+  Bn254ExpByXChainSearchConfig, Bn254ExpByXChainSearchWeights, CircuitPlanningView, LayoutMetrics,
+  OuterHostFlavor, PAIRING_TERM_PROFILE_COUNTS, PUBLIC_INPUT_PROFILE_COUNTS, PrimitiveCostEntry,
+  PrimitiveCostLayer, PrimitiveCostTable,
   groth16_fixture_ic_accumulator_layout_metrics, groth16_fixture_verifier_layout_metrics,
   groth16_pairing_block_final_exponentiation_easy_part_layout_metrics,
   groth16_pairing_block_final_exponentiation_hard_part_layout_metrics,
+  groth16_pairing_block_final_exponentiation_hard_part_layout_metrics_v1,
   groth16_pairing_block_final_exponentiation_layout_metrics,
   groth16_pairing_block_miller_loop_layout_metrics,
   groth16_pairing_block_pairing_check_groth16_style_layout_metrics,
+  groth16_pairing_block_pairing_check_groth16_style_layout_metrics_v1,
   groth16_pairing_block_pairing_check_layout_metrics, groth16_pairing_term_count_layout_metrics,
   groth16_public_input_count_layout_metrics, measure_host_circuit_layout,
-  measure_native_circuit_layout, primitive_definitions,
+  measure_native_circuit_layout, primitive_definitions, retained_bn254_exp_by_x_chain_candidate,
+  search_bn254_exp_by_x_candidates, search_bn254_exp_by_x_candidates_with_windows,
+  fp12_compressed_cyclotomic_square_block_layout_metrics, fp12_mul_by_unitary_inverse_layout_metrics,
+  fp12_mul_layout_metrics,
 };
 use wrapper_core::{
   ProjectConfig, ProjectStatusReport, WrapperExecutionPackage, WrapperExecutionResult, WrapperJob,
@@ -51,6 +63,7 @@ struct Cli {
 }
 
 const DIRECT_EXECUTION_MEMORY_LIMIT_BYTES: u64 = 24 * 1024 * 1024 * 1024;
+const DIRECT_EXECUTION_DEFAULT_RAYON_THREADS: usize = 4;
 
 #[derive(Debug, Subcommand)]
 enum Commands {
@@ -69,6 +82,42 @@ enum Commands {
     /// Optional outer host filter when profiling the `outer` family.
     #[arg(long, value_enum)]
     outer_host: Option<OuterProfileHostArg>,
+  },
+  /// Search for candidate `exp_by_neg_x(...)` chains using a proxy cost model.
+  SearchExpByXChain {
+    /// Maximum odd window value considered during the search.
+    #[arg(long, default_value_t = 127)]
+    max_window: u64,
+    /// Maximum number of cyclotomic squarings in one step.
+    #[arg(long, default_value_t = 12)]
+    max_square_count: u8,
+    /// Maximum number of signed steps after the starting window.
+    #[arg(long, default_value_t = 8)]
+    max_steps: usize,
+    /// Number of top candidates to print.
+    #[arg(long, default_value_t = 10)]
+    limit: usize,
+    /// Weight profile to use for the search proxy.
+    #[arg(long, value_enum, default_value_t = ExpByXWeightProfile::Empirical)]
+    weight_profile: ExpByXWeightProfile,
+    /// Proxy cost charged per compressed square.
+    #[arg(long, default_value_t = 1)]
+    square_cost: u64,
+    /// Proxy cost charged per positive window multiplication.
+    #[arg(long, default_value_t = 11)]
+    positive_mul_cost: u64,
+    /// Proxy cost charged per negative window multiplication.
+    #[arg(long, default_value_t = 10)]
+    negative_mul_cost: u64,
+    /// Proxy cost charged once per distinct precomputed window.
+    #[arg(long, default_value_t = 4)]
+    unique_window_cost: u64,
+    /// Proxy cost charged for the starting window.
+    #[arg(long, default_value_t = 2)]
+    start_window_cost: u64,
+    /// Restrict the search to one explicit set of odd windows. Repeatable.
+    #[arg(long = "allowed-window")]
+    allowed_windows: Vec<u64>,
   },
   /// Parse and inspect a `snarkjs` Groth16 BN254 artifact bundle.
   InspectGroth16Bundle {
@@ -244,6 +293,51 @@ enum Commands {
     #[arg(long)]
     output: PathBuf,
   },
+  /// Run only the first stage of direct proving and persist an intermediate prover-trace artifact.
+  ExecuteWrapperDirectProveTrace {
+    #[arg(long, default_value = "wrapper-package")]
+    id: String,
+    #[arg(long)]
+    proof: PathBuf,
+    #[arg(long)]
+    public: PathBuf,
+    #[arg(long)]
+    vk: PathBuf,
+    #[arg(long = "public-input-name")]
+    public_input_names: Vec<String>,
+    #[arg(long, value_enum, default_value_t = DirectOuterBackendArg::MidnightBn254Host)]
+    backend: DirectOuterBackendArg,
+    /// Path to the reusable setup JSON artifact bundle produced by `execute-wrapper-direct-setup`.
+    #[arg(long)]
+    setup: PathBuf,
+    /// Output path for the persisted prover-trace binary artifact.
+    #[arg(long)]
+    output: PathBuf,
+  },
+  /// Finalize a direct outer proof bundle from a previously persisted prover-trace artifact.
+  ExecuteWrapperDirectProveFinalize {
+    #[arg(long, default_value = "wrapper-package")]
+    id: String,
+    #[arg(long)]
+    proof: PathBuf,
+    #[arg(long)]
+    public: PathBuf,
+    #[arg(long)]
+    vk: PathBuf,
+    #[arg(long = "public-input-name")]
+    public_input_names: Vec<String>,
+    #[arg(long, value_enum, default_value_t = DirectOuterBackendArg::MidnightBn254Host)]
+    backend: DirectOuterBackendArg,
+    /// Path to the reusable setup JSON artifact bundle produced by `execute-wrapper-direct-setup`.
+    #[arg(long)]
+    setup: PathBuf,
+    /// Path to the persisted prover-trace binary artifact produced by `execute-wrapper-direct-prove-trace`.
+    #[arg(long)]
+    trace: PathBuf,
+    /// Output path for the produced direct outer proof bundle JSON.
+    #[arg(long)]
+    output: PathBuf,
+  },
   /// Verify one produced direct outer proof bundle against the selected backend and source artifacts.
   ExecuteWrapperDirectVerify {
     /// Logical identifier for the artifact set / package.
@@ -293,6 +387,31 @@ fn main() -> Result<()> {
     Commands::ProfileLayout { family, outer_fixture, outer_host } => {
       run_profile_layout(family, outer_fixture, outer_host)
     }
+    Commands::SearchExpByXChain {
+      max_window,
+      max_square_count,
+      max_steps,
+      limit,
+      weight_profile,
+      square_cost,
+      positive_mul_cost,
+      negative_mul_cost,
+      unique_window_cost,
+      start_window_cost,
+      allowed_windows,
+    } => run_search_exp_by_x_chain(
+      max_window,
+      max_square_count,
+      max_steps,
+      limit,
+      weight_profile,
+      square_cost,
+      positive_mul_cost,
+      negative_mul_cost,
+      unique_window_cost,
+      start_window_cost,
+      &allowed_windows,
+    ),
     Commands::InspectGroth16Bundle { id, proof, public, vk, public_input_names } => {
       run_inspect_groth16_bundle(&id, &proof, &public, &vk, &public_input_names)?;
     }
@@ -317,6 +436,7 @@ fn main() -> Result<()> {
       backend,
       output,
     } => {
+      configure_direct_execution_runtime()?;
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct(
         &id,
@@ -337,6 +457,7 @@ fn main() -> Result<()> {
       backend,
       output,
     } => {
+      configure_direct_execution_runtime()?;
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct_setup(
         &id,
@@ -358,6 +479,7 @@ fn main() -> Result<()> {
       setup,
       output,
     } => {
+      configure_direct_execution_runtime()?;
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct_prove(
         &id,
@@ -380,6 +502,7 @@ fn main() -> Result<()> {
       bundle,
       output,
     } => {
+      configure_direct_execution_runtime()?;
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct_verify(
         &id,
@@ -390,6 +513,54 @@ fn main() -> Result<()> {
         backend,
         &bundle,
         output.as_ref(),
+      )?;
+    }
+    Commands::ExecuteWrapperDirectProveTrace {
+      id,
+      proof,
+      public,
+      vk,
+      public_input_names,
+      backend,
+      setup,
+      output,
+    } => {
+      configure_direct_execution_runtime()?;
+      apply_direct_execution_memory_limit()?;
+      run_execute_wrapper_direct_prove_trace(
+        &id,
+        &proof,
+        &public,
+        &vk,
+        &public_input_names,
+        backend,
+        &setup,
+        &output,
+      )?;
+    }
+    Commands::ExecuteWrapperDirectProveFinalize {
+      id,
+      proof,
+      public,
+      vk,
+      public_input_names,
+      backend,
+      setup,
+      trace,
+      output,
+    } => {
+      configure_direct_execution_runtime()?;
+      apply_direct_execution_memory_limit()?;
+      run_execute_wrapper_direct_prove_finalize(
+        &id,
+        &proof,
+        &public,
+        &vk,
+        &public_input_names,
+        backend,
+        &setup,
+        &trace,
+        &output,
       )?;
     }
     Commands::PrintLayout => run_print_layout(),
@@ -404,6 +575,7 @@ fn main() -> Result<()> {
 enum ProfileFamily {
   All,
   Blocks,
+  FloorPlanner,
   Groth16,
   Outer,
   PairingTerms,
@@ -420,6 +592,12 @@ enum OuterProfileFixtureArg {
 enum OuterProfileHostArg {
   MidnightBn254,
   MidnightBls12381,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum ExpByXWeightProfile {
+  Linear,
+  Empirical,
 }
 
 #[derive(Clone, Debug)]
@@ -463,6 +641,11 @@ struct DirectWrapperSetupExecutionResult {
   notes: Vec<String>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize)]
+struct DirectWrapperSetupExecutionResultJson {
+  setup_bundle: ProducedOuterSetupArtifactBundle,
+}
+
 #[derive(Clone, Debug, Serialize)]
 struct DirectWrapperProveExecutionResult {
   job_id: String,
@@ -470,6 +653,16 @@ struct DirectWrapperProveExecutionResult {
   outer_host: String,
   prove_elapsed_ms: u128,
   produced_bundle: wrapper_core::ProducedOuterProofArtifactBundle,
+  notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct DirectWrapperProveTraceExecutionResult {
+  job_id: String,
+  backend: String,
+  outer_host: String,
+  trace_elapsed_ms: u128,
+  trace_artifact: String,
   notes: Vec<String>,
 }
 
@@ -489,12 +682,95 @@ enum DirectOuterBackendArg {
   MidnightBls12381Host,
 }
 
+impl DirectOuterBackendArg {
+  fn backend_id_hint(self) -> &'static str {
+    match self {
+      Self::MidnightBn254Host => "midnight-direct-halo2-outer-backend-bn254-host",
+      Self::MidnightBls12381Host => "midnight-direct-halo2-outer-backend-bls12-host",
+    }
+  }
+}
+
 fn init_tracing() -> Result<()> {
   fmt()
     .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
     .with_target(false)
     .try_init()
     .map_err(|error| anyhow::anyhow!("failed to initialize tracing subscriber: {error}"))
+}
+
+fn configure_direct_execution_runtime() -> Result<()> {
+  let thread_count = std::env::var("WRAPPER_DIRECT_RAYON_THREADS")
+    .ok()
+    .and_then(|value| value.parse::<usize>().ok())
+    .filter(|value| *value > 0)
+    .unwrap_or(DIRECT_EXECUTION_DEFAULT_RAYON_THREADS);
+
+  match ThreadPoolBuilder::new().num_threads(thread_count).build_global() {
+    Ok(()) => {
+      info!(
+        "configured direct execution rayon thread pool with {} thread(s)",
+        thread_count
+      );
+    }
+    Err(_) => {
+      info!(
+        "rayon global thread pool was already initialized before direct execution; requested {} thread(s)",
+        thread_count
+      );
+    }
+  }
+
+  Ok(())
+}
+
+fn direct_execution_log_dir() -> PathBuf {
+  std::env::var("HOME")
+    .map(PathBuf::from)
+    .unwrap_or_else(|_| PathBuf::from("."))
+    .join("tmp")
+}
+
+fn direct_execution_log_path(
+  command: &str,
+  job_id: &str,
+  backend_id: &str,
+) -> PathBuf {
+  let backend_slug = backend_id.replace('/', "-");
+  direct_execution_log_dir().join(format!("{command}-{job_id}-{backend_slug}.log"))
+}
+
+fn append_direct_execution_log(
+  command: &str,
+  job_id: &str,
+  backend_id: &str,
+  message: &str,
+) -> Result<()> {
+  let dir = direct_execution_log_dir();
+  fs::create_dir_all(&dir)
+    .with_context(|| format!("failed to create direct execution log dir {}", dir.display()))?;
+  let path = direct_execution_log_path(command, job_id, backend_id);
+  let timestamp = chrono_like_timestamp();
+  let line = format!("{timestamp} {message}\n");
+  use std::io::Write as _;
+  let mut file = fs::OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(&path)
+    .with_context(|| format!("failed to open direct execution log file {}", path.display()))?;
+  file
+    .write_all(line.as_bytes())
+    .with_context(|| format!("failed to append direct execution log file {}", path.display()))?;
+  Ok(())
+}
+
+fn chrono_like_timestamp() -> String {
+  // Lightweight local timestamp for log lines without adding another dependency.
+  use std::time::{SystemTime, UNIX_EPOCH};
+  let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default();
+  format!("[{}.{:03}]", now.as_secs(), now.subsec_millis())
 }
 
 fn apply_direct_execution_memory_limit() -> Result<()> {
@@ -661,6 +937,95 @@ fn run_profile_layout(
   }
 }
 
+fn run_search_exp_by_x_chain(
+  max_window: u64,
+  max_square_count: u8,
+  max_steps: usize,
+  limit: usize,
+  weight_profile: ExpByXWeightProfile,
+  square_cost: u64,
+  positive_mul_cost: u64,
+  negative_mul_cost: u64,
+  unique_window_cost: u64,
+  start_window_cost: u64,
+  allowed_windows: &[u64],
+) {
+  let weights = match weight_profile {
+    ExpByXWeightProfile::Linear => Bn254ExpByXChainSearchWeights::linear(
+      square_cost,
+      positive_mul_cost,
+      negative_mul_cost,
+      unique_window_cost,
+      start_window_cost,
+    ),
+    ExpByXWeightProfile::Empirical => {
+      let mut square_block_costs = [0_u64; 13];
+      let capped_square_count = max_square_count.min(12);
+      for square_count in 1..=capped_square_count {
+        square_block_costs[usize::from(square_count)] =
+          fp12_compressed_cyclotomic_square_block_layout_metrics(square_count).rows as u64;
+      }
+      for index in (usize::from(capped_square_count) + 1)..square_block_costs.len() {
+        square_block_costs[index] = square_block_costs[usize::from(capped_square_count)];
+      }
+
+      Bn254ExpByXChainSearchWeights {
+        square_block_costs,
+        positive_mul_cost: fp12_mul_layout_metrics().rows as u64,
+        negative_mul_cost: fp12_mul_by_unitary_inverse_layout_metrics().rows as u64,
+        unique_window_cost,
+        start_window_cost,
+      }
+    }
+  };
+
+  let config = Bn254ExpByXChainSearchConfig {
+    max_window,
+    max_square_count,
+    max_steps,
+    max_candidates: limit,
+    weights,
+  };
+  let retained = retained_bn254_exp_by_x_chain_candidate(weights);
+  let candidates = if allowed_windows.is_empty() {
+    search_bn254_exp_by_x_candidates(config)
+  } else {
+    search_bn254_exp_by_x_candidates_with_windows(config, allowed_windows)
+  };
+
+  println!("retained:");
+  println!("  weight_profile={weight_profile:?}");
+  println!(
+    "  square_block_costs={:?}",
+    &weights.square_block_costs[1..=usize::from(max_square_count.min(12))]
+  );
+  println!(
+    "  total_cost={} square_cost={} multiply_cost={} precompute_cost={} start={} windows={:?}",
+    retained.total_cost,
+    retained.square_cost_total,
+    retained.multiply_cost_total,
+    retained.precompute_cost_total,
+    retained.start_window,
+    retained.unique_windows()
+  );
+  println!("  schedule={}", retained.schedule_string());
+
+  println!("candidates:");
+  for (index, candidate) in candidates.iter().take(limit).enumerate() {
+    println!(
+      "  {}. total_cost={} square_cost={} multiply_cost={} precompute_cost={} start={} windows={:?}",
+      index + 1,
+      candidate.total_cost,
+      candidate.square_cost_total,
+      candidate.multiply_cost_total,
+      candidate.precompute_cost_total,
+      candidate.start_window,
+      candidate.unique_windows()
+    );
+    println!("     schedule={}", candidate.schedule_string());
+  }
+}
+
 fn layout_profile_rows(
   family: ProfileFamily,
   outer_fixture: Option<OuterProfileFixtureArg>,
@@ -721,6 +1086,43 @@ fn layout_profile_rows(
         term_count: Some(2),
         public_input_count: None,
         ..timed_layout_profile_row(groth16_pairing_block_pairing_check_layout_metrics)
+      },
+    ]);
+  }
+
+  if matches!(family, ProfileFamily::All | ProfileFamily::FloorPlanner) {
+    rows.extend([
+      LayoutProfileRow {
+        family: "floor_planner",
+        id: "simple_bn254_final_exponentiation_hard_part".to_owned(),
+        label: "simple planner bn254 final exponentiation hard part",
+        term_count: None,
+        public_input_count: None,
+        ..timed_layout_profile_row(groth16_pairing_block_final_exponentiation_hard_part_layout_metrics)
+      },
+      LayoutProfileRow {
+        family: "floor_planner",
+        id: "v1_bn254_final_exponentiation_hard_part".to_owned(),
+        label: "v1 planner bn254 final exponentiation hard part",
+        term_count: None,
+        public_input_count: None,
+        ..timed_layout_profile_row(groth16_pairing_block_final_exponentiation_hard_part_layout_metrics_v1)
+      },
+      LayoutProfileRow {
+        family: "floor_planner",
+        id: "simple_bn254_pairing_check_groth16_style".to_owned(),
+        label: "simple planner bn254 pairing check groth16-style",
+        term_count: Some(4),
+        public_input_count: Some(1),
+        ..timed_layout_profile_row(groth16_pairing_block_pairing_check_groth16_style_layout_metrics)
+      },
+      LayoutProfileRow {
+        family: "floor_planner",
+        id: "v1_bn254_pairing_check_groth16_style".to_owned(),
+        label: "v1 planner bn254 pairing check groth16-style",
+        term_count: Some(4),
+        public_input_count: Some(1),
+        ..timed_layout_profile_row(groth16_pairing_block_pairing_check_groth16_style_layout_metrics_v1)
       },
     ]);
   }
@@ -1237,8 +1639,9 @@ fn run_execute_wrapper_direct_prove(
     .with_context(|| format!("failed to read verification-key file at {}", vk_path.display()))?;
   let setup_bundle_json = fs::read(setup_path)
     .with_context(|| format!("failed to read setup bundle file at {}", setup_path.display()))?;
-  let setup_bundle: ProducedOuterSetupArtifactBundle = serde_json::from_slice(&setup_bundle_json)
+  let setup_result: DirectWrapperSetupExecutionResultJson = serde_json::from_slice(&setup_bundle_json)
     .with_context(|| format!("failed to parse setup bundle at {}", setup_path.display()))?;
+  let setup_bundle = setup_result.setup_bundle;
   let artifacts = OuterCircuitInputArtifacts::new(
     Some(proof_json.as_slice()),
     Some(verification_key_json.as_slice()),
@@ -1316,6 +1719,137 @@ fn run_execute_wrapper_direct_verify(
     }
   };
   emit_json(&result, output_path, "direct wrapper verification result")
+}
+
+fn run_execute_wrapper_direct_prove_trace(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+  backend_arg: DirectOuterBackendArg,
+  setup_path: &PathBuf,
+  output_path: &PathBuf,
+) -> Result<()> {
+  info!("running direct wrapper prove trace {}", identifier);
+  let log_path = direct_execution_log_path(
+    "execute-wrapper-direct-prove-trace",
+    identifier,
+    backend_arg.backend_id_hint(),
+  );
+  // Safety: this CLI is single-process command execution code and we set the
+  // process environment before entering the heavy backend work so the backend
+  // can discover one log-file path for this invocation.
+  unsafe { std::env::set_var("WRAPPER_DIRECT_LOG_FILE", &log_path) };
+  let package = build_wrapper_execution_package_from_paths(
+    identifier,
+    proof_path,
+    public_path,
+    vk_path,
+    public_input_names,
+  )?;
+  let proof_json = fs::read(proof_path)
+    .with_context(|| format!("failed to read proof file at {}", proof_path.display()))?;
+  let verification_key_json = fs::read(vk_path)
+    .with_context(|| format!("failed to read verification-key file at {}", vk_path.display()))?;
+  let setup_bundle_json = fs::read(setup_path)
+    .with_context(|| format!("failed to read setup bundle file at {}", setup_path.display()))?;
+  let setup_result: DirectWrapperSetupExecutionResultJson = serde_json::from_slice(&setup_bundle_json)
+    .with_context(|| format!("failed to parse setup bundle at {}", setup_path.display()))?;
+  let setup_bundle = setup_result.setup_bundle;
+  let artifacts = OuterCircuitInputArtifacts::new(
+    Some(proof_json.as_slice()),
+    Some(verification_key_json.as_slice()),
+  );
+  let result = match backend_arg {
+    DirectOuterBackendArg::MidnightBn254Host => {
+      execute_wrapper_direct_prove_trace_with_bn254_backend(
+        &MidnightDirectOuterBackendBn254Host,
+        &package,
+        artifacts,
+        setup_path,
+        &setup_bundle,
+        output_path,
+      )?
+    }
+    DirectOuterBackendArg::MidnightBls12381Host => {
+      execute_wrapper_direct_prove_trace_with_bls12_backend(
+        &MidnightDirectOuterBackendBls12Host,
+        &package,
+        artifacts,
+        setup_path,
+        &setup_bundle,
+        output_path,
+      )?
+    }
+  };
+  emit_json(&result, None, "direct wrapper prove trace result")
+}
+
+fn run_execute_wrapper_direct_prove_finalize(
+  identifier: &str,
+  proof_path: &PathBuf,
+  public_path: &PathBuf,
+  vk_path: &PathBuf,
+  public_input_names: &[String],
+  backend_arg: DirectOuterBackendArg,
+  setup_path: &PathBuf,
+  trace_path: &PathBuf,
+  output_path: &PathBuf,
+) -> Result<()> {
+  info!("running direct wrapper prove finalize {}", identifier);
+  let log_path = direct_execution_log_path(
+    "execute-wrapper-direct-prove-finalize",
+    identifier,
+    backend_arg.backend_id_hint(),
+  );
+  // Safety: this CLI is single-process command execution code and we set the
+  // process environment before entering the heavy backend work so the backend
+  // can discover one log-file path for this invocation.
+  unsafe { std::env::set_var("WRAPPER_DIRECT_LOG_FILE", &log_path) };
+  let package = build_wrapper_execution_package_from_paths(
+    identifier,
+    proof_path,
+    public_path,
+    vk_path,
+    public_input_names,
+  )?;
+  let proof_json = fs::read(proof_path)
+    .with_context(|| format!("failed to read proof file at {}", proof_path.display()))?;
+  let verification_key_json = fs::read(vk_path)
+    .with_context(|| format!("failed to read verification-key file at {}", vk_path.display()))?;
+  let setup_bundle_json = fs::read(setup_path)
+    .with_context(|| format!("failed to read setup bundle file at {}", setup_path.display()))?;
+  let setup_result: DirectWrapperSetupExecutionResultJson = serde_json::from_slice(&setup_bundle_json)
+    .with_context(|| format!("failed to parse setup bundle at {}", setup_path.display()))?;
+  let setup_bundle = setup_result.setup_bundle;
+  let artifacts = OuterCircuitInputArtifacts::new(
+    Some(proof_json.as_slice()),
+    Some(verification_key_json.as_slice()),
+  );
+  let result = match backend_arg {
+    DirectOuterBackendArg::MidnightBn254Host => {
+      execute_wrapper_direct_prove_finalize_with_bn254_backend(
+        &MidnightDirectOuterBackendBn254Host,
+        &package,
+        artifacts,
+        setup_path,
+        &setup_bundle,
+        trace_path,
+      )?
+    }
+    DirectOuterBackendArg::MidnightBls12381Host => {
+      execute_wrapper_direct_prove_finalize_with_bls12_backend(
+        &MidnightDirectOuterBackendBls12Host,
+        &package,
+        artifacts,
+        setup_path,
+        &setup_bundle,
+        trace_path,
+      )?
+    }
+  };
+  emit_json(&result, Some(output_path), "direct wrapper produced proof bundle")
 }
 
 fn execute_wrapper_direct_with_backend<B: OuterProofBackend>(
@@ -1397,8 +1931,7 @@ fn execute_wrapper_direct_setup_with_bn254_backend(
     setup_bundle,
     notes: vec![
       format!("executed direct outer setup path with backend {}", backend.backend_id()),
-      "setup result contains reusable proving key material so later prove runs can skip setup"
-        .to_owned(),
+      "setup result persists verification materials plus a proving-key sidecar".to_owned(),
     ],
   })
 }
@@ -1442,8 +1975,7 @@ fn execute_wrapper_direct_setup_with_bls12_backend(
     setup_bundle,
     notes: vec![
       format!("executed direct outer setup path with backend {}", backend.backend_id()),
-      "setup result contains reusable proving key material so later prove runs can skip setup"
-        .to_owned(),
+      "setup result persists verification materials plus a proving-key sidecar".to_owned(),
     ],
   })
 }
@@ -1466,7 +1998,7 @@ fn execute_wrapper_direct_prove_with_bn254_backend(
   let mut proving_key_reader = BufReader::new(proving_key_file);
   let produced_bundle = backend
     .produce_proof_bundle_from_setup_reader(package, &circuit, setup_bundle, &mut proving_key_reader)
-    .context("direct wrapper prove failed while reusing setup bundle")?;
+    .context("direct wrapper prove failed while reusing persisted proving-key sidecar")?;
 
   Ok(DirectWrapperProveExecutionResult {
     job_id: package.job.identifier.clone(),
@@ -1476,7 +2008,7 @@ fn execute_wrapper_direct_prove_with_bn254_backend(
     produced_bundle,
     notes: vec![
       format!("executed direct outer prove path with backend {}", backend.backend_id()),
-      "prove reused a persisted setup bundle instead of rerunning setup".to_owned(),
+      "prove reused a persisted proving-key sidecar and avoided rerunning keygen_pk".to_owned(),
     ],
   })
 }
@@ -1499,7 +2031,7 @@ fn execute_wrapper_direct_prove_with_bls12_backend(
   let mut proving_key_reader = BufReader::new(proving_key_file);
   let produced_bundle = backend
     .produce_proof_bundle_from_setup_reader(package, &circuit, setup_bundle, &mut proving_key_reader)
-    .context("direct wrapper prove failed while reusing setup bundle")?;
+    .context("direct wrapper prove failed while reusing persisted BLS12 proving-key sidecar")?;
 
   Ok(DirectWrapperProveExecutionResult {
     job_id: package.job.identifier.clone(),
@@ -1509,9 +2041,26 @@ fn execute_wrapper_direct_prove_with_bls12_backend(
     produced_bundle,
     notes: vec![
       format!("executed direct outer prove path with backend {}", backend.backend_id()),
-      "prove reused a persisted setup bundle instead of rerunning setup".to_owned(),
+      "prove reused a persisted proving-key sidecar and avoided rerunning keygen_pk".to_owned(),
     ],
   })
+}
+
+fn proving_key_sidecar_path(setup_manifest_path: &PathBuf) -> PathBuf {
+  let mut file_name = setup_manifest_path
+    .file_name()
+    .and_then(|name| name.to_str())
+    .unwrap_or("direct-setup.json")
+    .to_owned();
+  file_name.push_str(".pk");
+  setup_manifest_path.with_file_name(file_name)
+}
+
+fn resolve_setup_sidecar_path(
+  setup_manifest_path: &PathBuf,
+  setup_bundle: &ProducedOuterSetupArtifactBundle,
+) -> PathBuf {
+  setup_manifest_path.with_file_name(&setup_bundle.proving_key.proving_key_artifact)
 }
 
 fn execute_wrapper_direct_verify_with_backend<B: OuterProofBackend>(
@@ -1539,28 +2088,265 @@ fn execute_wrapper_direct_verify_with_backend<B: OuterProofBackend>(
   })
 }
 
+fn execute_wrapper_direct_prove_trace_with_bn254_backend(
+  backend: &MidnightDirectOuterBackendBn254Host,
+  package: &WrapperExecutionPackage,
+  artifacts: OuterCircuitInputArtifacts<'_>,
+  setup_path: &PathBuf,
+  setup_bundle: &ProducedOuterSetupArtifactBundle,
+  output_path: &PathBuf,
+) -> Result<DirectWrapperProveTraceExecutionResult> {
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-trace",
+    &package.job.identifier,
+    backend.backend_id(),
+    "start",
+  );
+  let started_at = Instant::now();
+  let circuit = backend
+    .build_outer_circuit(package, artifacts)
+    .context("direct wrapper prove trace failed while building outer circuit")?;
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-trace",
+    &package.job.identifier,
+    backend.backend_id(),
+    "outer circuit built",
+  );
+  let proving_key_path = resolve_setup_sidecar_path(setup_path, setup_bundle);
+  let proving_key_file = fs::File::open(&proving_key_path).with_context(|| {
+    format!("failed to open proving-key sidecar file at {}", proving_key_path.display())
+  })?;
+  let mut proving_key_reader = BufReader::new(proving_key_file);
+  let trace_file = fs::File::create(output_path)
+    .with_context(|| format!("failed to create prover trace artifact at {}", output_path.display()))?;
+  let mut trace_writer = BufWriter::new(trace_file);
+  backend
+    .produce_proof_trace_from_setup_reader(
+      package,
+      &circuit,
+      setup_bundle,
+      &mut proving_key_reader,
+      &mut trace_writer,
+    )
+    .context("direct wrapper prove trace failed while producing persisted prover trace")?;
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-trace",
+    &package.job.identifier,
+    backend.backend_id(),
+    &format!(
+      "prove trace complete ({} ms) -> {}",
+      started_at.elapsed().as_millis(),
+      output_path.display()
+    ),
+  );
+
+  Ok(DirectWrapperProveTraceExecutionResult {
+    job_id: package.job.identifier.clone(),
+    backend: backend.backend_id().to_owned(),
+    outer_host: backend.metadata().outer_host.id().to_owned(),
+    trace_elapsed_ms: started_at.elapsed().as_millis(),
+    trace_artifact: output_path.display().to_string(),
+    notes: vec![
+      format!("executed direct outer prove first stage with backend {}", backend.backend_id()),
+      "trace artifact captures proving state immediately before the compute_h_poly/finalization stage"
+        .to_owned(),
+    ],
+  })
+}
+
+fn execute_wrapper_direct_prove_trace_with_bls12_backend(
+  backend: &MidnightDirectOuterBackendBls12Host,
+  package: &WrapperExecutionPackage,
+  artifacts: OuterCircuitInputArtifacts<'_>,
+  setup_path: &PathBuf,
+  setup_bundle: &ProducedOuterSetupArtifactBundle,
+  output_path: &PathBuf,
+) -> Result<DirectWrapperProveTraceExecutionResult> {
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-trace",
+    &package.job.identifier,
+    backend.backend_id(),
+    "start",
+  );
+  let started_at = Instant::now();
+  let circuit = backend
+    .build_outer_circuit(package, artifacts)
+    .context("direct wrapper BLS12 prove trace failed while building outer circuit")?;
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-trace",
+    &package.job.identifier,
+    backend.backend_id(),
+    "outer circuit built",
+  );
+  let proving_key_path = resolve_setup_sidecar_path(setup_path, setup_bundle);
+  let proving_key_file = fs::File::open(&proving_key_path).with_context(|| {
+    format!("failed to open proving-key sidecar file at {}", proving_key_path.display())
+  })?;
+  let mut proving_key_reader = BufReader::new(proving_key_file);
+  let trace_file = fs::File::create(output_path)
+    .with_context(|| format!("failed to create prover trace artifact at {}", output_path.display()))?;
+  let mut trace_writer = BufWriter::new(trace_file);
+  backend
+    .produce_proof_trace_from_setup_reader(
+      package,
+      &circuit,
+      setup_bundle,
+      &mut proving_key_reader,
+      &mut trace_writer,
+    )
+    .context("direct wrapper BLS12 prove trace failed while producing persisted prover trace")?;
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-trace",
+    &package.job.identifier,
+    backend.backend_id(),
+    &format!(
+      "prove trace complete ({} ms) -> {}",
+      started_at.elapsed().as_millis(),
+      output_path.display()
+    ),
+  );
+
+  Ok(DirectWrapperProveTraceExecutionResult {
+    job_id: package.job.identifier.clone(),
+    backend: backend.backend_id().to_owned(),
+    outer_host: backend.metadata().outer_host.id().to_owned(),
+    trace_elapsed_ms: started_at.elapsed().as_millis(),
+    trace_artifact: output_path.display().to_string(),
+    notes: vec![
+      format!("executed direct outer prove first stage with backend {}", backend.backend_id()),
+      "trace artifact captures proving state immediately before the compute_h_poly/finalization stage"
+        .to_owned(),
+    ],
+  })
+}
+
+fn execute_wrapper_direct_prove_finalize_with_bn254_backend(
+  backend: &MidnightDirectOuterBackendBn254Host,
+  package: &WrapperExecutionPackage,
+  artifacts: OuterCircuitInputArtifacts<'_>,
+  setup_path: &PathBuf,
+  setup_bundle: &ProducedOuterSetupArtifactBundle,
+  trace_path: &PathBuf,
+) -> Result<DirectWrapperProveExecutionResult> {
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-finalize",
+    &package.job.identifier,
+    backend.backend_id(),
+    "start",
+  );
+  let started_at = Instant::now();
+  let circuit = backend
+    .build_outer_circuit(package, artifacts)
+    .context("direct wrapper prove finalize failed while building outer circuit")?;
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-finalize",
+    &package.job.identifier,
+    backend.backend_id(),
+    "outer circuit built",
+  );
+  let proving_key_path = resolve_setup_sidecar_path(setup_path, setup_bundle);
+  let proving_key_file = fs::File::open(&proving_key_path).with_context(|| {
+    format!("failed to open proving-key sidecar file at {}", proving_key_path.display())
+  })?;
+  let mut proving_key_reader = BufReader::new(proving_key_file);
+  let trace_file = fs::File::open(trace_path)
+    .with_context(|| format!("failed to open prover trace artifact at {}", trace_path.display()))?;
+  let mut trace_reader = BufReader::new(trace_file);
+  let produced_bundle = backend
+    .produce_proof_bundle_from_trace_reader(
+      package,
+      &circuit,
+      setup_bundle,
+      &mut proving_key_reader,
+      &mut trace_reader,
+    )
+    .context("direct wrapper prove finalize failed while finalizing from persisted prover trace")?;
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-finalize",
+    &package.job.identifier,
+    backend.backend_id(),
+    &format!("prove finalize complete ({} ms)", started_at.elapsed().as_millis()),
+  );
+
+  Ok(DirectWrapperProveExecutionResult {
+    job_id: package.job.identifier.clone(),
+    backend: backend.backend_id().to_owned(),
+    outer_host: backend.metadata().outer_host.id().to_owned(),
+    prove_elapsed_ms: started_at.elapsed().as_millis(),
+    produced_bundle,
+    notes: vec![
+      format!("executed direct outer prove finalization path with backend {}", backend.backend_id()),
+      "prove finalization resumed from a persisted pre-compute_h_poly trace artifact".to_owned(),
+    ],
+  })
+}
+
+fn execute_wrapper_direct_prove_finalize_with_bls12_backend(
+  backend: &MidnightDirectOuterBackendBls12Host,
+  package: &WrapperExecutionPackage,
+  artifacts: OuterCircuitInputArtifacts<'_>,
+  setup_path: &PathBuf,
+  setup_bundle: &ProducedOuterSetupArtifactBundle,
+  trace_path: &PathBuf,
+) -> Result<DirectWrapperProveExecutionResult> {
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-finalize",
+    &package.job.identifier,
+    backend.backend_id(),
+    "start",
+  );
+  let started_at = Instant::now();
+  let circuit = backend
+    .build_outer_circuit(package, artifacts)
+    .context("direct wrapper BLS12 prove finalize failed while building outer circuit")?;
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-finalize",
+    &package.job.identifier,
+    backend.backend_id(),
+    "outer circuit built",
+  );
+  let proving_key_path = resolve_setup_sidecar_path(setup_path, setup_bundle);
+  let proving_key_file = fs::File::open(&proving_key_path).with_context(|| {
+    format!("failed to open proving-key sidecar file at {}", proving_key_path.display())
+  })?;
+  let mut proving_key_reader = BufReader::new(proving_key_file);
+  let trace_file = fs::File::open(trace_path)
+    .with_context(|| format!("failed to open prover trace artifact at {}", trace_path.display()))?;
+  let mut trace_reader = BufReader::new(trace_file);
+  let produced_bundle = backend
+    .produce_proof_bundle_from_trace_reader(
+      package,
+      &circuit,
+      setup_bundle,
+      &mut proving_key_reader,
+      &mut trace_reader,
+    )
+    .context("direct wrapper BLS12 prove finalize failed while finalizing from persisted prover trace")?;
+  let _ = append_direct_execution_log(
+    "execute-wrapper-direct-prove-finalize",
+    &package.job.identifier,
+    backend.backend_id(),
+    &format!("prove finalize complete ({} ms)", started_at.elapsed().as_millis()),
+  );
+
+  Ok(DirectWrapperProveExecutionResult {
+    job_id: package.job.identifier.clone(),
+    backend: backend.backend_id().to_owned(),
+    outer_host: backend.metadata().outer_host.id().to_owned(),
+    prove_elapsed_ms: started_at.elapsed().as_millis(),
+    produced_bundle,
+    notes: vec![
+      format!("executed direct outer prove finalization path with backend {}", backend.backend_id()),
+      "prove finalization resumed from a persisted pre-compute_h_poly trace artifact".to_owned(),
+    ],
+  })
+}
+
 fn emit_execution_result(
   result: &WrapperExecutionResult,
   output_path: Option<&PathBuf>,
 ) -> Result<()> {
   emit_json(result, output_path, "wrapper execution result")
-}
-
-fn proving_key_sidecar_path(setup_manifest_path: &PathBuf) -> PathBuf {
-  let mut file_name = setup_manifest_path
-    .file_name()
-    .and_then(|name| name.to_str())
-    .unwrap_or("direct-setup.json")
-    .to_owned();
-  file_name.push_str(".pk");
-  setup_manifest_path.with_file_name(file_name)
-}
-
-fn resolve_setup_sidecar_path(
-  setup_manifest_path: &PathBuf,
-  setup_bundle: &ProducedOuterSetupArtifactBundle,
-) -> PathBuf {
-  setup_manifest_path.with_file_name(&setup_bundle.proving_key.proving_key_artifact)
 }
 
 fn emit_json<T: Serialize>(

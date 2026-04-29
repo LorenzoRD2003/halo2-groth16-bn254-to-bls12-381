@@ -259,7 +259,7 @@ pub struct DirectOuterProofPlan {
   pub notes: Vec<String>,
 }
 
-/// Produced JSON payload for one reusable outer proving key.
+/// Produced JSON payload for one reusable outer proving key sidecar.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProducedOuterProvingKeyJson {
   /// Proof-system protocol label.
@@ -289,7 +289,7 @@ pub struct ProducedOuterSetupArtifactBundle {
   pub outer_host: String,
   /// Produced verification-key payload.
   pub verification_key: ProducedOuterVerificationKeyJson,
-  /// Produced reusable proving-key payload.
+  /// Produced reusable proving-key payload descriptor.
   pub proving_key: ProducedOuterProvingKeyJson,
   /// Notes about production/setup state.
   pub notes: Vec<String>,

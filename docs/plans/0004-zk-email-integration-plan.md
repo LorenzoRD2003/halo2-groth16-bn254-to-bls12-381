@@ -20,6 +20,18 @@ Important constraint:
 
 - the current inner-proof ingestion path in this repository is still the narrow `snarkjs` Groth16 BN254 path described in [crates/wrapper-backends/src/snarkjs.rs](../crates/wrapper-backends/src/snarkjs.rs), [crates/wrapper-backends/src/groth16.rs](../crates/wrapper-backends/src/groth16.rs), and [docs/plutus-aiken-integration-plan.md](./plutus-aiken-integration-plan.md)
 
+Current outer-lane execution note:
+
+- the repository now exposes split direct commands:
+  - `execute-wrapper-direct-setup`
+  - `execute-wrapper-direct-prove`
+  - `execute-wrapper-direct-verify`
+- direct execution commands now enforce a `24 GiB` process memory limit
+- the direct setup artifact is now lean: it persists verification materials and
+  metadata, and `prove` rebuilds proving-only state lazily
+- this behavior is documented in
+  [docs/decisions/0003-direct-outer-setup-cost-reduction.md](./decisions/0003-direct-outer-setup-cost-reduction.md)
+
 That means the first ZK Email milestone should be treated as:
 
 - a real Circom-origin integration study that reuses the current Semaphore-style artifact path
@@ -766,6 +778,12 @@ Phase 4 is complete when:
 1. the direct BLS12-381 lane succeeds on the committed fixture
 2. the produced artifact shape remains compatible with the direct outer artifact contract
 3. we know whether the fixture is small enough to include in always-run profiling/bench coverage without turning that profiling path into application-specific infrastructure
+
+Current practical note:
+
+- for expensive fixtures, use the split direct commands instead of the legacy
+  monolithic `execute-wrapper-direct` path so setup is not recomputed on every
+  proof attempt
 
 Sources:
 

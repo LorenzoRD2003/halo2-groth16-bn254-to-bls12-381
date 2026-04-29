@@ -7,10 +7,10 @@ use midnight_circuits::midnight_proofs::{
 
 use super::{
   AssignedFp, AssignedFp2, AssignedFp6, AssignedFp12, AssignedG2Affine, Bn254FieldChip,
-  Bn254FieldConfig, ForeignField, Fp2Value, G2AffineConstant, G2AffineValue, G2LineCoeffsConstant,
-  G2LineCoeffsValue, G2MillerPointConstant, NativeField, bn254_final_exponentiation_constant,
-  fp12_mul_constant, fp12_one_constant, fp12_square_constant, g1_generator_constant,
-  g2_affine_from_miller_point_constant, g2_curve_coeff_b, g2_generator,
+  Bn254FieldConfig, ForeignField, Fp2Value, G2AffineConstant,
+  G2AffineValue, G2LineCoeffsConstant, G2LineCoeffsValue, G2MillerPointConstant, NativeField,
+  bn254_final_exponentiation_constant, fp12_mul_constant, fp12_one_constant, fp12_square_constant,
+  g1_generator_constant, g2_affine_from_miller_point_constant, g2_curve_coeff_b, g2_generator,
   g2_line_evaluation_constant, g2_miller_double_with_line_constant,
   g2_miller_mixed_add_with_line_constant, g2_miller_point_from_affine_constant,
 };
@@ -1309,9 +1309,9 @@ where
   // cyclotomic * unitary_inverse(cyclotomic)
   let y7 =
     y4.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, &y6, &y4_sum, &y6_diff)?;
-  let y7_sum = y7.sum_components(chip, layouter)?;
   // cyclotomic * unitary_inverse(cyclotomic)
-  let mut y8 =
+  let y7_sum = y7.sum_components(chip, layouter)?;
+  let y8 =
     y7.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, &y3, &y7_sum, &y3_diff)?;
   let y8_sum = y8.sum_components(chip, layouter)?;
   // cyclotomic * cyclotomic
@@ -1321,31 +1321,26 @@ where
   // cyclotomic * cyclotomic
   let y10_components_sum = y10.sum_components(chip, layouter)?;
   let y11 = y10.mul_with_precomputed_sums(chip, layouter, &r, &y10_components_sum, &r_sum)?;
-  let mut y12 = y9.frobenius_map(chip, layouter, 1)?;
-  // frobenius(cyclotomic) * cyclotomic
-  let y12_components_sum = y12.sum_components(chip, layouter)?;
   let y11_components_sum = y11.sum_components(chip, layouter)?;
-  y12 = y12.mul_with_precomputed_sums(
+  // frobenius(cyclotomic) * cyclotomic
+  let y12 = y9.frobenius_mul_with_precomputed_rhs_sum(
     chip,
     layouter,
+    1,
     &y11,
-    &y12_components_sum,
     &y11_components_sum,
   )?;
-  y8 = y8.frobenius_map(chip, layouter, 2)?;
-  // frobenius(cyclotomic) * cyclotomic
-  let y8_frob_sum = y8.sum_components(chip, layouter)?;
   let y12_after_mul_sum = y12.sum_components(chip, layouter)?;
-  let y14 = y8.mul_with_precomputed_sums(chip, layouter, &y12, &y8_frob_sum, &y12_after_mul_sum)?;
+  // frobenius(cyclotomic) * cyclotomic
+  let y14 =
+    y8.frobenius_mul_with_precomputed_rhs_sum(chip, layouter, 2, &y12, &y12_after_mul_sum)?;
   // cyclotomic * unitary_inverse(cyclotomic)
   let y9_sum = y9.sum_components(chip, layouter)?;
-  let mut y15 =
+  let y15 =
     y9.mul_by_unitary_inverse_with_precomputed_sums(chip, layouter, &r, &y9_sum, &r_diff)?;
-  y15 = y15.frobenius_map(chip, layouter, 3)?;
-  // frobenius(cyclotomic) * cyclotomic
-  let y15_components_sum = y15.sum_components(chip, layouter)?;
   let y14_components_sum = y14.sum_components(chip, layouter)?;
-  y15.mul_with_precomputed_sums(chip, layouter, &y14, &y15_components_sum, &y14_components_sum)
+  // frobenius(cyclotomic) * cyclotomic
+  y15.frobenius_mul_with_precomputed_rhs_sum(chip, layouter, 3, &y14, &y14_components_sum)
 }
 
 pub fn final_exponentiation_on_host<FHost>(

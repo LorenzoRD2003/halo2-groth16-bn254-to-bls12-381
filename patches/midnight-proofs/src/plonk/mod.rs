@@ -29,7 +29,7 @@ pub(crate) mod evaluation;
 mod keygen;
 pub(crate) mod lookup;
 pub mod permutation;
-pub(crate) mod traces;
+pub mod traces;
 pub(crate) mod trash;
 pub(crate) mod vanishing;
 
@@ -355,6 +355,19 @@ pub struct BaseProvingKey<F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
     pub(crate) permutation: permutation::BaseProvingKey<F>,
 }
 
+/// Derived proving state required only during the final proof phase.
+#[derive(Clone, Debug)]
+pub struct FinalizingKey<F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
+    pub(crate) vk: VerifyingKey<F, CS>,
+    pub(crate) l0: Polynomial<F, ExtendedLagrangeCoeff>,
+    pub(crate) l_last: Polynomial<F, ExtendedLagrangeCoeff>,
+    pub(crate) l_active_row: Polynomial<F, ExtendedLagrangeCoeff>,
+    pub(crate) fixed_polys: Vec<Polynomial<F, Coeff>>,
+    pub(crate) fixed_cosets: Vec<Polynomial<F, ExtendedLagrangeCoeff>>,
+    pub(crate) permutation: permutation::FinalizingKey<F>,
+    pub(crate) ev: Evaluator<F>,
+}
+
 impl<F: WithSmallOrderMulGroup<3>, CS: PolynomialCommitmentScheme<F>> ProvingKey<F, CS>
 where
     F: FromUniformBytes<64>,
@@ -380,6 +393,26 @@ where
     /// Get the underlying [`VerifyingKey`].
     pub fn get_vk(&self) -> &VerifyingKey<F, CS> {
         &self.vk
+    }
+}
+
+impl<F: PrimeField, CS: PolynomialCommitmentScheme<F>> From<&ProvingKey<F, CS>>
+    for FinalizingKey<F, CS>
+{
+    fn from(value: &ProvingKey<F, CS>) -> Self {
+        Self {
+            vk: value.vk.clone(),
+            l0: value.l0.clone(),
+            l_last: value.l_last.clone(),
+            l_active_row: value.l_active_row.clone(),
+            fixed_polys: value.fixed_polys.clone(),
+            fixed_cosets: value.fixed_cosets.clone(),
+            permutation: permutation::FinalizingKey {
+                polys: value.permutation.polys.clone(),
+                cosets: value.permutation.cosets.clone(),
+            },
+            ev: value.ev.clone(),
+        }
     }
 }
 
@@ -466,6 +499,36 @@ where
             l_last,
             l_active_row,
             fixed_values: self.fixed_values,
+            fixed_polys,
+            fixed_cosets,
+            permutation,
+            ev,
+        }
+    }
+
+    /// Promotes the lean setup artifact into only the derived proving state
+    /// required during the final proof phase.
+    pub fn finalize_for_finalise(self) -> FinalizingKey<F, CS> {
+        let [l0, l_last, l_active_row] = keygen::compute_lagrange_polys(&self.vk, &self.vk.cs);
+        let fixed_polys: Vec<_> = self
+            .fixed_values
+            .iter()
+            .map(|poly| self.vk.domain.lagrange_to_coeff(poly.clone()))
+            .collect();
+        let fixed_cosets = fixed_polys
+            .iter()
+            .map(|poly| self.vk.domain.coeff_to_extended(poly.clone()))
+            .collect();
+        let permutation = self
+            .permutation
+            .finalize_for_finalise(&self.vk.domain, &self.vk.cs.permutation);
+        let ev = Evaluator::new(self.vk.cs());
+
+        FinalizingKey {
+            vk: self.vk,
+            l0,
+            l_last,
+            l_active_row,
             fixed_polys,
             fixed_cosets,
             permutation,

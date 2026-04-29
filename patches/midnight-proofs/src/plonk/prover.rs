@@ -7,6 +7,7 @@ use std::{
 
 use ff::{Field, FromUniformBytes, PrimeField, WithSmallOrderMulGroup};
 use rand_core::{CryptoRng, RngCore};
+use midnight_curves::serde::SerdeObject;
 
 use super::{
     circuit::{
@@ -14,13 +15,14 @@ use super::{
         Advice, Any, Assignment, Challenge, Circuit, Column, ConstraintSystem, Fixed, FloorPlanner,
         Instance, Selector,
     },
-    lookup, permutation, vanishing, Error, ProvingKey,
+    lookup, permutation, BaseProvingKey, Error, FinalizingKey, ProvingKey, VerifyingKey,
+    vanishing,
 };
 #[cfg(feature = "committed-instances")]
 use crate::poly::EvaluationDomain;
 use crate::{
     circuit::Value,
-    plonk::{traces::ProverTrace, trash},
+    plonk::{traces::{PersistedProverTrace, ProverTrace}, trash},
     poly::{
         batch_invert_rational, commitment::PolynomialCommitmentScheme, Coeff,
         ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, PolynomialRepresentation, ProverQuery,
@@ -205,22 +207,166 @@ where
     // Obtain challenge for keeping all separate gates linearly independent
     let y: F = transcript.squeeze_challenge();
 
-    let (instance_polys, instance_values) =
-        instance.into_iter().map(|i| (i.instance_polys, i.instance_values)).unzip();
-
-    let advice_polys = advice
-        .into_iter()
-        .map(|a| {
-            a.advice_polys
-                .into_iter()
-                .map(|p| domain.lagrange_to_coeff(p))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    let advice_values = advice.into_iter().map(|a| a.advice_polys).collect::<Vec<_>>();
+    let instance_values = instance.into_iter().map(|i| i.instance_values).collect::<Vec<_>>();
 
     Ok(ProverTrace {
-        advice_polys,
-        instance_polys,
+        advice_values,
+        instance_values,
+        vanishing,
+        lookups,
+        trashcans,
+        permutations,
+        challenges,
+        beta,
+        gamma,
+        theta,
+        trash_challenge,
+        y,
+    })
+}
+
+pub(crate) fn compute_trace_from_base<
+    F,
+    CS: PolynomialCommitmentScheme<F>,
+    T: Transcript,
+    ConcreteCircuit: Circuit<F>,
+>(
+    params: &CS::Parameters,
+    pk: &BaseProvingKey<F, CS>,
+    circuits: &[ConcreteCircuit],
+    #[cfg(feature = "committed-instances")] nb_committed_instances: usize,
+    instances: &[&[&[F]]],
+    mut rng: impl RngCore + CryptoRng,
+    transcript: &mut T,
+) -> Result<ProverTrace<F>, Error>
+where
+    CS::Commitment: Hashable<T::Hash>,
+    F: WithSmallOrderMulGroup<3>
+        + Sampleable<T::Hash>
+        + Hashable<T::Hash>
+        + Hash
+        + Ord
+        + FromUniformBytes<64>,
+{
+    #[cfg(not(feature = "committed-instances"))]
+    let nb_committed_instances: usize = 0;
+
+    if circuits.len() != instances.len() {
+        return Err(Error::InvalidInstances);
+    }
+
+    for instances in instances.iter() {
+        if instances.len() != pk.vk.cs.num_instance_columns
+            || instances.len() < nb_committed_instances
+        {
+            return Err(Error::InvalidInstances);
+        }
+    }
+
+    pk.vk.hash_into(transcript)?;
+    let domain = &pk.vk.domain;
+
+    let instance =
+        compute_instances_from_vk::<F, CS, T>(params, &pk.vk, instances, nb_committed_instances, transcript)?;
+
+    let (advice, challenges) =
+        parse_advices_from_vk::<F, CS, ConcreteCircuit, T>(params, &pk.vk, circuits, instances, transcript, &mut rng)?;
+
+    let theta: F = transcript.squeeze_challenge();
+
+    let lookups: Vec<Vec<lookup::prover::Permuted<F>>> = instance
+        .iter()
+        .zip(advice.iter())
+        .map(|(instance, advice)| -> Result<Vec<_>, Error> {
+            pk.vk
+                .cs
+                .lookups
+                .iter()
+                .map(|lookup| {
+                    lookup.commit_permuted_base(
+                        &pk.vk,
+                        params,
+                        domain,
+                        theta,
+                        &advice.advice_polys,
+                        &pk.fixed_values,
+                        &instance.instance_values,
+                        &challenges,
+                        &mut rng,
+                        transcript,
+                    )
+                })
+                .collect()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let beta: F = transcript.squeeze_challenge();
+    let gamma: F = transcript.squeeze_challenge();
+
+    let permutations: Vec<permutation::prover::Committed<F>> = instance
+        .iter()
+        .zip(advice.iter())
+        .map(|(instance, advice)| {
+            pk.vk.cs.permutation.commit_base(
+                params,
+                &pk.vk,
+                &pk.permutation,
+                &advice.advice_polys,
+                &pk.fixed_values,
+                &instance.instance_values,
+                beta,
+                gamma,
+                &mut rng,
+                transcript,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let lookups: Vec<Vec<lookup::prover::Committed<F>>> = lookups
+        .into_iter()
+        .map(|lookups| -> Result<Vec<_>, _> {
+            lookups
+                .into_iter()
+                .map(|lookup| lookup.commit_product_base(&pk.vk, params, beta, gamma, &mut rng, transcript))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let trash_challenge: F = transcript.squeeze_challenge();
+
+    let trashcans: Vec<Vec<trash::prover::Committed<F>>> = instance
+        .iter()
+        .zip(advice.iter())
+        .map(|(instance, advice)| -> Result<Vec<_>, Error> {
+            pk.vk
+                .cs
+                .trashcans
+                .iter()
+                .map(|trash| {
+                    trash.commit::<CS, _>(
+                        params,
+                        domain,
+                        trash_challenge,
+                        &advice.advice_polys,
+                        &pk.fixed_values,
+                        &instance.instance_values,
+                        &challenges,
+                        transcript,
+                    )
+                })
+                .collect()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let vanishing = vanishing::Argument::<F, CS>::commit(params, domain, &mut rng, transcript)?;
+    let y: F = transcript.squeeze_challenge();
+
+    let advice_values = advice.into_iter().map(|a| a.advice_polys).collect::<Vec<_>>();
+    let instance_values = instance.into_iter().map(|i| i.instance_values).collect::<Vec<_>>();
+
+    Ok(ProverTrace {
+        advice_values,
         instance_values,
         vanishing,
         lookups,
@@ -242,7 +388,7 @@ where
 /// are zero-padded internally.
 pub(crate) fn finalise_proof<'a, F, CS: PolynomialCommitmentScheme<F>, T: Transcript>(
     params: &'a CS::Parameters,
-    pk: &'a ProvingKey<F, CS>,
+    pk: &'a FinalizingKey<F, CS>,
     // The prover needs to get all instances in non-committed form. However,
     // the first `nb_committed_instances` instance columns are dedicated for
     // instances that the verifier receives in committed form.
@@ -262,19 +408,38 @@ where
     #[cfg(not(feature = "committed-instances"))]
     let nb_committed_instances: usize = 0;
 
-    let domain = pk.get_vk().get_domain();
+    let domain = pk.vk.get_domain();
 
     let h_poly = compute_h_poly(pk, &trace);
 
     let ProverTrace {
-        advice_polys,
-        instance_polys,
+        advice_values,
+        instance_values,
         lookups,
         trashcans,
         permutations,
         vanishing,
         ..
     } = trace;
+
+    let advice_polys = advice_values
+        .iter()
+        .map(|advice_values| {
+            advice_values
+                .iter()
+                .map(|p| domain.lagrange_to_coeff(p.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let instance_polys = instance_values
+        .iter()
+        .map(|instance_values| {
+            instance_values
+                .iter()
+                .map(|p| domain.lagrange_to_coeff(p.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
 
     // Construct the vanishing argument's h(X) commitments
     let vanishing = vanishing.construct::<CS, T>(params, domain, h_poly, transcript)?;
@@ -298,7 +463,7 @@ where
     // Evaluate the permutations, if any, at omega^i x.
     let permutations: Vec<permutation::prover::Evaluated<F>> = permutations
         .into_iter()
-        .map(|permutation| -> Result<_, _> { permutation.evaluate(pk, x, transcript) })
+        .map(|permutation| -> Result<_, _> { permutation.evaluate_finalizing(pk, x, transcript) })
         .collect::<Result<Vec<_>, _>>()?;
 
     // Evaluate the lookups, if any, at omega^i x.
@@ -307,7 +472,7 @@ where
         .map(|lookups| -> Result<Vec<_>, _> {
             lookups
                 .into_iter()
-                .map(|p| p.evaluate(pk, x, transcript))
+                .map(|p| p.evaluate_finalizing(pk, x, transcript))
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -378,9 +543,127 @@ where
         rng,
         transcript,
     )?;
+    let finalizing = FinalizingKey::from(pk);
     finalise_proof(
         params,
+        &finalizing,
+        #[cfg(feature = "committed-instances")]
+        nb_committed_instances,
+        trace,
+        transcript,
+    )
+}
+
+/// Creates a proof from a lean proving-state setup artifact.
+pub fn create_proof_from_base<
+    F,
+    CS: PolynomialCommitmentScheme<F>,
+    T: Transcript,
+    ConcreteCircuit: Circuit<F>,
+>(
+    params: &CS::Parameters,
+    pk: BaseProvingKey<F, CS>,
+    circuits: &[ConcreteCircuit],
+    #[cfg(feature = "committed-instances")] nb_committed_instances: usize,
+    instances: &[&[&[F]]],
+    rng: impl RngCore + CryptoRng,
+    transcript: &mut T,
+) -> Result<(), Error>
+where
+    CS::Commitment: Hashable<T::Hash>,
+    F: WithSmallOrderMulGroup<3>
+        + Sampleable<T::Hash>
+        + Hashable<T::Hash>
+        + Hash
+        + Ord
+        + FromUniformBytes<64>,
+{
+    let trace = compute_trace_from_base(
+        params,
+        &pk,
+        circuits,
+        #[cfg(feature = "committed-instances")]
+        nb_committed_instances,
+        instances,
+        rng,
+        transcript,
+    )?;
+    let pk = pk.finalize_for_finalise();
+    finalise_proof(
+        params,
+        &pk,
+        #[cfg(feature = "committed-instances")]
+        nb_committed_instances,
+        trace,
+        transcript,
+    )
+}
+
+/// Computes and persists the first stage of proving from a lean setup artifact.
+pub fn create_proof_trace_from_base<
+    F,
+    CS: PolynomialCommitmentScheme<F>,
+    T: Transcript + Clone,
+    ConcreteCircuit: Circuit<F>,
+>(
+    params: &CS::Parameters,
+    pk: &BaseProvingKey<F, CS>,
+    circuits: &[ConcreteCircuit],
+    #[cfg(feature = "committed-instances")] nb_committed_instances: usize,
+    instances: &[&[&[F]]],
+    rng: impl RngCore + CryptoRng,
+    transcript: &mut T,
+) -> Result<PersistedProverTrace<F>, Error>
+where
+    CS::Commitment: Hashable<T::Hash>,
+    F: WithSmallOrderMulGroup<3>
+        + Sampleable<T::Hash>
+        + Hashable<T::Hash>
+        + Hash
+        + Ord
+        + FromUniformBytes<64>
+        + PrimeField
+        + SerdeObject,
+{
+    let trace = compute_trace_from_base(
+        params,
         pk,
+        circuits,
+        #[cfg(feature = "committed-instances")]
+        nb_committed_instances,
+        instances,
+        rng,
+        transcript,
+    )?;
+    Ok(PersistedProverTrace::new(transcript.clone().finalize(), trace))
+}
+
+/// Finalizes a proof from a persisted first-stage prover trace.
+pub fn finalise_proof_from_base_trace<
+    F,
+    CS: PolynomialCommitmentScheme<F>,
+    T: Transcript,
+>(
+    params: &CS::Parameters,
+    pk: BaseProvingKey<F, CS>,
+    #[cfg(feature = "committed-instances")] nb_committed_instances: usize,
+    persisted_trace: PersistedProverTrace<F>,
+    transcript: &mut T,
+) -> Result<(), Error>
+where
+    CS::Commitment: Hashable<T::Hash>,
+    F: WithSmallOrderMulGroup<3>
+        + Sampleable<T::Hash>
+        + Hashable<T::Hash>
+        + Hash
+        + Ord
+        + FromUniformBytes<64>,
+{
+    let trace = persisted_trace.into_trace();
+    let pk = pk.finalize_for_finalise();
+    finalise_proof(
+        params,
+        &pk,
         #[cfg(feature = "committed-instances")]
         nb_committed_instances,
         trace,
@@ -439,18 +722,59 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let instance_polys: Vec<_> = instance_values
-                .iter()
-                .map(|poly| {
-                    let lagrange_vec = pk.vk.domain.lagrange_from_vec(poly.to_vec());
-                    pk.vk.domain.lagrange_to_coeff(lagrange_vec)
-                })
-                .collect();
+            Ok(InstanceSingle { instance_values })
+        })
+        .collect::<Result<Vec<_>, _>>()
+}
 
-            Ok(InstanceSingle {
-                instance_values,
-                instance_polys,
-            })
+pub(super) fn compute_instances_from_vk<F, CS, T>(
+    params: &CS::Parameters,
+    vk: &VerifyingKey<F, CS>,
+    instances: &[&[&[F]]],
+    nb_committed_instances: usize,
+    transcript: &mut T,
+) -> Result<Vec<InstanceSingle<F>>, Error>
+where
+    T: Transcript,
+    CS: PolynomialCommitmentScheme<F>,
+    CS::Commitment: Hashable<T::Hash>,
+    F: WithSmallOrderMulGroup<3>
+        + Sampleable<T::Hash>
+        + Hashable<T::Hash>
+        + Hash
+        + Ord
+        + FromUniformBytes<64>,
+{
+    instances
+        .iter()
+        .map(|instance| -> Result<InstanceSingle<F>, Error> {
+            let instance_values = instance
+                .iter()
+                .enumerate()
+                .map(|(i, values)| {
+                    let is_committed_instance = i < nb_committed_instances;
+                    let mut poly = vk.domain.empty_lagrange();
+                    assert_eq!(poly.len(), vk.domain.n as usize);
+                    if values.len() > (poly.len() - (vk.cs.blinding_factors() + 1)) {
+                        return Err(Error::InstanceTooLarge);
+                    }
+                    if !is_committed_instance {
+                        transcript.common(&F::from_u128(values.len() as u128))?;
+                    }
+                    for (poly_eval, value) in poly.iter_mut().zip(values.iter()) {
+                        if !is_committed_instance {
+                            transcript.common(value)?;
+                        }
+                        *poly_eval = *value;
+                    }
+                    if is_committed_instance {
+                        transcript.common(&CS::commit_lagrange(params, &poly))?;
+                    }
+                    Ok(poly)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(InstanceSingle { instance_values })
         })
         .collect::<Result<Vec<_>, _>>()
 }
@@ -591,13 +915,141 @@ where
     Ok((advice, challenges))
 }
 
+pub(super) fn parse_advices_from_vk<F, CS, ConcreteCircuit, T>(
+    params: &CS::Parameters,
+    vk: &VerifyingKey<F, CS>,
+    circuits: &[ConcreteCircuit],
+    instances: &[&[&[F]]],
+    transcript: &mut T,
+    mut rng: impl RngCore + CryptoRng,
+) -> Result<(Vec<AdviceSingle<F, LagrangeCoeff>>, Vec<F>), Error>
+where
+    F: WithSmallOrderMulGroup<3> + Sampleable<T::Hash>,
+    CS: PolynomialCommitmentScheme<F>,
+    ConcreteCircuit: Circuit<F>,
+    T: Transcript,
+    CS::Commitment: Hashable<T::Hash>,
+    F: WithSmallOrderMulGroup<3>
+        + Sampleable<T::Hash>
+        + Hashable<T::Hash>
+        + Hash
+        + Ord
+        + FromUniformBytes<64>,
+{
+    let mut meta = ConstraintSystem::default();
+    #[cfg(feature = "circuit-params")]
+    let config = ConcreteCircuit::configure_with_params(&mut meta, circuits[0].params());
+    #[cfg(not(feature = "circuit-params"))]
+    let config = ConcreteCircuit::configure(&mut meta);
+
+    let domain = &vk.domain;
+    let meta = &vk.cs;
+
+    let mut advice = vec![
+        AdviceSingle::<F, LagrangeCoeff> {
+            advice_polys: vec![domain.empty_lagrange(); meta.num_advice_columns],
+        };
+        instances.len()
+    ];
+    let mut challenges = HashMap::<usize, F>::with_capacity(meta.num_challenges);
+
+    let unusable_rows_start = domain.n as usize - (meta.blinding_factors() + 1);
+    for current_phase in vk.cs.phases() {
+        let column_indices = meta
+            .advice_column_phase
+            .iter()
+            .enumerate()
+            .filter_map(|(column_index, phase)| {
+                if current_phase == *phase {
+                    Some(column_index)
+                } else {
+                    None
+                }
+            })
+            .collect::<BTreeSet<_>>();
+
+        for ((circuit, advice), instances) in circuits.iter().zip(advice.iter_mut()).zip(instances)
+        {
+            let mut witness = WitnessCollection {
+                k: domain.k(),
+                current_phase,
+                advice: vec![domain.empty_lagrange_rational(); meta.num_advice_columns],
+                unblinded_advice: HashSet::from_iter(meta.unblinded_advice_columns.clone()),
+                instances,
+                challenges: &challenges,
+                usable_rows: ..unusable_rows_start,
+                _marker: std::marker::PhantomData,
+            };
+
+            ConcreteCircuit::FloorPlanner::synthesize(
+                &mut witness,
+                circuit,
+                config.clone(),
+                meta.constants.clone(),
+            )?;
+
+            let mut advice_values = batch_invert_rational::<F>(
+                witness
+                    .advice
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(column_index, advice)| {
+                        if column_indices.contains(&column_index) {
+                            Some(advice)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+            );
+
+            for (column_index, advice_values) in column_indices.iter().zip(&mut advice_values) {
+                if !witness.unblinded_advice.contains(column_index) {
+                    for cell in &mut advice_values[unusable_rows_start..] {
+                        *cell = F::random(&mut rng);
+                    }
+                } else {
+                    #[cfg(debug_assertions)]
+                    for cell in &advice_values[unusable_rows_start..] {
+                        assert_eq!(*cell, F::ZERO);
+                    }
+                }
+            }
+
+            let advice_commitments: Vec<_> =
+                advice_values.iter().map(|poly| CS::commit_lagrange(params, poly)).collect();
+
+            for commitment in &advice_commitments {
+                transcript.write(commitment)?;
+            }
+            for (column_index, advice_values) in column_indices.iter().zip(advice_values) {
+                advice.advice_polys[*column_index] = advice_values;
+            }
+        }
+
+        for (index, phase) in meta.challenge_phase.iter().enumerate() {
+            if current_phase == *phase {
+                let existing = challenges.insert(index, transcript.squeeze_challenge());
+                assert!(existing.is_none());
+            }
+        }
+    }
+
+    assert_eq!(challenges.len(), meta.num_challenges);
+    let challenges = (0..meta.num_challenges)
+        .map(|index| challenges.remove(&index).unwrap())
+        .collect::<Vec<_>>();
+
+    Ok((advice, challenges))
+}
+
 pub(super) fn compute_h_poly<F: WithSmallOrderMulGroup<3>, CS: PolynomialCommitmentScheme<F>>(
-    pk: &ProvingKey<F, CS>,
+    pk: &FinalizingKey<F, CS>,
     trace: &ProverTrace<F>,
 ) -> Polynomial<F, ExtendedLagrangeCoeff> {
     let ProverTrace {
-        advice_polys,
-        instance_polys,
+        advice_values,
+        instance_values,
         lookups,
         trashcans,
         permutations,
@@ -609,22 +1061,87 @@ pub(super) fn compute_h_poly<F: WithSmallOrderMulGroup<3>, CS: PolynomialCommitm
         y,
         ..
     } = &trace;
-    // Calculate the advice and instance cosets
-    let advice_cosets: Vec<Vec<Polynomial<F, ExtendedLagrangeCoeff>>> = advice_polys
+    let mut used_fixed_columns = BTreeSet::new();
+    let mut used_advice_columns = BTreeSet::new();
+    let mut used_instance_columns = BTreeSet::new();
+    pk.ev.custom_gates.collect_used_columns(
+        &mut used_fixed_columns,
+        &mut used_advice_columns,
+        &mut used_instance_columns,
+    );
+    for evaluator in &pk.ev.lookups {
+        evaluator.collect_used_columns(
+            &mut used_fixed_columns,
+            &mut used_advice_columns,
+            &mut used_instance_columns,
+        );
+    }
+    for evaluator in &pk.ev.trashcans {
+        evaluator.collect_used_columns(
+            &mut used_fixed_columns,
+            &mut used_advice_columns,
+            &mut used_instance_columns,
+        );
+    }
+    for column in &pk.vk.cs.permutation.columns {
+        match column.column_type() {
+            Any::Advice(_) => {
+                used_advice_columns.insert(column.index());
+            }
+            Any::Fixed => {
+                used_fixed_columns.insert(column.index());
+            }
+            Any::Instance => {
+                used_instance_columns.insert(column.index());
+            }
+        }
+    }
+
+    // Calculate only the advice and instance cosets actually used by the evaluator/permutation.
+    let advice_polys = advice_values
+        .iter()
+        .map(|advice_values| {
+            advice_values
+                .iter()
+                .map(|p| pk.vk.get_domain().lagrange_to_coeff(p.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let instance_polys = instance_values
+        .iter()
+        .map(|instance_values| {
+            instance_values
+                .iter()
+                .map(|p| pk.vk.get_domain().lagrange_to_coeff(p.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let advice_cosets: Vec<Vec<Option<Polynomial<F, ExtendedLagrangeCoeff>>>> = advice_polys
         .iter()
         .map(|advice_polys| {
             advice_polys
                 .iter()
-                .map(|poly| pk.vk.get_domain().coeff_to_extended(poly.clone()))
+                .enumerate()
+                .map(|(column_index, poly)| {
+                    used_advice_columns
+                        .contains(&column_index)
+                        .then(|| pk.vk.get_domain().coeff_to_extended(poly.clone()))
+                })
                 .collect()
         })
         .collect();
-    let instance_cosets: Vec<Vec<Polynomial<F, ExtendedLagrangeCoeff>>> = instance_polys
+    let instance_cosets: Vec<Vec<Option<Polynomial<F, ExtendedLagrangeCoeff>>>> = instance_polys
         .iter()
         .map(|instance_polys| {
             instance_polys
                 .iter()
-                .map(|poly| pk.vk.get_domain().coeff_to_extended(poly.clone()))
+                .enumerate()
+                .map(|(column_index, poly)| {
+                    used_instance_columns
+                        .contains(&column_index)
+                        .then(|| pk.vk.get_domain().coeff_to_extended(poly.clone()))
+                })
                 .collect()
         })
         .collect();
@@ -653,7 +1170,7 @@ pub(super) fn compute_h_poly<F: WithSmallOrderMulGroup<3>, CS: PolynomialCommitm
 }
 
 pub(super) fn write_evals_to_transcript<F, CS, T>(
-    pk: &ProvingKey<F, CS>,
+    pk: &FinalizingKey<F, CS>,
     nb_committed_instances: usize,
     instance_polys: &[Vec<Polynomial<F, Coeff>>],
     advice_polys: &[Vec<Polynomial<F, Coeff>>],
@@ -719,7 +1236,7 @@ pub(super) fn compute_queries<
     F: WithSmallOrderMulGroup<3>,
     CS: PolynomialCommitmentScheme<F>,
 >(
-    pk: &'a ProvingKey<F, CS>,
+    pk: &'a FinalizingKey<F, CS>,
     nb_committed_instances: usize,
     instance_polys: &'a [Vec<Polynomial<F, Coeff>>],
     advice_polys: &'a [Vec<Polynomial<F, Coeff>>],
@@ -757,8 +1274,8 @@ pub(super) fn compute_queries<
                             poly: &advice[column.index()],
                         }),
                     )
-                    .chain(permutation.open(pk, x))
-                    .chain(lookups.iter().flat_map(move |p| p.open(pk, x)))
+                    .chain(permutation.open_finalizing(pk, x))
+                    .chain(lookups.iter().flat_map(move |p| p.open_finalizing(pk, x)))
                     .chain(trash.iter().flat_map(move |p| p.open(x)))
             },
         )
@@ -777,7 +1294,6 @@ pub(super) fn compute_queries<
 #[derive(Clone)]
 pub(super) struct InstanceSingle<F: PrimeField> {
     pub instance_values: Vec<Polynomial<F, LagrangeCoeff>>,
-    pub instance_polys: Vec<Polynomial<F, Coeff>>,
 }
 
 #[derive(Clone)]

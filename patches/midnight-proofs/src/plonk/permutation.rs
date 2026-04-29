@@ -21,9 +21,14 @@ use midnight_curves::serde::SerdeObject;
 
 use crate::{
     plonk::permutation::keygen::compute_polys_and_cosets,
-    poly::{commitment::PolynomialCommitmentScheme, EvaluationDomain},
-    utils::helpers::{byte_length, ProcessedSerdeObject},
+    poly::{commitment::PolynomialCommitmentScheme, EvaluationDomain, ProverQuery},
+    transcript::{Hashable, Transcript},
+    utils::{
+        arithmetic::eval_polynomial,
+        helpers::{byte_length, ProcessedSerdeObject},
+    },
 };
+use crate::plonk::Error;
 
 /// A permutation argument.
 #[derive(Debug, Clone)]
@@ -139,6 +144,13 @@ pub(crate) struct ProvingKey<F: PrimeField> {
     pub(crate) cosets: Vec<Polynomial<F, ExtendedLagrangeCoeff>>,
 }
 
+/// Derived permutation proving state required by the final proving phase.
+#[derive(Clone, Debug)]
+pub(crate) struct FinalizingKey<F: PrimeField> {
+    pub(crate) polys: Vec<Polynomial<F, Coeff>>,
+    pub(crate) cosets: Vec<Polynomial<F, ExtendedLagrangeCoeff>>,
+}
+
 /// Lean setup artifact for a single permutation argument.
 ///
 /// This persists only the permutation polynomials in Lagrange form and
@@ -173,6 +185,18 @@ impl<F: WithSmallOrderMulGroup<3>> BaseProvingKey<F> {
             cosets,
         }
     }
+
+    /// Promotes the lean permutation setup artifact into only the derived
+    /// proving state required during the final proof phase.
+    pub(crate) fn finalize_for_finalise(
+        self,
+        domain: &EvaluationDomain<F>,
+        p: &Argument,
+    ) -> FinalizingKey<F> {
+        let (polys, cosets) = compute_polys_and_cosets::<F>(domain, p, &self.permutations);
+        let _ = p;
+        FinalizingKey { polys, cosets }
+    }
 }
 
 impl<F: WithSmallOrderMulGroup<3> + SerdeObject> ProvingKey<F> {
@@ -200,5 +224,22 @@ impl<F: PrimeField> ProvingKey<F> {
         polynomial_slice_byte_length(&self.permutations)
             + polynomial_slice_byte_length(&self.polys)
             + polynomial_slice_byte_length(&self.cosets)
+    }
+}
+
+impl<F: WithSmallOrderMulGroup<3>> FinalizingKey<F> {
+    pub(crate) fn open(&self, x: F) -> impl Iterator<Item = ProverQuery<'_, F>> + Clone {
+        self.polys.iter().map(move |poly| ProverQuery { point: x, poly })
+    }
+
+    pub(crate) fn evaluate<T: Transcript>(&self, x: F, transcript: &mut T) -> Result<(), Error>
+    where
+        F: Hashable<T::Hash>,
+    {
+        for eval in self.polys.iter().map(|poly| eval_polynomial(poly, x)) {
+            transcript.write(&eval)?;
+        }
+
+        Ok(())
     }
 }

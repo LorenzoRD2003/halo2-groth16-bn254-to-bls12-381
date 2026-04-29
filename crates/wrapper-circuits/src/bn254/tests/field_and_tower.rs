@@ -1,5 +1,53 @@
 use super::*;
 
+#[derive(Clone, Debug)]
+struct Fp12FrobeniusMulCircuit {
+  left: Fp12ConstantValue,
+  right: Fp12ConstantValue,
+  expected: Fp12ConstantValue,
+  power: usize,
+}
+
+impl Fp12FrobeniusMulCircuit {
+  fn new(
+    left: Fp12ConstantValue,
+    right: Fp12ConstantValue,
+    expected: Fp12ConstantValue,
+    power: usize,
+  ) -> Self {
+    Self { left, right, expected, power }
+  }
+}
+
+impl Circuit<NativeField> for Fp12FrobeniusMulCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    self.clone()
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    mut layouter: impl Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    let chip = Bn254FieldChip::new(&config);
+    let left = assign_fixed_fp12(&chip, &mut layouter, self.left)?;
+    let right = assign_fixed_fp12(&chip, &mut layouter, self.right)?;
+    let right_sum = right.sum_components(&chip, &mut layouter)?;
+    let actual =
+      left.frobenius_mul_with_precomputed_rhs_sum(&chip, &mut layouter, self.power, &right, &right_sum)?;
+    actual.assert_equal_to_fixed(&chip, &mut layouter, self.expected)?;
+    chip.load(&mut layouter)
+  }
+}
+
 #[test]
 fn field_edge_cases_match_arkworks() {
   let zero = ArkFq::from(0_u64);
@@ -518,6 +566,30 @@ fn fp12_structured_cases_match_arkworks() {
 }
 
 #[test]
+fn fp12_frobenius_mul_circuit_matches_host_on_random_elements() {
+  let mut rng = StdRng::from_seed([77_u8; 32]);
+
+  for power in 1..=3 {
+    for _ in 0..6 {
+      let left = ArkFq12::rand(&mut rng);
+      let right = ArkFq12::rand(&mut rng);
+      let left_midnight = ark_to_midnight_fq12(&left);
+      let right_midnight = ark_to_midnight_fq12(&right);
+      let frobenius_left =
+        super::super::host::fp12_frobenius_map_constant(&left_midnight, power);
+      let expected = super::super::host::fp12_mul_constant(&frobenius_left, &right_midnight);
+
+      assert_satisfied(&Fp12FrobeniusMulCircuit::new(
+        left_midnight,
+        right_midnight,
+        expected,
+        power,
+      ));
+    }
+  }
+}
+
+#[test]
 fn fp12_layout_metrics_are_real_and_nonzero() {
   let add_metrics = fp12_add_layout_metrics();
   let mul_metrics = fp12_mul_layout_metrics();
@@ -538,4 +610,27 @@ fn fp12_layout_metrics_are_real_and_nonzero() {
     "cyclotomic_square: {} rows vs generic_square: {} rows",
     cyclotomic_square_metrics.rows, square_metrics.rows
   );
+}
+
+#[test]
+#[ignore = "planner comparison probe"]
+fn floor_planner_v1_probe_reports_block_metrics() {
+  let simple_hard = crate::groth16_pairing_block_final_exponentiation_hard_part_layout_metrics();
+  let v1_hard = crate::groth16_pairing_block_final_exponentiation_hard_part_layout_metrics_v1();
+  let simple_pairing = crate::groth16_pairing_block_pairing_check_groth16_style_layout_metrics();
+  let v1_pairing = crate::groth16_pairing_block_pairing_check_groth16_style_layout_metrics_v1();
+
+  println!(
+    "floor_planner_probe hard_part simple={} v1={}",
+    simple_hard.rows, v1_hard.rows
+  );
+  println!(
+    "floor_planner_probe pairing_groth16_style simple={} v1={}",
+    simple_pairing.rows, v1_pairing.rows
+  );
+
+  assert!(simple_hard.rows > 0);
+  assert!(v1_hard.rows > 0);
+  assert!(simple_pairing.rows > 0);
+  assert!(v1_pairing.rows > 0);
 }

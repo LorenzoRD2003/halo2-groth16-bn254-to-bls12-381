@@ -154,7 +154,6 @@ mod tests {
   use crate::bn254::tests::{ark_bn254_miller_loop_accumulate, ark_to_midnight_fq12};
   use ark_bn254::{G1Affine as ArkG1Affine, G2Affine as ArkG2Affine};
   use ark_ec::AffineRepr;
-
   #[test]
   fn exp_by_neg_x_constant_matches_generic_square_and_multiply() {
     let miller_output =
@@ -166,4 +165,5 @@ mod tests {
 
     assert_eq!(actual, expected);
   }
+
 }

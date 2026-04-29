@@ -5,8 +5,9 @@ use group::ff::BatchInvert;
 use rand_core::RngCore;
 
 use super::{super::circuit::Any, Argument, ProvingKey};
+use crate::plonk::VerifyingKey;
 use crate::{
-    plonk::{self, Error},
+    plonk::{self, Error, FinalizingKey as PlonkFinalizingKey},
     poly::{
         commitment::PolynomialCommitmentScheme, Coeff, LagrangeCoeff, Polynomial, ProverQuery,
         Rotation,
@@ -167,6 +168,105 @@ impl Argument {
 
         Ok(Committed { sets })
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_base<
+        F: WithSmallOrderMulGroup<3>,
+        CS: PolynomialCommitmentScheme<F>,
+        R: RngCore,
+        T: Transcript,
+    >(
+        &self,
+        params: &CS::Parameters,
+        vk: &VerifyingKey<F, CS>,
+        pkey: &super::BaseProvingKey<F>,
+        advice: &[Polynomial<F, LagrangeCoeff>],
+        fixed: &[Polynomial<F, LagrangeCoeff>],
+        instance: &[Polynomial<F, LagrangeCoeff>],
+        beta: F,
+        gamma: F,
+        mut rng: R,
+        transcript: &mut T,
+    ) -> Result<Committed<F>, Error>
+    where
+        CS::Commitment: Hashable<T::Hash>,
+    {
+        let domain = &vk.get_domain();
+
+        assert!(vk.cs_degree >= 3);
+        let chunk_len = vk.cs_degree - 2;
+        let blinding_factors = vk.cs.blinding_factors();
+
+        let mut deltaomega = F::ONE;
+        let mut last_z = F::ONE;
+        let mut sets = vec![];
+
+        for (columns, permutations) in
+            self.columns.chunks(chunk_len).zip(pkey.permutations.chunks(chunk_len))
+        {
+            let mut modified_values = vec![F::ONE; domain.n as usize];
+
+            for (&column, permuted_column_values) in columns.iter().zip(permutations.iter()) {
+                let values = match column.column_type() {
+                    Any::Advice(_) => advice,
+                    Any::Fixed => fixed,
+                    Any::Instance => instance,
+                };
+                parallelize(&mut modified_values, |modified_values, start| {
+                    for ((modified_values, value), permuted_value) in modified_values
+                        .iter_mut()
+                        .zip(values[column.index()][start..].iter())
+                        .zip(permuted_column_values[start..].iter())
+                    {
+                        *modified_values *= &(beta * permuted_value + &gamma + value);
+                    }
+                });
+            }
+
+            modified_values.batch_invert();
+
+            for &column in columns.iter() {
+                let omega = domain.get_omega();
+                let values = match column.column_type() {
+                    Any::Advice(_) => advice,
+                    Any::Fixed => fixed,
+                    Any::Instance => instance,
+                };
+                parallelize(&mut modified_values, |modified_values, start| {
+                    let mut deltaomega = deltaomega * &omega.pow_vartime([start as u64, 0, 0, 0]);
+                    for (modified_values, value) in
+                        modified_values.iter_mut().zip(values[column.index()][start..].iter())
+                    {
+                        *modified_values *= &(deltaomega * &beta + &gamma + value);
+                        deltaomega *= &omega;
+                    }
+                });
+                deltaomega *= &F::DELTA;
+            }
+
+            let mut z = vec![last_z];
+            for row in 1..(domain.n as usize) {
+                let mut tmp = z[row - 1];
+                tmp *= &modified_values[row - 1];
+                z.push(tmp);
+            }
+            let mut z = domain.lagrange_from_vec(z);
+            for z in &mut z[domain.n as usize - blinding_factors..] {
+                *z = F::random(&mut rng);
+            }
+            last_z = z[domain.n as usize - (blinding_factors + 1)];
+
+            let permutation_product_commitment = CS::commit_lagrange(params, &z);
+            let permutation_product_poly = domain.lagrange_to_coeff(z);
+            transcript.write(&permutation_product_commitment)?;
+
+            sets.push(CommittedSet {
+                permutation_product_poly,
+            });
+        }
+
+        Ok(Committed { sets })
+    }
 }
 
 impl<F: PrimeField> super::ProvingKey<F> {
@@ -235,6 +335,48 @@ impl<F: WithSmallOrderMulGroup<3>> Committed<F> {
 
         Ok(Evaluated { constructed: self })
     }
+
+    pub(crate) fn evaluate_finalizing<T: Transcript, CS: PolynomialCommitmentScheme<F>>(
+        self,
+        pk: &PlonkFinalizingKey<F, CS>,
+        x: F,
+        transcript: &mut T,
+    ) -> Result<Evaluated<F>, Error>
+    where
+        F: Hashable<T::Hash>,
+    {
+        let domain = &pk.vk.domain;
+        let blinding_factors = pk.vk.cs.blinding_factors();
+
+        {
+            let mut sets = self.sets.iter();
+
+            while let Some(set) = sets.next() {
+                let permutation_product_eval = eval_polynomial(&set.permutation_product_poly, x);
+                let permutation_product_next_eval = eval_polynomial(
+                    &set.permutation_product_poly,
+                    domain.rotate_omega(x, Rotation::next()),
+                );
+
+                for eval in iter::empty()
+                    .chain(Some(&permutation_product_eval))
+                    .chain(Some(&permutation_product_next_eval))
+                {
+                    transcript.write(eval)?;
+                }
+
+                if sets.len() > 0 {
+                    let permutation_product_last_eval = eval_polynomial(
+                        &set.permutation_product_poly,
+                        domain.rotate_omega(x, Rotation(-((blinding_factors + 1) as i32))),
+                    );
+                    transcript.write(&permutation_product_last_eval)?;
+                }
+            }
+        }
+
+        Ok(Evaluated { constructed: self })
+    }
 }
 
 impl<F: WithSmallOrderMulGroup<3>> Evaluated<F> {
@@ -263,6 +405,37 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluated<F> {
             // Open it at \omega^{last} x for all but the last set. This rotation is only
             // sensical for the first row, but we only use this rotation in a constraint
             // that is gated on l_0.
+            .chain(
+                self.constructed.sets.iter().rev().skip(1).flat_map(move |set| {
+                    Some(ProverQuery {
+                        point: x_last,
+                        poly: &set.permutation_product_poly,
+                    })
+                }),
+            )
+    }
+
+    pub(crate) fn open_finalizing<'a, CS: PolynomialCommitmentScheme<F>>(
+        &'a self,
+        pk: &'a PlonkFinalizingKey<F, CS>,
+        x: F,
+    ) -> impl Iterator<Item = ProverQuery<'a, F>> + Clone {
+        let blinding_factors = pk.vk.cs.blinding_factors();
+        let x_next = pk.vk.domain.rotate_omega(x, Rotation::next());
+        let x_last = pk.vk.domain.rotate_omega(x, Rotation(-((blinding_factors + 1) as i32)));
+
+        iter::empty()
+            .chain(self.constructed.sets.iter().flat_map(move |set| {
+                iter::empty()
+                    .chain(Some(ProverQuery {
+                        point: x,
+                        poly: &set.permutation_product_poly,
+                    }))
+                    .chain(Some(ProverQuery {
+                        point: x_next,
+                        poly: &set.permutation_product_poly,
+                    }))
+            }))
             .chain(
                 self.constructed.sets.iter().rev().skip(1).flat_map(move |set| {
                     Some(ProverQuery {

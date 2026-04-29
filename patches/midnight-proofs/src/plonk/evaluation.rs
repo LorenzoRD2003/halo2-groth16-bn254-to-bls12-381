@@ -1,5 +1,6 @@
 use ff::{PrimeField, WithSmallOrderMulGroup};
 use group::ff::Field;
+use std::collections::BTreeSet;
 
 use super::{ConstraintSystem, Expression};
 use crate::{
@@ -57,8 +58,8 @@ impl ValueSource {
         constants: &[F],
         intermediates: &[F],
         fixed_values: &[Polynomial<F, B>],
-        advice_values: &[Polynomial<F, B>],
-        instance_values: &[Polynomial<F, B>],
+        advice_values: &[Option<Polynomial<F, B>>],
+        instance_values: &[Option<Polynomial<F, B>>],
         challenges: &[F],
         beta: &F,
         gamma: &F,
@@ -73,12 +74,14 @@ impl ValueSource {
             ValueSource::Fixed(column_index, rotation) => {
                 fixed_values[*column_index][rotations[*rotation]]
             }
-            ValueSource::Advice(column_index, rotation) => {
-                advice_values[*column_index][rotations[*rotation]]
-            }
-            ValueSource::Instance(column_index, rotation) => {
-                instance_values[*column_index][rotations[*rotation]]
-            }
+            ValueSource::Advice(column_index, rotation) => advice_values[*column_index]
+                .as_ref()
+                .expect("advice column required by evaluator should be materialized")
+                [rotations[*rotation]],
+            ValueSource::Instance(column_index, rotation) => instance_values[*column_index]
+                .as_ref()
+                .expect("instance column required by evaluator should be materialized")
+                [rotations[*rotation]],
             ValueSource::Challenge(index) => challenges[*index],
             ValueSource::Beta() => *beta,
             ValueSource::Gamma() => *gamma,
@@ -120,8 +123,8 @@ impl Calculation {
         constants: &[F],
         intermediates: &[F],
         fixed_values: &[Polynomial<F, B>],
-        advice_values: &[Polynomial<F, B>],
-        instance_values: &[Polynomial<F, B>],
+        advice_values: &[Option<Polynomial<F, B>>],
+        instance_values: &[Option<Polynomial<F, B>>],
         challenges: &[F],
         beta: &F,
         gamma: &F,
@@ -285,8 +288,8 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
         &self,
         domain: &EvaluationDomain<F>,
         cs: &ConstraintSystem<F>,
-        advice: &[&[Polynomial<F, B>]],
-        instance: &[&[Polynomial<F, B>]],
+        advice: &[&[Option<Polynomial<F, B>>]],
+        instance: &[&[Option<Polynomial<F, B>>]],
         fixed: &[Polynomial<F, B>],
         challenges: &[F],
         y: F,
@@ -413,9 +416,13 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                             for (values, permutation) in columns
                                 .iter()
                                 .map(|&column| match column.column_type() {
-                                    Any::Advice(_) => &advice[column.index()],
+                                    Any::Advice(_) => advice[column.index()]
+                                        .as_ref()
+                                        .expect("permutation advice column should be materialized"),
                                     Any::Fixed => &fixed[column.index()],
-                                    Any::Instance => &instance[column.index()],
+                                    Any::Instance => instance[column.index()]
+                                        .as_ref()
+                                        .expect("permutation instance column should be materialized"),
                                 })
                                 .zip(cosets.iter())
                             {
@@ -424,9 +431,13 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
 
                             let mut right = permutation_product_coset[idx];
                             for values in columns.iter().map(|&column| match column.column_type() {
-                                Any::Advice(_) => &advice[column.index()],
+                                Any::Advice(_) => advice[column.index()]
+                                    .as_ref()
+                                    .expect("permutation advice column should be materialized"),
                                 Any::Fixed => &fixed[column.index()],
-                                Any::Instance => &instance[column.index()],
+                                Any::Instance => instance[column.index()]
+                                    .as_ref()
+                                    .expect("permutation instance column should be materialized"),
                             }) {
                                 right *= values[idx] + current_delta + gamma;
                                 current_delta *= &F::DELTA;
@@ -572,6 +583,56 @@ impl<F: PrimeField> Default for GraphEvaluator<F> {
 }
 
 impl<F: PrimeField> GraphEvaluator<F> {
+    fn collect_used_columns_from_value(
+        value: &ValueSource,
+        fixed: &mut BTreeSet<usize>,
+        advice: &mut BTreeSet<usize>,
+        instance: &mut BTreeSet<usize>,
+    ) {
+        match value {
+            ValueSource::Fixed(column_index, _) => {
+                fixed.insert(*column_index);
+            }
+            ValueSource::Advice(column_index, _) => {
+                advice.insert(*column_index);
+            }
+            ValueSource::Instance(column_index, _) => {
+                instance.insert(*column_index);
+            }
+            _ => {}
+        }
+    }
+
+    /// Collects fixed/advice/instance columns referenced by this evaluator.
+    pub fn collect_used_columns(
+        &self,
+        fixed: &mut BTreeSet<usize>,
+        advice: &mut BTreeSet<usize>,
+        instance: &mut BTreeSet<usize>,
+    ) {
+        for calc in &self.calculations {
+            match &calc.calculation {
+                Calculation::Add(a, b) | Calculation::Sub(a, b) | Calculation::Mul(a, b) => {
+                    Self::collect_used_columns_from_value(a, fixed, advice, instance);
+                    Self::collect_used_columns_from_value(b, fixed, advice, instance);
+                }
+                Calculation::Square(v)
+                | Calculation::Double(v)
+                | Calculation::Negate(v)
+                | Calculation::Store(v) => {
+                    Self::collect_used_columns_from_value(v, fixed, advice, instance);
+                }
+                Calculation::Horner(start_value, parts, factor) => {
+                    Self::collect_used_columns_from_value(start_value, fixed, advice, instance);
+                    Self::collect_used_columns_from_value(factor, fixed, advice, instance);
+                    for part in parts {
+                        Self::collect_used_columns_from_value(part, fixed, advice, instance);
+                    }
+                }
+            }
+        }
+    }
+
     /// Adds a rotation
     fn add_rotation(&mut self, rotation: &Rotation) -> usize {
         let position = self.rotations.iter().position(|&c| c == rotation.0);
@@ -732,8 +793,8 @@ impl<F: PrimeField> GraphEvaluator<F> {
         &self,
         data: &mut EvaluationData<F>,
         fixed: &[Polynomial<F, B>],
-        advice: &[Polynomial<F, B>],
-        instance: &[Polynomial<F, B>],
+        advice: &[Option<Polynomial<F, B>>],
+        instance: &[Option<Polynomial<F, B>>],
         challenges: &[F],
         beta: &F,
         gamma: &F,

@@ -1,22 +1,84 @@
-use midnight_circuits::midnight_proofs::{dev::cost_model::circuit_model, plonk::Circuit};
+use std::marker::PhantomData;
+
+use ff::Field;
+use midnight_circuits::midnight_proofs::{
+  circuit::{Layouter, floor_planner::V1},
+  dev::cost_model::circuit_model,
+  plonk::{Circuit, ConstraintSystem, Error, FloorPlanner},
+};
 
 use crate::metrics::LayoutMetrics;
 
 use super::{
   FinalExponentiationCircuit, FinalExponentiationEasyPartCircuit,
-  FinalExponentiationHardPartCircuit, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit,
-  Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit, Fp12AddCircuit, Fp12CyclotomicSquareCircuit,
-  Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit, FpMulCircuit, G1AddCircuit,
+  FinalExponentiationHardPartCircuit, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit,
+  Fp6MulCircuit, Fp6SquareCircuit, Fp12AddCircuit, Fp12CompressedCyclotomicSquareBlockCircuit,
+  Fp12CyclotomicSquareCircuit, Fp12MulByUnitaryInverseCircuit, Fp12MulCircuit, Fp12SquareCircuit,
+  FpAddCircuit, FpMulCircuit, G1AddCircuit,
   G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
   G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit,
   MillerAccumulatorMulByLineCircuit, MillerAccumulatorMulByLineSparseCircuit,
   MillerAccumulatorSquareCircuit, MillerLoopCircuit, NativeField, PairingCheckCircuit,
 };
 
+#[derive(Clone, Debug)]
+struct FloorPlannerOverride<C, P> {
+  inner: C,
+  _planner: PhantomData<P>,
+}
+
+impl<C, P> FloorPlannerOverride<C, P> {
+  fn new(inner: C) -> Self {
+    Self { inner, _planner: PhantomData }
+  }
+}
+
+impl<F, C, P> Circuit<F> for FloorPlannerOverride<C, P>
+where
+  F: Field,
+  C: Circuit<F> + Clone,
+  P: FloorPlanner,
+{
+  type Config = C::Config;
+  type FloorPlanner = P;
+  type Params = C::Params;
+
+  fn without_witnesses(&self) -> Self {
+    Self::new(self.inner.without_witnesses())
+  }
+
+  fn params(&self) -> Self::Params {
+    self.inner.params()
+  }
+
+  fn configure_with_params(meta: &mut ConstraintSystem<F>, params: Self::Params) -> Self::Config {
+    C::configure_with_params(meta, params)
+  }
+
+  fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+    C::configure(meta)
+  }
+
+  fn synthesize(&self, config: Self::Config, layouter: impl Layouter<F>) -> Result<(), Error> {
+    self.inner.synthesize(config, layouter)
+  }
+}
+
 /// Models a circuit and returns real layout metrics.
 #[must_use]
 pub fn measure_layout(circuit: &impl Circuit<NativeField>) -> LayoutMetrics {
   LayoutMetrics::from(circuit_model::<NativeField, 48, 32>(circuit))
+}
+
+/// Models one native-field circuit using the V1 floor planner instead of the
+/// circuit's default planner.
+#[must_use]
+pub(crate) fn measure_layout_with_v1<C>(circuit: &C) -> LayoutMetrics
+where
+  C: Circuit<NativeField> + Clone,
+{
+  let wrapped = FloorPlannerOverride::<C, V1>::new(circuit.clone());
+  LayoutMetrics::from(circuit_model::<NativeField, 48, 32>(&wrapped))
 }
 
 /// Real layout metrics for the current BN254 foreign-field addition circuit.
@@ -79,6 +141,13 @@ pub fn fp12_mul_layout_metrics() -> LayoutMetrics {
   measure_layout(&Fp12MulCircuit::sample())
 }
 
+/// Real layout metrics for multiplying one cyclotomic element by the unitary
+/// inverse of another.
+#[must_use]
+pub fn fp12_mul_by_unitary_inverse_layout_metrics() -> LayoutMetrics {
+  measure_layout(&Fp12MulByUnitaryInverseCircuit::sample())
+}
+
 /// Real layout metrics for the current BN254 Fp12 square circuit.
 #[must_use]
 pub fn fp12_square_layout_metrics() -> LayoutMetrics {
@@ -89,6 +158,13 @@ pub fn fp12_square_layout_metrics() -> LayoutMetrics {
 #[must_use]
 pub fn fp12_cyclotomic_square_layout_metrics() -> LayoutMetrics {
   measure_layout(&Fp12CyclotomicSquareCircuit::sample())
+}
+
+/// Real layout metrics for one compressed cyclotomic square block of the given
+/// length.
+#[must_use]
+pub fn fp12_compressed_cyclotomic_square_block_layout_metrics(square_count: u8) -> LayoutMetrics {
+  measure_layout(&Fp12CompressedCyclotomicSquareBlockCircuit::sample(square_count))
 }
 
 /// Real layout metrics for the current BN254 G1 addition circuit.
@@ -163,10 +239,24 @@ pub fn miller_loop_layout_metrics() -> LayoutMetrics {
   measure_layout(&MillerLoopCircuit::sample())
 }
 
+/// Real layout metrics for the current narrow BN254 Miller-loop circuit under
+/// the V1 floor planner.
+#[must_use]
+pub fn miller_loop_layout_metrics_v1() -> LayoutMetrics {
+  measure_layout_with_v1(&MillerLoopCircuit::sample())
+}
+
 /// Real layout metrics for the current narrow BN254 final exponentiation circuit.
 #[must_use]
 pub fn final_exponentiation_layout_metrics() -> LayoutMetrics {
   measure_layout(&FinalExponentiationCircuit::sample())
+}
+
+/// Real layout metrics for the current narrow BN254 final-exponentiation
+/// circuit under the V1 floor planner.
+#[must_use]
+pub fn final_exponentiation_layout_metrics_v1() -> LayoutMetrics {
+  measure_layout_with_v1(&FinalExponentiationCircuit::sample())
 }
 
 /// Real layout metrics for the current narrow BN254 final exponentiation easy-part circuit.
@@ -175,16 +265,38 @@ pub fn final_exponentiation_easy_part_layout_metrics() -> LayoutMetrics {
   measure_layout(&FinalExponentiationEasyPartCircuit::sample())
 }
 
+/// Real layout metrics for the current narrow BN254 final-exponentiation
+/// easy-part circuit under the V1 floor planner.
+#[must_use]
+pub fn final_exponentiation_easy_part_layout_metrics_v1() -> LayoutMetrics {
+  measure_layout_with_v1(&FinalExponentiationEasyPartCircuit::sample())
+}
+
 /// Real layout metrics for the current narrow BN254 final exponentiation hard-part circuit.
 #[must_use]
 pub fn final_exponentiation_hard_part_layout_metrics() -> LayoutMetrics {
   measure_layout(&FinalExponentiationHardPartCircuit::sample())
 }
 
+
+/// Real layout metrics for the current narrow BN254 final-exponentiation
+/// hard-part circuit under the V1 floor planner.
+#[must_use]
+pub fn final_exponentiation_hard_part_layout_metrics_v1() -> LayoutMetrics {
+  measure_layout_with_v1(&FinalExponentiationHardPartCircuit::sample())
+}
+
 /// Real layout metrics for the current narrow BN254 pairing-check circuit.
 #[must_use]
 pub fn pairing_check_layout_metrics() -> LayoutMetrics {
   measure_layout(&PairingCheckCircuit::sample())
+}
+
+/// Real layout metrics for the current narrow BN254 pairing-check circuit
+/// under the V1 floor planner.
+#[must_use]
+pub fn pairing_check_layout_metrics_v1() -> LayoutMetrics {
+  measure_layout_with_v1(&PairingCheckCircuit::sample())
 }
 
 /// Returns the smallest power-of-two domain reported by the cost model.

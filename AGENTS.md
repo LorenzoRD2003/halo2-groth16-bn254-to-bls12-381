@@ -143,10 +143,11 @@ If you need the remaining path to a real `.circom` end-to-end wrapper flow:
 1. `docs/outer-prover-strategy-plan.md`
 2. `docs/real-circom-wrapper-integration-plan.md`
 3. `docs/r1cs-backend-status.md`
-4. `crates/wrapper-backends/src/outer.rs`
-5. `crates/wrapper-circuits/src/outer/mod.rs`
-6. `crates/wrapper-core/src/output.rs`
-7. `crates/wrapper-core/src/execution.rs`
+4. `docs/decisions/0003-direct-outer-setup-cost-reduction.md`
+5. `crates/wrapper-backends/src/outer.rs`
+6. `crates/wrapper-circuits/src/outer/mod.rs`
+7. `crates/wrapper-core/src/output.rs`
+8. `crates/wrapper-core/src/execution.rs`
 
 If you need outer wrapper circuit context:
 
@@ -169,12 +170,13 @@ If you need Midnight-local optimization context:
 
 1. `docs/midnight-local-optimization-notes.md`
 2. `docs/decisions/0002-bn254-local-optimization-policy.md`
-3. `docs/cyclotomic-unitary-kernel-design.md`
+3. `docs/plans/0005-halo2-row-optimization-plan.md`
 4. `crates/wrapper-circuits/src/bn254/types.rs`
 5. `crates/wrapper-circuits/src/bn254/fp2.rs`
 6. `crates/wrapper-circuits/src/bn254/fp6.rs`
 7. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
 8. `docs/profiling.md`
+9. `docs/plans/0002-cyclotomic-unitary-kernel-design.md`
 
 If you need BN254 primitive structure / ownership context:
 
@@ -238,8 +240,11 @@ Use each top-level doc for one job:
 - `docs/roadmap.md`: what stage the repo is in and what remains explicitly out of scope
 - `docs/profiling.md`: how to measure layout cost and compare optimization baselines
 - `docs/benchmarking.md`: benchmark naming, bench-info wiring, and benchmark/reporting sync rules
+- `docs/plans/0005-halo2-row-optimization-plan.md`: ordered implementation plan for row-count optimization work on the current BN254 pairing-core lane, with a ready-to-start Phase 1
 - `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates that already proved useful or look promising for the BN254 tower / pairing path
 - `docs/decisions/0002-bn254-local-optimization-policy.md`: durable retained/rejected optimization decisions for the BN254 pairing-core lane
+- `docs/decisions/0003-direct-outer-setup-cost-reduction.md`: accepted direction for reducing direct outer setup cost via a lean setup artifact and later params caching
+- `docs/decisions/0004-local-midnight-proofs-patch.md`: accepted rationale for carrying a local `midnight-proofs` patch to support richer direct setup/prove artifacts
 - `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus-region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` sites in the hard part
 - `docs/zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
@@ -318,7 +323,16 @@ future agents know when to read it.
 - Should expose measured primitive status without overstating what is implemented.
 - The current narrow optimization-baseline surface is `profile-layout`, which emits TSV layout metrics for Groth16, pairing-term scaling, public-input scaling, and existing pairing-core blocks.
 - Treat `profile-layout` as layout/constraint profiling, not runtime benchmarking.
-- The current planning/execution surfaces for wrapper experiments are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, `execute-wrapper-stub`, and `execute-wrapper-direct`.
+- The current planning/execution surfaces for wrapper experiments are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, `execute-wrapper-stub`, `execute-wrapper-direct`, `execute-wrapper-direct-setup`, `execute-wrapper-direct-prove`, `execute-wrapper-direct-prove-trace`, `execute-wrapper-direct-prove-finalize`, and `execute-wrapper-direct-verify`.
+- Direct execution commands now enforce a `24 GiB` process memory limit.
+- The direct setup artifact now persists verification materials plus a proving-key sidecar.
+- The repo now carries a local `[patch.crates-io]` override for `midnight-proofs` under `patches/midnight-proofs`.
+- That local patch adds `BaseProvingKey`, `keygen_pk_base(...)`, `create_proof_from_base(...)`, `create_proof_trace_from_base(...)`, and `finalise_proof_from_base_trace(...)` so richer direct setup/prove artifacts can be expressed without waiting on upstream.
+- The direct prove path now avoids rerunning `keygen_pk(...)` in the wrapper backend.
+- Current known limitation: the next suspected memory hotspot is eager coset materialization inside `compute_h_poly(...)` (`advice_cosets` / `instance_cosets`) in the patched prover.
+- The split `execute-wrapper-direct-prove-trace` / `execute-wrapper-direct-prove-finalize` flow exists so the pre-`compute_h_poly(...)` phase can be cached as an artifact between experiments, but it should currently be treated as broken.
+- Latest valid split failure to remember in future conversations: `execute-wrapper-direct-prove-trace` fails with `midnight create_proof_trace_from_base failed: The constraint system is not satisfied`, and the last reliable backend log line is `prove-trace: entering create_proof_trace_from_base`.
+- One successful measured lean setup run on `circom_multiplier2` produced `circuit_k = 21`, `public_input_count = 1`, and `setup_elapsed_ms = 1554572` (about `25m 54s`).
 
 `wrapper-tests`
 

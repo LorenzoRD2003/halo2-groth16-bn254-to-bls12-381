@@ -10,7 +10,7 @@ use super::{
   Bn254FieldConfig, ForeignField, NativeField,
   host::{
     Fp2Constant, Fp6Constant, Fp6Value, Fp12Constant, Fp12Value,
-    bn254_final_exponentiation_easy_part_constant, fp12_add_constant,
+    bn254_final_exponentiation_easy_part_constant, fp6_add_constant, fp12_add_constant,
     fp12_cyclotomic_decompress_constant, fp12_cyclotomic_square_constant,
     fp12_frobenius_map_constant, fp12_inv_constant, fp12_mul_constant, fp12_nonresidue_constant,
     fp12_square_constant,
@@ -144,6 +144,59 @@ where
     Ok(Self::new(c0, c1))
   }
 
+  /// Multiplies `frobenius(self, power)` by `rhs` while keeping the current
+  /// witness-driven Frobenius boundary internal to the multiplication site.
+  ///
+  /// This stays aligned with the repository's current `frobenius_map(...)`
+  /// semantics while avoiding a separate `AssignedFp12` materialization step
+  /// followed by `sum_components(...)` at the call site.
+  pub(crate) fn frobenius_mul_with_precomputed_rhs_sum(
+    &self,
+    chip: &Bn254FieldChip<FHost>,
+    layouter: &mut impl Layouter<FHost>,
+    power: usize,
+    rhs: &Self,
+    rhs_sum: &AssignedFp6<FHost>,
+  ) -> Result<Self, Error> {
+    let frobenius_value = self.value().map(|value| fp12_frobenius_map_constant(&value, power));
+    let frobenius_c0_value = frobenius_value.clone().map(|value| value.0);
+    let frobenius_c1_value = frobenius_value.clone().map(|value| value.1);
+    let frobenius_c0_witness = fp6_value_witness(frobenius_c0_value);
+    let frobenius_c1_witness = fp6_value_witness(frobenius_c1_value);
+    let frobenius_c0 = AssignedFp6::<FHost>::assign(
+      chip,
+      layouter,
+      frobenius_c0_witness.0,
+      frobenius_c0_witness.1,
+      frobenius_c0_witness.2,
+    )?;
+    let frobenius_c1 = AssignedFp6::<FHost>::assign(
+      chip,
+      layouter,
+      frobenius_c1_witness.0,
+      frobenius_c1_witness.1,
+      frobenius_c1_witness.2,
+    )?;
+    let frobenius_sum_value = frobenius_value.map(|value| fp6_add_constant(value.0, value.1));
+    let frobenius_sum_witness = fp6_value_witness(frobenius_sum_value);
+    let frobenius_sum = AssignedFp6::<FHost>::assign(
+      chip,
+      layouter,
+      frobenius_sum_witness.0,
+      frobenius_sum_witness.1,
+      frobenius_sum_witness.2,
+    )?;
+
+    let a_a = frobenius_c0.mul(chip, layouter, &rhs.c0)?;
+    let b_b = frobenius_c1.mul(chip, layouter, &rhs.c1)?;
+    let b_b_nr = b_b.mul_by_nonresidue(chip, layouter)?;
+    let cross = frobenius_sum.mul(chip, layouter, rhs_sum)?;
+
+    let c0 = a_a.add(chip, layouter, &b_b_nr)?;
+    let c1 = cross.sub(chip, layouter, &a_a)?.sub(chip, layouter, &b_b)?;
+
+    Ok(Self::new(c0, c1))
+  }
   fn cyclotomic_square_pair(
     chip: &Bn254FieldChip<FHost>,
     layouter: &mut impl Layouter<FHost>,
@@ -911,11 +964,181 @@ impl Circuit<NativeField> for Fp12MulCircuit {
   }
 }
 
+/// Small circuit that exercises multiplying one cyclotomic-subgroup element by
+/// the unitary inverse of another.
+#[derive(Clone, Debug)]
+pub struct Fp12MulByUnitaryInverseCircuit {
+  left: Fp12Value,
+  right: Fp12Value,
+  expected: Fp12Constant,
+}
+
+impl Fp12MulByUnitaryInverseCircuit {
+  /// Builds a circuit with a known expected output for
+  /// `left * unitary_inverse(right)`.
+  #[must_use]
+  pub fn new(left: Fp12Constant, right: Fp12Constant) -> Self {
+    Self {
+      left: fp12_value_witness(Value::known(left)),
+      right: fp12_value_witness(Value::known(right)),
+      expected: fp12_mul_constant(&left, &super::host::fp12_conjugate_constant(&right)),
+    }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and proxy calibration.
+  #[must_use]
+  pub fn sample() -> Self {
+    let generic_left = (
+      (
+        (ForeignField::from(61_u64), ForeignField::from(62_u64)),
+        (ForeignField::from(63_u64), ForeignField::from(64_u64)),
+        (ForeignField::from(65_u64), ForeignField::from(66_u64)),
+      ),
+      (
+        (ForeignField::from(67_u64), ForeignField::from(68_u64)),
+        (ForeignField::from(69_u64), ForeignField::from(70_u64)),
+        (ForeignField::from(71_u64), ForeignField::from(72_u64)),
+      ),
+    );
+    let generic_right = (
+      (
+        (ForeignField::from(73_u64), ForeignField::from(74_u64)),
+        (ForeignField::from(75_u64), ForeignField::from(76_u64)),
+        (ForeignField::from(77_u64), ForeignField::from(78_u64)),
+      ),
+      (
+        (ForeignField::from(79_u64), ForeignField::from(80_u64)),
+        (ForeignField::from(81_u64), ForeignField::from(82_u64)),
+        (ForeignField::from(83_u64), ForeignField::from(84_u64)),
+      ),
+    );
+
+    Self::new(
+      bn254_final_exponentiation_easy_part_constant(&generic_left),
+      bn254_final_exponentiation_easy_part_constant(&generic_right),
+    )
+  }
+}
+
+impl Default for Fp12MulByUnitaryInverseCircuit {
+  fn default() -> Self {
+    Self::sample()
+  }
+}
+
+impl Circuit<NativeField> for Fp12MulByUnitaryInverseCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self {
+      left: AssignedFp12::<NativeField>::unknown_witness(&self.left),
+      right: AssignedFp12::<NativeField>::unknown_witness(&self.right),
+      expected: self.expected,
+    }
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    layouter: impl Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    synthesize_binary_value_circuit::<AssignedFp12, _, _>(
+      &config,
+      layouter,
+      self.left,
+      self.right,
+      self.expected,
+      AssignedFp12::mul_by_unitary_inverse,
+    )
+  }
+}
+
 /// Small circuit that exercises a single BN254 Fp12 square.
 #[derive(Clone, Debug)]
 pub struct Fp12SquareCircuit {
   value: Fp12Value,
   expected: Fp12Constant,
+}
+
+/// Small circuit that exercises one compressed cyclotomic square block of a
+/// fixed length before decompressing back into Fp12.
+#[derive(Clone, Debug)]
+pub struct Fp12CompressedCyclotomicSquareBlockCircuit {
+  value: Fp12Value,
+  expected: Fp12Constant,
+  square_count: u8,
+}
+
+impl Fp12CompressedCyclotomicSquareBlockCircuit {
+  /// Builds a circuit that runs one compressed cyclotomic square block of the
+  /// requested length before checking the fully decompressed result.
+  #[must_use]
+  pub fn new(value: Fp12Constant, square_count: u8) -> Self {
+    let mut expected = value;
+    for _ in 0..square_count {
+      expected = fp12_cyclotomic_square_constant(&expected);
+    }
+
+    Self { value: fp12_value_witness(Value::known(value)), expected, square_count }
+  }
+
+  /// Returns a deterministic sample circuit suitable for metrics and proxy calibration.
+  #[must_use]
+  pub fn sample(square_count: u8) -> Self {
+    let generic_sample = (
+      (
+        (ForeignField::from(49_u64), ForeignField::from(50_u64)),
+        (ForeignField::from(51_u64), ForeignField::from(52_u64)),
+        (ForeignField::from(53_u64), ForeignField::from(54_u64)),
+      ),
+      (
+        (ForeignField::from(55_u64), ForeignField::from(56_u64)),
+        (ForeignField::from(57_u64), ForeignField::from(58_u64)),
+        (ForeignField::from(59_u64), ForeignField::from(60_u64)),
+      ),
+    );
+
+    Self::new(bn254_final_exponentiation_easy_part_constant(&generic_sample), square_count)
+  }
+}
+
+impl Circuit<NativeField> for Fp12CompressedCyclotomicSquareBlockCircuit {
+  type Config = Bn254FieldConfig;
+  type FloorPlanner = SimpleFloorPlanner;
+  type Params = ();
+
+  fn without_witnesses(&self) -> Self {
+    Self {
+      value: AssignedFp12::<NativeField>::unknown_witness(&self.value),
+      expected: self.expected,
+      square_count: self.square_count,
+    }
+  }
+
+  fn configure(meta: &mut ConstraintSystem<NativeField>) -> Self::Config {
+    Bn254FieldConfig::configure(meta)
+  }
+
+  fn synthesize(
+    &self,
+    config: Self::Config,
+    mut layouter: impl Layouter<NativeField>,
+  ) -> Result<(), Error> {
+    let chip = Bn254FieldChip::new(&config);
+    let input = AssignedFp12::assign(&chip, &mut layouter, self.value.0, self.value.1)?;
+    let expected_witness = fp12_value_witness(Value::known(self.expected));
+    let expected = AssignedFp12::assign(&chip, &mut layouter, expected_witness.0, expected_witness.1)?;
+    let actual =
+      input.compressed_cyclotomic_square_n_times(&chip, &mut layouter, self.square_count)?;
+    actual.assert_equal(&chip, &mut layouter, &expected)?;
+    chip.load(&mut layouter)
+  }
 }
 
 impl Fp12SquareCircuit {

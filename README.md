@@ -51,6 +51,7 @@ Use the shortest route that matches the task:
 - Real `.circom` integration plan: `docs/real-circom-wrapper-integration-plan.md`
 - Canonical R1CS backend status: `docs/r1cs-backend-status.md`
 - Outer prover strategy: `docs/outer-prover-strategy-plan.md`
+- Direct setup-cost reduction: `docs/decisions/0003-direct-outer-setup-cost-reduction.md`
 - Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/midnight-local-optimization-notes.md`
 - Layout profiling / optimization: `crates/wrapper-circuits/src/groth16/profiling.rs` -> `crates/wrapper-cli/src/main.rs` -> `docs/profiling.md`
 - Midnight-local optimization opportunities: `docs/midnight-local-optimization-notes.md` -> `crates/wrapper-circuits/src/bn254/types.rs` -> `crates/wrapper-circuits/src/bn254/fp6.rs`
@@ -65,10 +66,25 @@ Top-level doc roles:
 - `docs/profiling.md`: how to measure layout-cost changes
 - `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates for repeated BN254 tower operations
 - `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` work in the hard part
+- `docs/decisions/0003-direct-outer-setup-cost-reduction.md`: accepted direction for reducing direct outer setup cost via a lean setup artifact and later params caching
+- `docs/decisions/0004-local-midnight-proofs-patch.md`: accepted rationale for carrying a local `midnight-proofs` patch to support richer direct setup/prove artifacts
 - `docs/zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
 - `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current state of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision for the canonical outer circuit and the direct backend surface
+
+Current direct execution note:
+
+- the repository now exposes split direct commands:
+  - `execute-wrapper-direct-setup`
+  - `execute-wrapper-direct-prove`
+  - `execute-wrapper-direct-prove-trace`
+  - `execute-wrapper-direct-prove-finalize`
+  - `execute-wrapper-direct-verify`
+- the repository now uses a richer direct setup artifact plus a local `midnight-proofs` patch so the direct prove path avoids rerunning `keygen_pk(...)`
+- the current next suspected memory hotspot is eager coset materialization in the patched prover; see `docs/decisions/0003-direct-outer-setup-cost-reduction.md` and `docs/decisions/0004-local-midnight-proofs-patch.md`
+- the split `prove-trace` / `prove-finalize` flow exists so the pre-`compute_h_poly(...)` phase can be cached and rerun independently from the memory-heavy finalization stage
+- current caveat: the split `prove-trace` path is not yet reliable and should be treated as experimental until the `create_proof_trace_from_base` constraint-system failure is resolved
 - `docs/decisions/0002-bn254-local-optimization-policy.md`: retained and rejected local BN254 pairing-core optimization directions
 
 ## Planned Architecture

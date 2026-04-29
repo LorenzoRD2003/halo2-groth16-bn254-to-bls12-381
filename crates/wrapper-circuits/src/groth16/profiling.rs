@@ -10,8 +10,11 @@ use halo2curves::group::Group;
 use crate::LayoutMetrics;
 use crate::bn254::{
   ForeignCurve, PairingCheckCircuit, final_exponentiation_easy_part_layout_metrics,
-  final_exponentiation_hard_part_layout_metrics, final_exponentiation_layout_metrics,
-  measure_layout, miller_loop_layout_metrics, pairing_check_layout_metrics,
+  final_exponentiation_easy_part_layout_metrics_v1, final_exponentiation_hard_part_layout_metrics,
+  final_exponentiation_hard_part_layout_metrics_v1, final_exponentiation_layout_metrics,
+  final_exponentiation_layout_metrics_v1, measure_layout, measure_layout_with_v1,
+  miller_loop_layout_metrics, miller_loop_layout_metrics_v1, pairing_check_layout_metrics,
+  pairing_check_layout_metrics_v1,
 };
 use crate::measure_host_circuit_layout;
 use crate::outer::{OuterHostFlavor, OuterWrapperCircuit, OuterWrapperCircuitInput};
@@ -72,10 +75,33 @@ pub fn groth16_fixture_verifier_layout_metrics() -> LayoutMetrics {
   ))
 }
 
+/// Measures the canonical Groth16 verifier circuit on the committed snarkjs
+/// fixture under the V1 floor planner.
+#[must_use]
+pub fn groth16_fixture_verifier_layout_metrics_v1() -> LayoutMetrics {
+  measure_layout_with_v1(&Groth16Bn254VerifierCircuit::new(
+    fixtures::typed::verifying_key(),
+    fixtures::typed::proof(),
+    fixtures::typed::public_inputs(),
+    true,
+  ))
+}
+
 /// Measures the canonical Groth16 verifier-side `vk_x` accumulator on the committed fixture.
 #[must_use]
 pub fn groth16_fixture_ic_accumulator_layout_metrics() -> LayoutMetrics {
   measure_layout(&Groth16IcAccumulatorCircuit::new(
+    fixtures::typed::verifying_key(),
+    fixtures::typed::public_inputs(),
+    ForeignCurve::identity(),
+  ))
+}
+
+/// Measures the canonical Groth16 verifier-side `vk_x` accumulator on the
+/// committed fixture under the V1 floor planner.
+#[must_use]
+pub fn groth16_fixture_ic_accumulator_layout_metrics_v1() -> LayoutMetrics {
+  measure_layout_with_v1(&Groth16IcAccumulatorCircuit::new(
     fixtures::typed::verifying_key(),
     fixtures::typed::public_inputs(),
     ForeignCurve::identity(),
@@ -146,10 +172,22 @@ pub fn groth16_pairing_block_miller_loop_layout_metrics() -> LayoutMetrics {
   miller_loop_layout_metrics()
 }
 
+/// Returns the current narrow Miller-loop layout metrics under the V1 floor planner.
+#[must_use]
+pub fn groth16_pairing_block_miller_loop_layout_metrics_v1() -> LayoutMetrics {
+  miller_loop_layout_metrics_v1()
+}
+
 /// Returns the current narrow final-exponentiation layout metrics.
 #[must_use]
 pub fn groth16_pairing_block_final_exponentiation_layout_metrics() -> LayoutMetrics {
   final_exponentiation_layout_metrics()
+}
+
+/// Returns the current narrow final-exponentiation layout metrics under the V1 floor planner.
+#[must_use]
+pub fn groth16_pairing_block_final_exponentiation_layout_metrics_v1() -> LayoutMetrics {
+  final_exponentiation_layout_metrics_v1()
 }
 
 /// Returns the current narrow final-exponentiation easy-part layout metrics.
@@ -158,16 +196,34 @@ pub fn groth16_pairing_block_final_exponentiation_easy_part_layout_metrics() -> 
   final_exponentiation_easy_part_layout_metrics()
 }
 
+/// Returns the current narrow final-exponentiation easy-part layout metrics under the V1 floor planner.
+#[must_use]
+pub fn groth16_pairing_block_final_exponentiation_easy_part_layout_metrics_v1() -> LayoutMetrics {
+  final_exponentiation_easy_part_layout_metrics_v1()
+}
+
 /// Returns the current narrow final-exponentiation hard-part layout metrics.
 #[must_use]
 pub fn groth16_pairing_block_final_exponentiation_hard_part_layout_metrics() -> LayoutMetrics {
   final_exponentiation_hard_part_layout_metrics()
 }
 
+/// Returns the current narrow final-exponentiation hard-part layout metrics under the V1 floor planner.
+#[must_use]
+pub fn groth16_pairing_block_final_exponentiation_hard_part_layout_metrics_v1() -> LayoutMetrics {
+  final_exponentiation_hard_part_layout_metrics_v1()
+}
+
 /// Returns the current narrow pairing-check primitive baseline.
 #[must_use]
 pub fn groth16_pairing_block_pairing_check_layout_metrics() -> LayoutMetrics {
   pairing_check_layout_metrics()
+}
+
+/// Returns the current narrow pairing-check primitive baseline under the V1 floor planner.
+#[must_use]
+pub fn groth16_pairing_block_pairing_check_layout_metrics_v1() -> LayoutMetrics {
+  pairing_check_layout_metrics_v1()
 }
 
 /// Returns a Groth16-shaped optimized pairing-check block:
@@ -181,6 +237,22 @@ pub fn groth16_pairing_block_pairing_check_groth16_style_layout_metrics() -> Lay
     groth16_verifier_pairing_term_constants(&vk, &proof, &public_inputs);
 
   measure_layout(&PairingCheckCircuit::new_with_prepared_constant_terms(
+    &variable_terms,
+    &prepared_terms,
+    true,
+  ))
+}
+
+/// Returns the Groth16-shaped optimized pairing-check block under the V1 floor planner.
+#[must_use]
+pub fn groth16_pairing_block_pairing_check_groth16_style_layout_metrics_v1() -> LayoutMetrics {
+  let vk = fixtures::typed::verifying_key();
+  let proof = fixtures::typed::proof();
+  let public_inputs = fixtures::typed::public_inputs();
+  let (variable_terms, prepared_terms) =
+    groth16_verifier_pairing_term_constants(&vk, &proof, &public_inputs);
+
+  measure_layout_with_v1(&PairingCheckCircuit::new_with_prepared_constant_terms(
     &variable_terms,
     &prepared_terms,
     true,
