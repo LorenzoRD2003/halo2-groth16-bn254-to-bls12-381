@@ -226,8 +226,10 @@ impl MidnightDirectOuterBackend {
     append_backend_log("prove-trace: create_proof_trace_from_base complete");
 
     append_backend_log("prove-trace: serializing persisted prover trace");
-    trace.write(trace_writer).map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
+    trace.write(trace_writer, base_pk.get_vk()).map_err(|error| {
+      OuterProofBackendError::OuterCircuitInputInvalid {
       reason: format!("failed to serialize persisted prover trace: {error}"),
+      }
     })?;
     append_backend_log("prove-trace: trace serialization complete");
     Ok(())
@@ -259,18 +261,20 @@ impl MidnightDirectOuterBackend {
       reason: format!("failed to deserialize proving key: {error}"),
     })?;
     append_backend_log("prove-finalize: deserializing persisted prover trace");
-    let trace = PersistedProverTrace::<OuterHostField>::read(trace_reader).map_err(|error| {
+    let prepared_trace = PersistedProverTrace::<OuterHostField>::read_prepared(trace_reader)
+      .map_err(|error| {
       OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("failed to deserialize persisted prover trace: {error}"),
       }
     })?;
-    let mut transcript = trace.init_transcript::<CircuitTranscript<Blake2bState>>();
+    let mut transcript = prepared_trace.init_transcript::<CircuitTranscript<Blake2bState>>();
     append_backend_log("prove-finalize: entering finalise_proof_from_base_trace");
-    finalise_proof_from_base_trace::<OuterHostField, KZGCommitmentScheme<Bn256>, _>(
+    finalise_proof_from_base_trace::<OuterHostField, KZGCommitmentScheme<Bn256>, _, _>(
       &params,
       base_pk,
       0,
-      trace,
+      prepared_trace,
+      trace_reader,
       &mut transcript,
     )
     .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
@@ -554,6 +558,8 @@ impl MidnightDirectOuterBackendBls12Host {
     self.assemble_produced_bundle(package, proof, setup.verification_key.clone())
   }
 
+  /// Produces the pre-`compute_h_poly` proving-trace artifact for the
+  /// BLS12-hosted direct outer lane from persisted setup materials.
   pub fn produce_proof_trace_from_setup_reader<R: io::Read, W: io::Write>(
     self,
     package: &WrapperExecutionPackage,
@@ -598,13 +604,17 @@ impl MidnightDirectOuterBackendBls12Host {
     append_backend_log("prove-trace: create_proof_trace_from_base complete");
 
     append_backend_log("prove-trace: serializing persisted prover trace");
-    trace.write(trace_writer).map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
+    trace.write(trace_writer, base_pk.get_vk()).map_err(|error| {
+      OuterProofBackendError::OuterCircuitInputInvalid {
       reason: format!("failed to serialize BLS12 persisted prover trace: {error}"),
+      }
     })?;
     append_backend_log("prove-trace: trace serialization complete");
     Ok(())
   }
 
+  /// Finalizes one BLS12-hosted outer proof bundle from a previously persisted
+  /// proving-trace artifact plus the setup proving-key sidecar.
   pub fn produce_proof_bundle_from_trace_reader<R: io::Read, TR: io::Read>(
     self,
     package: &WrapperExecutionPackage,
@@ -629,18 +639,20 @@ impl MidnightDirectOuterBackendBls12Host {
       reason: format!("failed to deserialize BLS12 proving key: {error}"),
     })?;
     append_backend_log("prove-finalize: deserializing persisted prover trace");
-    let trace = PersistedProverTrace::<Bls12HostField>::read(trace_reader).map_err(|error| {
+    let prepared_trace = PersistedProverTrace::<Bls12HostField>::read_prepared(trace_reader)
+      .map_err(|error| {
       OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("failed to deserialize BLS12 persisted prover trace: {error}"),
       }
     })?;
-    let mut transcript = trace.init_transcript::<CircuitTranscript<Blake2bState>>();
+    let mut transcript = prepared_trace.init_transcript::<CircuitTranscript<Blake2bState>>();
     append_backend_log("prove-finalize: entering finalise_proof_from_base_trace");
-    finalise_proof_from_base_trace::<Bls12HostField, KZGCommitmentScheme<Bls12>, _>(
+    finalise_proof_from_base_trace::<Bls12HostField, KZGCommitmentScheme<Bls12>, _, _>(
       &params,
       base_pk,
       0,
-      trace,
+      prepared_trace,
+      trace_reader,
       &mut transcript,
     )
     .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {

@@ -147,8 +147,21 @@ pub(crate) struct ProvingKey<F: PrimeField> {
 /// Derived permutation proving state required by the final proving phase.
 #[derive(Clone, Debug)]
 pub(crate) struct FinalizingKey<F: PrimeField> {
+    pub(crate) permutations: Vec<Polynomial<F, LagrangeCoeff>>,
     pub(crate) polys: Vec<Polynomial<F, Coeff>>,
-    pub(crate) cosets: Vec<Polynomial<F, ExtendedLagrangeCoeff>>,
+}
+
+/// Derived permutation proving state required only for `compute_h_poly(...)`.
+#[derive(Debug)]
+pub(crate) struct HPolyKey<'a, F: PrimeField> {
+    pub(crate) permutations: &'a [Polynomial<F, LagrangeCoeff>],
+}
+
+/// Derived permutation proving state required only for transcript evaluations
+/// and opening queries after `h_poly` has already been computed.
+#[derive(Clone, Debug)]
+pub(crate) struct OpeningKey<F: PrimeField> {
+    pub(crate) polys: Vec<Polynomial<F, Coeff>>,
 }
 
 /// Lean setup artifact for a single permutation argument.
@@ -195,7 +208,37 @@ impl<F: WithSmallOrderMulGroup<3>> BaseProvingKey<F> {
     ) -> FinalizingKey<F> {
         let (polys, cosets) = compute_polys_and_cosets::<F>(domain, p, &self.permutations);
         let _ = p;
-        FinalizingKey { polys, cosets }
+        let _ = cosets;
+        FinalizingKey {
+            permutations: self.permutations,
+            polys,
+        }
+    }
+
+    /// Promotes the lean permutation setup artifact into only the cosets
+    /// required by `compute_h_poly(...)`.
+    pub(crate) fn finalize_for_h_poly(
+        &self,
+        domain: &EvaluationDomain<F>,
+        p: &Argument,
+    ) -> HPolyKey<'_, F> {
+        let _ = domain;
+        let _ = p;
+        HPolyKey {
+            permutations: &self.permutations,
+        }
+    }
+
+    /// Promotes the lean permutation setup artifact into only the coefficient
+    /// polynomials required by transcript evaluations and opening queries.
+    pub(crate) fn finalize_for_openings(
+        self,
+        domain: &EvaluationDomain<F>,
+        p: &Argument,
+    ) -> OpeningKey<F> {
+        let (polys, _) = compute_polys_and_cosets::<F>(domain, p, &self.permutations);
+        let _ = p;
+        OpeningKey { polys }
     }
 }
 
@@ -228,6 +271,23 @@ impl<F: PrimeField> ProvingKey<F> {
 }
 
 impl<F: WithSmallOrderMulGroup<3>> FinalizingKey<F> {
+    pub(crate) fn open(&self, x: F) -> impl Iterator<Item = ProverQuery<'_, F>> + Clone {
+        self.polys.iter().map(move |poly| ProverQuery { point: x, poly })
+    }
+
+    pub(crate) fn evaluate<T: Transcript>(&self, x: F, transcript: &mut T) -> Result<(), Error>
+    where
+        F: Hashable<T::Hash>,
+    {
+        for eval in self.polys.iter().map(|poly| eval_polynomial(poly, x)) {
+            transcript.write(&eval)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<F: WithSmallOrderMulGroup<3>> OpeningKey<F> {
     pub(crate) fn open(&self, x: F) -> impl Iterator<Item = ProverQuery<'_, F>> + Clone {
         self.polys.iter().map(move |poly| ProverQuery { point: x, poly })
     }

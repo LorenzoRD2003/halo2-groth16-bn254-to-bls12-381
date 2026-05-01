@@ -270,10 +270,12 @@ impl Argument {
 }
 
 impl<F: PrimeField> super::ProvingKey<F> {
+    #[allow(dead_code)]
     pub(crate) fn open(&self, x: F) -> impl Iterator<Item = ProverQuery<'_, F>> + Clone {
         self.polys.iter().map(move |poly| ProverQuery { point: x, poly })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn evaluate<T: Transcript>(&self, x: F, transcript: &mut T) -> Result<(), Error>
     where
         F: Hashable<T::Hash>,
@@ -288,6 +290,7 @@ impl<F: PrimeField> super::ProvingKey<F> {
 }
 
 impl<F: WithSmallOrderMulGroup<3>> Committed<F> {
+    #[allow(dead_code)]
     pub(crate) fn evaluate<T: Transcript, CS: PolynomialCommitmentScheme<F>>(
         self,
         pk: &plonk::ProvingKey<F, CS>,
@@ -377,9 +380,52 @@ impl<F: WithSmallOrderMulGroup<3>> Committed<F> {
 
         Ok(Evaluated { constructed: self })
     }
+
+    pub(crate) fn evaluate_with_vk<T: Transcript, CS: PolynomialCommitmentScheme<F>>(
+        self,
+        vk: &VerifyingKey<F, CS>,
+        x: F,
+        transcript: &mut T,
+    ) -> Result<Evaluated<F>, Error>
+    where
+        F: Hashable<T::Hash>,
+    {
+        let domain = &vk.domain;
+        let blinding_factors = vk.cs.blinding_factors();
+
+        {
+            let mut sets = self.sets.iter();
+
+            while let Some(set) = sets.next() {
+                let permutation_product_eval = eval_polynomial(&set.permutation_product_poly, x);
+                let permutation_product_next_eval = eval_polynomial(
+                    &set.permutation_product_poly,
+                    domain.rotate_omega(x, Rotation::next()),
+                );
+
+                for eval in iter::empty()
+                    .chain(Some(&permutation_product_eval))
+                    .chain(Some(&permutation_product_next_eval))
+                {
+                    transcript.write(eval)?;
+                }
+
+                if sets.len() > 0 {
+                    let permutation_product_last_eval = eval_polynomial(
+                        &set.permutation_product_poly,
+                        domain.rotate_omega(x, Rotation(-((blinding_factors + 1) as i32))),
+                    );
+                    transcript.write(&permutation_product_last_eval)?;
+                }
+            }
+        }
+
+        Ok(Evaluated { constructed: self })
+    }
 }
 
 impl<F: WithSmallOrderMulGroup<3>> Evaluated<F> {
+    #[allow(dead_code)]
     pub(crate) fn open<'a, CS: PolynomialCommitmentScheme<F>>(
         &'a self,
         pk: &'a plonk::ProvingKey<F, CS>,
@@ -423,6 +469,37 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluated<F> {
         let blinding_factors = pk.vk.cs.blinding_factors();
         let x_next = pk.vk.domain.rotate_omega(x, Rotation::next());
         let x_last = pk.vk.domain.rotate_omega(x, Rotation(-((blinding_factors + 1) as i32)));
+
+        iter::empty()
+            .chain(self.constructed.sets.iter().flat_map(move |set| {
+                iter::empty()
+                    .chain(Some(ProverQuery {
+                        point: x,
+                        poly: &set.permutation_product_poly,
+                    }))
+                    .chain(Some(ProverQuery {
+                        point: x_next,
+                        poly: &set.permutation_product_poly,
+                    }))
+            }))
+            .chain(
+                self.constructed.sets.iter().rev().skip(1).flat_map(move |set| {
+                    Some(ProverQuery {
+                        point: x_last,
+                        poly: &set.permutation_product_poly,
+                    })
+                }),
+            )
+    }
+
+    pub(crate) fn open_with_vk<'a, CS: PolynomialCommitmentScheme<F>>(
+        &'a self,
+        vk: &'a VerifyingKey<F, CS>,
+        x: F,
+    ) -> impl Iterator<Item = ProverQuery<'a, F>> + Clone {
+        let blinding_factors = vk.cs.blinding_factors();
+        let x_next = vk.domain.rotate_omega(x, Rotation::next());
+        let x_last = vk.domain.rotate_omega(x, Rotation(-((blinding_factors + 1) as i32)));
 
         iter::empty()
             .chain(self.constructed.sets.iter().flat_map(move |set| {

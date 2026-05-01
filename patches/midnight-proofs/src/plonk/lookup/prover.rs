@@ -429,6 +429,7 @@ impl<F: WithSmallOrderMulGroup<3>> Permuted<F> {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn permute_expression_pair_base<
     F: WithSmallOrderMulGroup<3> + Ord + Hash + FromUniformBytes<64>,
     CS: PolynomialCommitmentScheme<F>,
@@ -494,6 +495,7 @@ fn permute_expression_pair_base<
 }
 
 impl<F: WithSmallOrderMulGroup<3>> Committed<F> {
+    #[allow(dead_code)]
     pub(crate) fn evaluate<T: Transcript, CS: PolynomialCommitmentScheme<F>>(
         self,
         pk: &ProvingKey<F, CS>,
@@ -558,9 +560,42 @@ impl<F: WithSmallOrderMulGroup<3>> Committed<F> {
 
         Ok(Evaluated { constructed: self })
     }
+
+    pub(crate) fn evaluate_with_vk<T: Transcript, CS: PolynomialCommitmentScheme<F>>(
+        self,
+        vk: &VerifyingKey<F, CS>,
+        x: F,
+        transcript: &mut T,
+    ) -> Result<Evaluated<F>, Error>
+    where
+        F: Hashable<T::Hash>,
+    {
+        let domain = &vk.domain;
+        let x_inv = domain.rotate_omega(x, Rotation::prev());
+        let x_next = domain.rotate_omega(x, Rotation::next());
+
+        let product_eval = eval_polynomial(&self.product_poly, x);
+        let product_next_eval = eval_polynomial(&self.product_poly, x_next);
+        let permuted_input_eval = eval_polynomial(&self.permuted_input_poly, x);
+        let permuted_input_inv_eval = eval_polynomial(&self.permuted_input_poly, x_inv);
+        let permuted_table_eval = eval_polynomial(&self.permuted_table_poly, x);
+
+        for eval in iter::empty()
+            .chain(Some(product_eval))
+            .chain(Some(product_next_eval))
+            .chain(Some(permuted_input_eval))
+            .chain(Some(permuted_input_inv_eval))
+            .chain(Some(permuted_table_eval))
+        {
+            transcript.write(&eval)?;
+        }
+
+        Ok(Evaluated { constructed: self })
+    }
 }
 
 impl<F: WithSmallOrderMulGroup<3>> Evaluated<F> {
+    #[allow(dead_code)]
     pub(crate) fn open<'a, CS: PolynomialCommitmentScheme<F>>(
         &'a self,
         pk: &'a ProvingKey<F, CS>,
@@ -604,6 +639,37 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluated<F> {
     ) -> impl Iterator<Item = ProverQuery<'a, F>> + Clone {
         let x_inv = pk.vk.domain.rotate_omega(x, Rotation::prev());
         let x_next = pk.vk.domain.rotate_omega(x, Rotation::next());
+
+        iter::empty()
+            .chain(Some(ProverQuery {
+                point: x,
+                poly: &self.constructed.product_poly,
+            }))
+            .chain(Some(ProverQuery {
+                point: x,
+                poly: &self.constructed.permuted_input_poly,
+            }))
+            .chain(Some(ProverQuery {
+                point: x,
+                poly: &self.constructed.permuted_table_poly,
+            }))
+            .chain(Some(ProverQuery {
+                point: x_inv,
+                poly: &self.constructed.permuted_input_poly,
+            }))
+            .chain(Some(ProverQuery {
+                point: x_next,
+                poly: &self.constructed.product_poly,
+            }))
+    }
+
+    pub(crate) fn open_with_vk<'a, CS: PolynomialCommitmentScheme<F>>(
+        &'a self,
+        vk: &'a VerifyingKey<F, CS>,
+        x: F,
+    ) -> impl Iterator<Item = ProverQuery<'a, F>> + Clone {
+        let x_inv = vk.domain.rotate_omega(x, Rotation::prev());
+        let x_next = vk.domain.rotate_omega(x, Rotation::next());
 
         iter::empty()
             .chain(Some(ProverQuery {

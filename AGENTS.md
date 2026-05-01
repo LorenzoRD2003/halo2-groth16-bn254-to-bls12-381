@@ -194,6 +194,13 @@ If you need CLI / measurement context:
 5. `docs/benchmarking.md`
 6. `docs/midnight-local-optimization-notes.md`
 
+If you need deferred speed follow-up context after the current `h_poly` memory
+blocker is solved:
+
+1. `docs/h-poly-followup-speed-plan.md`
+2. `docs/decisions/0003-direct-outer-setup-cost-reduction.md`
+3. `docs/decisions/0004-local-midnight-proofs-patch.md`
+
 If you need stage boundaries / "is this in scope?" context:
 
 1. `AGENTS.md` `Current Phase and Scope Boundaries`
@@ -245,6 +252,7 @@ Use each top-level doc for one job:
 - `docs/decisions/0002-bn254-local-optimization-policy.md`: durable retained/rejected optimization decisions for the BN254 pairing-core lane
 - `docs/decisions/0003-direct-outer-setup-cost-reduction.md`: accepted direction for reducing direct outer setup cost via a lean setup artifact and later params caching
 - `docs/decisions/0004-local-midnight-proofs-patch.md`: accepted rationale for carrying a local `midnight-proofs` patch to support richer direct setup/prove artifacts
+- `docs/h-poly-followup-speed-plan.md`: deferred speed-oriented follow-ups for the retained chunked `h_poly` path once the current memory blocker is solved
 - `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus-region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` sites in the hard part
 - `docs/zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
@@ -326,12 +334,23 @@ future agents know when to read it.
 - The current planning/execution surfaces for wrapper experiments are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, `execute-wrapper-stub`, `execute-wrapper-direct`, `execute-wrapper-direct-setup`, `execute-wrapper-direct-prove`, `execute-wrapper-direct-prove-trace`, `execute-wrapper-direct-prove-finalize`, and `execute-wrapper-direct-verify`.
 - Direct execution commands now enforce a `24 GiB` process memory limit.
 - The direct setup artifact now persists verification materials plus a proving-key sidecar.
+- Artifact hygiene rule for future agents:
+  - when changing setup-producing code or patch state, delete setup artifacts
+    produced before that change before trusting later prove/finalize runs
+  - when changing `prove-trace`-producing code or persisted trace format,
+    delete previously materialized trace artifacts and trace logs before
+    rerunning
+  - when changing `prove-finalize`-producing code or finalized proof-bundle
+    format, delete previously materialized finalized proof artifacts and
+    finalize logs before rerunning
 - The repo now carries a local `[patch.crates-io]` override for `midnight-proofs` under `patches/midnight-proofs`.
 - That local patch adds `BaseProvingKey`, `keygen_pk_base(...)`, `create_proof_from_base(...)`, `create_proof_trace_from_base(...)`, and `finalise_proof_from_base_trace(...)` so richer direct setup/prove artifacts can be expressed without waiting on upstream.
 - The direct prove path now avoids rerunning `keygen_pk(...)` in the wrapper backend.
 - Current known limitation: the next suspected memory hotspot is eager coset materialization inside `compute_h_poly(...)` (`advice_cosets` / `instance_cosets`) in the patched prover.
-- The split `execute-wrapper-direct-prove-trace` / `execute-wrapper-direct-prove-finalize` flow exists so the pre-`compute_h_poly(...)` phase can be cached as an artifact between experiments, but it should currently be treated as broken.
-- Latest valid split failure to remember in future conversations: `execute-wrapper-direct-prove-trace` fails with `midnight create_proof_trace_from_base failed: The constraint system is not satisfied`, and the last reliable backend log line is `prove-trace: entering create_proof_trace_from_base`.
+- The split `execute-wrapper-direct-prove-trace` / `execute-wrapper-direct-prove-finalize` flow exists so the pre-`compute_h_poly(...)` phase can be cached as an artifact between experiments.
+- Current active debugging focus: reduce memory pressure around `compute_h_poly(...)` and identify the last successful finalize subphase from the emitted finalize checkpoints.
+- `execute-wrapper-direct-prove-finalize` now exposes `--h-poly-row-chunk-size`; it is optional and should normally be omitted unless you are tuning memory after an OOM.
+- That flag accepts a base-2 exponent rather than a raw row count; for example, `16` means `65536` rows.
 - One successful measured lean setup run on `circom_multiplier2` produced `circuit_k = 21`, `public_input_count = 1`, and `setup_elapsed_ms = 1554572` (about `25m 54s`).
 
 `wrapper-tests`

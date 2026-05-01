@@ -52,6 +52,7 @@ Use the shortest route that matches the task:
 - Canonical R1CS backend status: `docs/r1cs-backend-status.md`
 - Outer prover strategy: `docs/outer-prover-strategy-plan.md`
 - Direct setup-cost reduction: `docs/decisions/0003-direct-outer-setup-cost-reduction.md`
+- H poly speed follow-up work after memory is solved: `docs/h-poly-followup-speed-plan.md`
 - Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/midnight-local-optimization-notes.md`
 - Layout profiling / optimization: `crates/wrapper-circuits/src/groth16/profiling.rs` -> `crates/wrapper-cli/src/main.rs` -> `docs/profiling.md`
 - Midnight-local optimization opportunities: `docs/midnight-local-optimization-notes.md` -> `crates/wrapper-circuits/src/bn254/types.rs` -> `crates/wrapper-circuits/src/bn254/fp6.rs`
@@ -68,6 +69,7 @@ Top-level doc roles:
 - `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` work in the hard part
 - `docs/decisions/0003-direct-outer-setup-cost-reduction.md`: accepted direction for reducing direct outer setup cost via a lean setup artifact and later params caching
 - `docs/decisions/0004-local-midnight-proofs-patch.md`: accepted rationale for carrying a local `midnight-proofs` patch to support richer direct setup/prove artifacts
+- `docs/h-poly-followup-speed-plan.md`: deferred speed follow-ups for the retained chunked `h_poly` path after the current memory blocker is solved
 - `docs/zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
 - `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current state of the canonical R1CS line and why it is currently an alternate backend / later phase
@@ -84,7 +86,7 @@ Current direct execution note:
 - the repository now uses a richer direct setup artifact plus a local `midnight-proofs` patch so the direct prove path avoids rerunning `keygen_pk(...)`
 - the current next suspected memory hotspot is eager coset materialization in the patched prover; see `docs/decisions/0003-direct-outer-setup-cost-reduction.md` and `docs/decisions/0004-local-midnight-proofs-patch.md`
 - the split `prove-trace` / `prove-finalize` flow exists so the pre-`compute_h_poly(...)` phase can be cached and rerun independently from the memory-heavy finalization stage
-- current caveat: the split `prove-trace` path is not yet reliable and should be treated as experimental until the `create_proof_trace_from_base` constraint-system failure is resolved
+- current caveat: `prove-trace` is now working, but `prove-finalize` is still the active memory-reduction target
 - `docs/decisions/0002-bn254-local-optimization-policy.md`: retained and rejected local BN254 pairing-core optimization directions
 
 ## Planned Architecture
@@ -151,9 +153,15 @@ Commands:
 ```bash
 cargo fmt --all -- --check
 cargo check --workspace
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo doc --no-deps
+```
+
+For the local `midnight-proofs` patch itself:
+
+```bash
+(cd patches/midnight-proofs && cargo clippy --all-targets --all-features -- -D warnings)
 ```
 
 ## CI Status
@@ -164,7 +172,7 @@ The workflow currently runs:
 
 - `cargo check --workspace`
 - `cargo fmt --all -- --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - `cargo test --workspace`
 - `cargo doc --no-deps`
 
@@ -286,6 +294,78 @@ cargo run -p wrapper-cli -- export-wrapper-package --proof ... --public ... --vk
 cargo run -p wrapper-cli -- execute-wrapper-stub --proof ... --public ... --vk ...
 cargo run -p wrapper-cli -- execute-wrapper-direct --proof ... --public ... --vk ...
 ```
+
+## Direct Execution Commands
+
+The current direct BN254-hosted smoke-path commands are:
+
+```bash
+cargo run -q -p wrapper-cli -- execute-wrapper-direct-setup \
+  --id circom-multiplier2 \
+  --proof crates/wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json \
+  --public crates/wrapper-tests/fixtures/groth16/circom_multiplier2/public.json \
+  --vk crates/wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json \
+  --backend midnight-bn254-host \
+  --output /home/lorenzo/direct-setup-smoke.json
+
+cargo run -q -p wrapper-cli -- execute-wrapper-direct-prove \
+  --id circom-multiplier2 \
+  --proof crates/wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json \
+  --public crates/wrapper-tests/fixtures/groth16/circom_multiplier2/public.json \
+  --vk crates/wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json \
+  --backend midnight-bn254-host \
+  --setup /home/lorenzo/direct-setup-smoke.json \
+  --output /home/lorenzo/direct-prove-smoke.json
+
+cargo run -q -p wrapper-cli -- execute-wrapper-direct-prove-trace \
+  --id circom-multiplier2 \
+  --proof crates/wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json \
+  --public crates/wrapper-tests/fixtures/groth16/circom_multiplier2/public.json \
+  --vk crates/wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json \
+  --backend midnight-bn254-host \
+  --setup /home/lorenzo/direct-setup-smoke.json \
+  --output /home/lorenzo/direct-prove-trace-smoke.bin
+
+cargo run -q -p wrapper-cli -- execute-wrapper-direct-prove-finalize \
+  --id circom-multiplier2 \
+  --proof crates/wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json \
+  --public crates/wrapper-tests/fixtures/groth16/circom_multiplier2/public.json \
+  --vk crates/wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json \
+  --backend midnight-bn254-host \
+  --setup /home/lorenzo/direct-setup-smoke.json \
+  --trace /home/lorenzo/direct-prove-trace-smoke.bin \
+  --output /home/lorenzo/direct-prove-finalized-smoke.json
+
+cargo run -q -p wrapper-cli -- execute-wrapper-direct-verify \
+  --id circom-multiplier2 \
+  --proof crates/wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json \
+  --public crates/wrapper-tests/fixtures/groth16/circom_multiplier2/public.json \
+  --vk crates/wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json \
+  --backend midnight-bn254-host \
+  --bundle /home/lorenzo/direct-prove-finalized-smoke.json
+```
+
+Notes:
+
+- artifact hygiene rule:
+  - after any code or patch change that affects `execute-wrapper-direct-setup`,
+    delete setup artifacts produced before that change before trusting a new
+    prove/finalize measurement
+  - after any code or patch change that affects
+    `execute-wrapper-direct-prove-trace`, delete previously materialized trace
+    artifacts and trace logs before rerunning
+  - after any code or patch change that affects
+    `execute-wrapper-direct-prove-finalize`, delete previously materialized
+    finalized proof bundles and finalize logs before rerunning
+- rerun `execute-wrapper-direct-prove-trace` after any patch change that modifies the persisted trace format
+- when rerunning `execute-wrapper-direct-prove-trace` after one failed or obsolete attempt, remove the previous trace artifact and trace log first so the next run starts from a clean slate
+- `execute-wrapper-direct-prove-finalize` is the current active memory-reduction work item
+- `execute-wrapper-direct-prove-finalize` also exposes an optional `--h-poly-row-chunk-size` override, but it should usually be omitted unless you are actively tuning memory usage after an OOM
+- that flag now accepts a base-2 exponent, not a raw row count:
+  - `16` means `2^16 = 65536` rows
+  - `15` means `2^15 = 32768` rows
+- use it when `prove-finalize` still fails during the chunked permutation path inside `h_poly`
+  and you want to trade more runtime for lower peak memory
 
 ## Development Workflow
 

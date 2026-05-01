@@ -114,6 +114,7 @@ impl Assembly {
         build_vk(params, domain, p, |i, j| self.mapping[i][j])
     }
 
+    #[allow(dead_code)]
     pub(crate) fn build_pk<F: WithSmallOrderMulGroup<3>>(
         self,
         domain: &EvaluationDomain<F>,

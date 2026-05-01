@@ -15,7 +15,7 @@ use crate::{
             write_evals_to_transcript,
         },
         traces::ProverTrace,
-        trash, vanishing, Error, ProvingKey,
+        trash, vanishing, Error, FinalizingKey, ProvingKey,
     },
     poly::commitment::PolynomialCommitmentScheme,
     transcript::{Hashable, Sampleable, Transcript},
@@ -351,9 +351,6 @@ where
     // Obtain challenge for keeping all separate gates linearly independent
     let y: F = transcript.squeeze_challenge();
 
-    let (instance_polys, instance_values) =
-        instance.into_iter().map(|i| (i.instance_polys, i.instance_values)).unzip();
-
     let advice_polys = advice
         .into_iter()
         .map(|a| {
@@ -363,11 +360,19 @@ where
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
+    let instance_polys = instance
+        .into_iter()
+        .map(|i| {
+            i.instance_values
+                .into_iter()
+                .map(|p| domain.lagrange_to_coeff(p))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
 
     Ok(ProverTrace {
         advice_polys,
         instance_polys,
-        instance_values,
         vanishing,
         lookups,
         trashcans,
@@ -390,7 +395,7 @@ where
 /// Benchmarks individual internal steps using the provided `group`.
 pub(crate) fn finalise_proof<'a, F, CS: PolynomialCommitmentScheme<F>, T: Transcript>(
     params: &'a CS::Parameters,
-    pk: &'a ProvingKey<F, CS>,
+    pk: &'a FinalizingKey<F, CS>,
     // The prover needs to get all instances in non-committed form. However,
     // the first `nb_committed_instances` instance columns are dedicated for
     // instances that the verifier receives in committed form.
@@ -411,7 +416,7 @@ where
     #[cfg(not(feature = "committed-instances"))]
     let nb_committed_instances: usize = 0;
 
-    let domain = pk.get_vk().get_domain();
+    let domain = pk.vk.get_domain();
 
     let h_poly = {
         group.bench_function("Compute H poly", |b| {
@@ -501,7 +506,7 @@ where
     // Evaluate the permutations, if any, at omega^i x.
     let permutations: Vec<permutation::prover::Evaluated<F>> = permutations
         .into_iter()
-        .map(|permutation| -> Result<_, _> { permutation.evaluate(pk, x, transcript) })
+        .map(|permutation| -> Result<_, _> { permutation.evaluate_finalizing(pk, x, transcript) })
         .collect::<Result<Vec<_>, _>>()?;
 
     // Evaluate the lookups, if any, at omega^i x.
@@ -510,7 +515,7 @@ where
         .map(|lookups| -> Result<Vec<_>, _> {
             lookups
                 .into_iter()
-                .map(|p| p.evaluate(pk, x, transcript))
+                .map(|p| p.evaluate_finalizing(pk, x, transcript))
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -611,10 +616,11 @@ where
         transcript,
         group,
     )?;
+    let pk = FinalizingKey::from(pk);
 
     finalise_proof(
         params,
-        pk,
+        &pk,
         #[cfg(feature = "committed-instances")]
         nb_committed_instances,
         trace,

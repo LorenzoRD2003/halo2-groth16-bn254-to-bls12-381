@@ -48,7 +48,7 @@ circuit-params = []
 committed-instances = []
 default = ["committed-instances"]
 derive_serde = ["midnight-curves/serde"]
-dev-curves = ["midnight-curves/serde"]
+dev-curves = ["midnight-curves/dev-curves", "midnight-curves/serde"]
 truncated-challenges = []
 
 [lib]

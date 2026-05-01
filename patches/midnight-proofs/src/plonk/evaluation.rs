@@ -1,13 +1,69 @@
 use ff::{PrimeField, WithSmallOrderMulGroup};
 use group::ff::Field;
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet, fs::OpenOptions, io::Write as _};
 
 use super::{ConstraintSystem, Expression};
 use crate::{
     plonk::{lookup, permutation, trash, Any},
-    poly::{EvaluationDomain, Polynomial, PolynomialRepresentation, Rotation},
+    poly::{EvaluationDomain, LagrangeCoeff, Polynomial, PolynomialRepresentation, Rotation},
     utils::arithmetic::parallelize,
 };
+
+const DIRECT_LOG_FILE_ENV: &str = "WRAPPER_DIRECT_LOG_FILE";
+const H_POLY_ROW_CHUNK_ENV: &str = "WRAPPER_H_POLY_ROW_CHUNK_SIZE";
+const DEFAULT_H_POLY_ROW_CHUNK_SIZE: usize = 1_usize << 15;
+
+fn append_h_poly_log(message: &str) {
+    if let Ok(path) = std::env::var(DIRECT_LOG_FILE_ENV) {
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{message}");
+        }
+    }
+}
+
+fn h_poly_row_chunk_size() -> usize {
+    std::env::var(H_POLY_ROW_CHUNK_ENV)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_H_POLY_ROW_CHUNK_SIZE)
+}
+
+enum ChunkView<'a, F> {
+    Contiguous(&'a [F]),
+    Wrapped {
+        first: &'a [F],
+        second: &'a [F],
+    },
+}
+
+impl<'a, F: Copy> ChunkView<'a, F> {
+    fn get(&self, index: usize) -> F {
+        match self {
+            Self::Contiguous(values) => values[index],
+            Self::Wrapped { first, second } => {
+                if index < first.len() {
+                    first[index]
+                } else {
+                    second[index - first.len()]
+                }
+            }
+        }
+    }
+}
+
+fn wrapped_chunk<'a, F, B>(poly: &'a Polynomial<F, B>, start: usize, len: usize) -> ChunkView<'a, F> {
+    let total = poly.values.len();
+    if start + len <= total {
+        ChunkView::Contiguous(&poly.values[start..start + len])
+    } else {
+        let split = total - start;
+        ChunkView::Wrapped {
+            first: &poly.values[start..],
+            second: &poly.values[..len - split],
+        }
+    }
+}
 
 /// Return the index in the polynomial of size `isize` after rotation `rot`.
 pub(crate) fn get_rotation_idx(idx: usize, rot: i32, rot_scale: i32, isize: i32) -> usize {
@@ -57,7 +113,7 @@ impl ValueSource {
         rotations: &[usize],
         constants: &[F],
         intermediates: &[F],
-        fixed_values: &[Polynomial<F, B>],
+        fixed_values: &[Option<Polynomial<F, B>>],
         advice_values: &[Option<Polynomial<F, B>>],
         instance_values: &[Option<Polynomial<F, B>>],
         challenges: &[F],
@@ -71,9 +127,10 @@ impl ValueSource {
         match self {
             ValueSource::Constant(idx) => constants[*idx],
             ValueSource::Intermediate(idx) => intermediates[*idx],
-            ValueSource::Fixed(column_index, rotation) => {
-                fixed_values[*column_index][rotations[*rotation]]
-            }
+            ValueSource::Fixed(column_index, rotation) => fixed_values[*column_index]
+                .as_ref()
+                .expect("fixed column required by evaluator should be materialized")
+                [rotations[*rotation]],
             ValueSource::Advice(column_index, rotation) => advice_values[*column_index]
                 .as_ref()
                 .expect("advice column required by evaluator should be materialized")
@@ -122,7 +179,7 @@ impl Calculation {
         rotations: &[usize],
         constants: &[F],
         intermediates: &[F],
-        fixed_values: &[Polynomial<F, B>],
+        fixed_values: &[Option<Polynomial<F, B>>],
         advice_values: &[Option<Polynomial<F, B>>],
         instance_values: &[Option<Polynomial<F, B>>],
         challenges: &[F],
@@ -290,7 +347,7 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
         cs: &ConstraintSystem<F>,
         advice: &[&[Option<Polynomial<F, B>>]],
         instance: &[&[Option<Polynomial<F, B>>]],
-        fixed: &[Polynomial<F, B>],
+        fixed: &[Option<Polynomial<F, B>>],
         challenges: &[F],
         y: F,
         beta: F,
@@ -303,7 +360,7 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
         l0: &Polynomial<F, B>,
         l_last: &Polynomial<F, B>,
         l_active_row: &Polynomial<F, B>,
-        permutation_pk_cosets: &[Polynomial<F, B>],
+        permutation_pk_values: &[Polynomial<F, LagrangeCoeff>],
     ) -> Polynomial<F, B> {
         let size = B::len(domain);
         let rot_scale = 1 << (B::k(domain) - domain.k());
@@ -313,18 +370,22 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
 
         let p = &cs.permutation;
 
+        append_h_poly_log("midnight h_poly: before values allocation");
         let mut values = B::empty(domain);
+        append_h_poly_log("midnight h_poly: after values allocation");
 
         // Core expression evaluations
         let num_threads = rayon::current_num_threads();
-        for ((((advice, instance), lookups), trashcans), permutation) in advice
+        for (proof_index, ((((advice, instance), lookups), trashcans), permutation)) in advice
             .iter()
             .zip(instance.iter())
             .zip(lookups.iter())
             .zip(trashcans.iter())
             .zip(permutations.iter())
+            .enumerate()
         {
             // Custom gates
+            append_h_poly_log(&format!("midnight h_poly: before custom gates proof={proof_index}"));
             rayon::scope(|scope| {
                 let chunk_size = size.div_ceil(num_threads);
                 for (thread_idx, values) in values.chunks_mut(chunk_size).enumerate() {
@@ -353,88 +414,158 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                     });
                 }
             });
+            append_h_poly_log(&format!("midnight h_poly: after custom gates proof={proof_index}"));
 
             // Permutations
             let sets = &permutation.sets;
             if !sets.is_empty() {
+                append_h_poly_log(&format!(
+                    "midnight h_poly: before permutation constraints proof={proof_index}"
+                ));
+                let row_chunk_size = h_poly_row_chunk_size();
+                append_h_poly_log(&format!(
+                    "midnight h_poly: permutation row chunk size={} proof={proof_index}",
+                    row_chunk_size
+                ));
+                let total_chunks = size.div_ceil(row_chunk_size);
                 let blinding_factors = cs.blinding_factors();
                 let last_rotation = Rotation(-((blinding_factors + 1) as i32));
                 let chunk_len = cs.degree() - 2;
                 let delta_start = beta * &B::g_coset(domain);
+                let first_set_poly = &sets.first().unwrap().permutation_product_poly;
+                let last_set_poly = if sets.len() == 1 {
+                    None
+                } else {
+                    Some(&sets.last().unwrap().permutation_product_poly)
+                };
 
-                let permutation_product_cosets: Vec<Polynomial<F, B>> = sets
+                let mut previous_set_permutation_product_coset: Option<Cow<'_, Polynomial<F, B>>> =
+                    None;
+                for (set_idx, ((set, columns), permutation_values)) in sets
                     .iter()
-                    .map(|set| B::coeff_to_self(domain, set.permutation_product_poly.clone()))
-                    .collect();
+                    .zip(p.columns.chunks(chunk_len))
+                    .zip(permutation_pk_values.chunks(chunk_len))
+                    .enumerate()
+                {
+                    append_h_poly_log(&format!(
+                        "midnight h_poly: before permutation set cosets set={}/{} proof={proof_index}",
+                        set_idx + 1,
+                        sets.len()
+                    ));
+                    let current_set_permutation_product_coset = Cow::Owned(B::coeff_to_self(
+                        domain,
+                        set.permutation_product_poly.clone(),
+                    ));
+                    append_h_poly_log(&format!(
+                        "midnight h_poly: after permutation set cosets set={}/{} proof={proof_index}",
+                        set_idx + 1,
+                        sets.len()
+                    ));
 
-                let first_set_permutation_product_coset =
-                    permutation_product_cosets.first().unwrap();
-                let last_set_permutation_product_coset = permutation_product_cosets.last().unwrap();
+                    let total_sets = sets.len();
+                    for (chunk_index, start) in (0..size).step_by(row_chunk_size).enumerate() {
+                        append_h_poly_log(&format!(
+                            "midnight h_poly: permutation set={}/{} chunk={}/{} proof={proof_index}",
+                            set_idx + 1,
+                            total_sets,
+                            chunk_index + 1,
+                            total_chunks
+                        ));
+                        let len = (size - start).min(row_chunk_size);
+                        let r_next_start = get_rotation_idx(start, 1, rot_scale, isize);
+                        let r_last_start = get_rotation_idx(start, last_rotation.0, rot_scale, isize);
 
-                // Permutation constraints
-                parallelize(&mut values, |values, start| {
-                    let mut beta_term = omega.pow_vartime([start as u64, 0, 0, 0]);
-                    for (i, value) in values.iter_mut().enumerate() {
-                        let idx = start + i;
-                        let r_next = get_rotation_idx(idx, 1, rot_scale, isize);
-                        let r_last = get_rotation_idx(idx, last_rotation.0, rot_scale, isize);
+                        let first_chunk = if set_idx == 0 {
+                            let first_set_permutation_product_coset = B::coeff_to_self(
+                                domain,
+                                first_set_poly.clone(),
+                            );
+                            let first_view =
+                                wrapped_chunk(&first_set_permutation_product_coset, start, len);
+                            Some(
+                                (0..len)
+                                    .map(|i| first_view.get(i))
+                                    .collect::<Vec<_>>(),
+                            )
+                        } else {
+                            None
+                        };
+                        let last_chunk = if set_idx + 1 == sets.len() && sets.len() > 1 {
+                            let last_set_permutation_product_coset = B::coeff_to_self(
+                                domain,
+                                last_set_poly
+                                    .expect("last set poly should exist for non-first final set")
+                                    .clone(),
+                            );
+                            let last_view =
+                                wrapped_chunk(&last_set_permutation_product_coset, start, len);
+                            Some(
+                                (0..len)
+                                    .map(|i| last_view.get(i))
+                                    .collect::<Vec<_>>(),
+                            )
+                        } else {
+                            None
+                        };
+                        let current_chunk =
+                            wrapped_chunk(&current_set_permutation_product_coset, start, len);
+                        let current_next_chunk =
+                            wrapped_chunk(&current_set_permutation_product_coset, r_next_start, len);
+                        let previous_last_chunk = previous_set_permutation_product_coset
+                            .as_ref()
+                            .map(|previous_set| wrapped_chunk(previous_set, r_last_start, len));
 
-                        // Enforce only for the first set.
-                        // l_0(X) * (1 - z_0(X)) = 0
-                        *value = *value * y
-                            + ((one - first_set_permutation_product_coset[idx]) * l0[idx]);
-                        // Enforce only for the last set.
-                        // l_last(X) * (z_l(X)^2 - z_l(X)) = 0
-                        *value = *value * y
-                            + ((last_set_permutation_product_coset[idx]
-                                * last_set_permutation_product_coset[idx]
-                                - last_set_permutation_product_coset[idx])
-                                * l_last[idx]);
-                        // Except for the first set, enforce.
-                        // l_0(X) * (z_i(X) - z_{i-1}(\omega^(last) X)) = 0
-                        for set_idx in 0..sets.len() {
-                            if set_idx != 0 {
-                                *value = *value * y
-                                    + ((permutation_product_cosets[set_idx][idx]
-                                        - permutation_product_cosets[set_idx - 1][r_last])
-                                        * l0[idx]);
-                            }
-                        }
-                        // And for all the sets we enforce:
-                        // (1 - (l_last(X) + l_blind(X))) * (
-                        //   z_i(\omega X) \prod_j (p(X) + \beta s_j(X) + \gamma)
-                        // - z_i(X) \prod_j (p(X) + \delta^j \beta X + \gamma)
-                        // )
-                        let mut current_delta = delta_start * beta_term;
-                        for ((permutation_product_coset, columns), cosets) in
-                            permutation_product_cosets
-                                .iter()
-                                .zip(p.columns.chunks(chunk_len))
-                                .zip(permutation_pk_cosets.chunks(chunk_len))
-                        {
-                            let mut left = permutation_product_coset[r_next];
-                            for (values, permutation) in columns
-                                .iter()
-                                .map(|&column| match column.column_type() {
+                        let values_chunk = &mut values.values[start..start + len];
+                        let mut left_chunk = (0..len)
+                            .map(|i| current_next_chunk.get(i))
+                            .collect::<Vec<_>>();
+                        for (&column, permutation_value) in columns.iter().zip(permutation_values.iter()) {
+                            let sigma_coeffs = domain.lagrange_to_coeff(permutation_value.clone());
+                            let sigma_coset = B::coeff_to_self(domain, sigma_coeffs);
+                            let sigma_chunk = wrapped_chunk(&sigma_coset, start, len);
+                            for (i, left) in left_chunk.iter_mut().enumerate() {
+                                let idx = start + i;
+                                let values = match column.column_type() {
                                     Any::Advice(_) => advice[column.index()]
                                         .as_ref()
                                         .expect("permutation advice column should be materialized"),
-                                    Any::Fixed => &fixed[column.index()],
+                                    Any::Fixed => fixed[column.index()]
+                                        .as_ref()
+                                        .expect("permutation fixed column should be materialized"),
                                     Any::Instance => instance[column.index()]
                                         .as_ref()
                                         .expect("permutation instance column should be materialized"),
-                                })
-                                .zip(cosets.iter())
-                            {
-                                left *= values[idx] + beta * permutation[idx] + gamma;
+                                };
+                                *left *= values[idx] + beta * sigma_chunk.get(i) + gamma;
+                            }
+                        }
+
+                        let mut beta_term = omega.pow_vartime([start as u64, 0, 0, 0]);
+                        for (i, value) in values_chunk.iter_mut().enumerate() {
+                            let idx = start + i;
+
+                            if let Some(first_chunk) = first_chunk.as_ref() {
+                                *value = *value * y + ((one - first_chunk[i]) * l0[idx]);
+                            }
+                            if let Some(last_chunk) = last_chunk.as_ref() {
+                                let last = last_chunk[i];
+                                *value =
+                                    *value * y + ((last * last - last) * l_last[idx]);
+                            }
+                            if let Some(previous_last_chunk) = previous_last_chunk.as_ref() {
+                                *value = *value * y
+                                    + ((current_chunk.get(i) - previous_last_chunk.get(i)) * l0[idx]);
                             }
 
-                            let mut right = permutation_product_coset[idx];
+                            let mut right = current_chunk.get(i);
+                            let mut current_delta = delta_start * beta_term;
                             for values in columns.iter().map(|&column| match column.column_type() {
                                 Any::Advice(_) => advice[column.index()]
                                     .as_ref()
                                     .expect("permutation advice column should be materialized"),
-                                Any::Fixed => &fixed[column.index()],
+                                Any::Fixed => fixed[column.index()]
+                                    .as_ref()
+                                    .expect("permutation fixed column should be materialized"),
                                 Any::Instance => instance[column.index()]
                                     .as_ref()
                                     .expect("permutation instance column should be materialized"),
@@ -443,15 +574,23 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                                 current_delta *= &F::DELTA;
                             }
 
-                            *value = *value * y + ((left - right) * l_active_row[idx]);
+                            *value = *value * y + ((left_chunk[i] - right) * l_active_row[idx]);
+                            beta_term *= &omega;
                         }
-                        beta_term *= &omega;
                     }
-                });
+
+                    previous_set_permutation_product_coset = Some(current_set_permutation_product_coset);
+                }
+                append_h_poly_log(&format!(
+                    "midnight h_poly: after permutation constraints proof={proof_index}"
+                ));
             }
 
             // Lookups
             for (n, lookup) in lookups.iter().enumerate() {
+                append_h_poly_log(&format!(
+                    "midnight h_poly: before lookup {n} cosets proof={proof_index}"
+                ));
                 // Polynomials required for this lookup.
                 // Calculated here so these only have to be kept in memory for the short time
                 // they are actually needed.
@@ -460,8 +599,14 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                     B::coeff_to_self(domain, lookup.permuted_input_poly.clone());
                 let permuted_table_coset =
                     B::coeff_to_self(domain, lookup.permuted_table_poly.clone());
+                append_h_poly_log(&format!(
+                    "midnight h_poly: after lookup {n} cosets proof={proof_index}"
+                ));
 
                 // Lookup constraints
+                append_h_poly_log(&format!(
+                    "midnight h_poly: before lookup {n} constraints proof={proof_index}"
+                ));
                 parallelize(&mut values, |values, start| {
                     let lookup_evaluator = &self.lookups[n];
                     let mut eval_data = lookup_evaluator.instance();
@@ -521,16 +666,28 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                                 * l_active_row[idx]);
                     }
                 });
+                append_h_poly_log(&format!(
+                    "midnight h_poly: after lookup {n} constraints proof={proof_index}"
+                ));
             }
 
             // Trashcans
             for (n, trash) in trashcans.iter().enumerate() {
+                append_h_poly_log(&format!(
+                    "midnight h_poly: before trash {n} coset proof={proof_index}"
+                ));
                 // Polynomials required for this trash argument.
                 // Calculated here so these only have to be kept in memory for the short time
                 // they are actually needed.
                 let trash_poly = B::coeff_to_self(domain, trash.trash_poly.clone());
+                append_h_poly_log(&format!(
+                    "midnight h_poly: after trash {n} coset proof={proof_index}"
+                ));
 
                 // Trash argument constraints.
+                append_h_poly_log(&format!(
+                    "midnight h_poly: before trash {n} constraints proof={proof_index}"
+                ));
                 parallelize(&mut values, |values, start| {
                     let trash_evaluator = &self.trashcans[n];
                     let argument = &cs.trashcans[n];
@@ -556,7 +713,9 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                         );
 
                         let q = match argument.selector() {
-                            Expression::Fixed(query) => fixed[query.column_index()][idx],
+                            Expression::Fixed(query) => fixed[query.column_index()]
+                                .as_ref()
+                                .expect("trash selector fixed column should be materialized")[idx],
                             _ => unreachable!(),
                         };
 
@@ -564,6 +723,9 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                         *value = *value * y + (compressed_expression - (one - q) * trash_poly[idx]);
                     }
                 });
+                append_h_poly_log(&format!(
+                    "midnight h_poly: after trash {n} constraints proof={proof_index}"
+                ));
             }
         }
         values
@@ -792,7 +954,7 @@ impl<F: PrimeField> GraphEvaluator<F> {
     pub fn evaluate<B: PolynomialRepresentation>(
         &self,
         data: &mut EvaluationData<F>,
-        fixed: &[Polynomial<F, B>],
+        fixed: &[Option<Polynomial<F, B>>],
         advice: &[Option<Polynomial<F, B>>],
         instance: &[Option<Polynomial<F, B>>],
         challenges: &[F],

@@ -122,7 +122,7 @@ impl FloorPlanner for V1 {
             return Err(Error::NotEnoughColumnsForConstants);
         }
         for ((fixed_column, fixed_row), (value, advice)) in
-            constant_positions().zip(plan.constants.into_iter())
+            constant_positions().zip(plan.constants)
         {
             plan.cs.assign_fixed(
                 || format!("Constant({:?})", value.evaluate()),

@@ -6,6 +6,7 @@ members = [
     "crates/wrapper-cli",
     "crates/wrapper-tests",
 ]
+exclude = ["patches/midnight-proofs"]
 resolver = "2"
 
 [workspace.package]

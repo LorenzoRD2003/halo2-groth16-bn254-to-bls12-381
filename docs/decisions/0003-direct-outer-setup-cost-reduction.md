@@ -156,6 +156,14 @@ Current behavior:
 - the repository now also exposes a split prove path:
   - `execute-wrapper-direct-prove-trace`
   - `execute-wrapper-direct-prove-finalize`
+- artifact hygiene rule for this split:
+  - if setup-producing code changes, old setup artifacts should be deleted
+    before later prove/finalize measurements are trusted
+  - if trace-producing code or trace serialization changes, old trace artifacts
+    and trace logs should be deleted before rerunning
+  - if finalize-producing code or finalized proof-bundle shape changes, old
+    finalized proof artifacts and finalize logs should be deleted before
+    rerunning
 - the setup bundle persists verification materials and metadata
 - the proving-key sidecar persists:
   - verification key
@@ -177,16 +185,17 @@ Observed result on the committed `circom_multiplier2` fixture:
 
 However, the current richer prove path still fails in practice:
 
-- `execute-wrapper-direct-prove` still aborts with:
+- `execute-wrapper-direct-prove-finalize` still aborts with:
   `memory allocation of 268435456 bytes failed`
-- that failure still appears even when the direct runtime is constrained to a
-  single Rayon thread
+- the split `execute-wrapper-direct-prove-trace` stage now succeeds, so the
+  failure is isolated to the finalization half of the split
+- that failure still appears even after removing the fixed 4-thread Rayon cap
 
 This means:
 
 - thread count is not the root cause
 - removing `keygen_pk(...)` from the wrapper backend was necessary but not sufficient
-- the current prove path still materializes too much prover-side state at once
+- the current finalization path still materializes too much prover-side state at once
 
 Refined diagnosis:
 
@@ -206,33 +215,71 @@ So the current implementation successfully made setup richer and removed
 `keygen_pk(...)` from the wrapper-side prove path, but it has not yet reduced
 the eager prover-side coset allocation pattern.
 
+One retained follow-on mitigation is now also in place:
+
+- the persisted split trace stores advice/instance witness polynomials in
+  coefficient form instead of Lagrange form
+- split finalization now uses a reduced `OpeningKey` that carries only:
+  - fixed coefficient-form polynomials
+  - permutation coefficient-form polynomials
+  - verification-key metadata needed for transcript/opening work
+- both retained split halves now treat fixed columns sparsely:
+  - `HPolyKey` materializes only fixed cosets actually used by
+    `compute_h_poly(...)`
+  - `OpeningKey` materializes only fixed coefficient-form polynomials actually
+    used by transcript evaluations and opening queries
+- the retained `compute_h_poly(...)` path now also avoids eager permutation
+  sigma-coset materialization:
+  - `HPolyKey` keeps permutation polynomials in Lagrange form
+  - `evaluate_h(...)` derives the needed sigma cosets lazily per permutation chunk
+- the permutation chunk size is now exposed through
+  `execute-wrapper-direct-prove-finalize --h-poly-row-chunk-size ...`
+  so memory/runtime tradeoffs can be calibrated experimentally from the CLI
+- that CLI flag is intentionally opt-in and accepts a base-2 exponent instead
+  of a raw row count
+- the heavier coset state remains on the pre-`compute_h_poly` side of the split
+
+That removes one whole class of simultaneous witness duplication during
+`prove-finalize`, but the remaining peak is still dominated by the
+pre-`compute_h_poly` prover state.
+
 Current accepted next step for the primary improvement:
 
 - keep the richer setup artifact
 - keep the local `midnight-proofs` patch
-- treat the current `prove-trace` split as experimental and not yet reliable
-- reduce eager coset materialization in the patched prover, especially around
-  `compute_h_poly(...)`
-- rework the split point only after the current first-stage trace path is made
-  sound
+- keep the split semantically correct and instrumented
+- use the new finalize checkpoints to identify the exact last successful
+  post-`compute_h_poly` subphase before an OOM abort
+- use the finer-grained `finalize_for_h_poly()` checkpoints to distinguish:
+  - `before compute_lagrange_polys`
+  - `after compute_lagrange_polys`
+  - `before sparse fixed cosets`
+  - `after sparse fixed cosets`
+  - `before permutation h key`
+  - `after permutation h key`
+- continue reducing memory either in the pre-`compute_h_poly` persisted state
+  or in the remaining post-`compute_h_poly` opening/query work based on that log evidence
 
 ## Current Failure State
 
-The current first-stage split should still be treated as failing.
+The current first-stage split is now working, but split finalization remains
+memory-bound.
 
 Latest valid observed status:
 
-- `execute-wrapper-direct-prove-trace` fails with:
-  `outer circuit input is not ready for synthesis: midnight create_proof_trace_from_base failed: The constraint system is not satisfied`
-- the backend log reaches:
-  - `prove-trace: validating setup verification key`
-  - `prove-trace: using circuit_k=21`
-  - `prove-trace: deserializing BaseProvingKey`
-  - `prove-trace: entering create_proof_trace_from_base`
-- and then fails before emitting a completed trace artifact
+- `execute-wrapper-direct-prove-trace` succeeds and emits a completed trace artifact
+- under the previous split position, `execute-wrapper-direct-prove-finalize` aborted with:
+  `memory allocation of 268435456 bytes failed`
+- experiments that moved `h_poly` into `prove-trace` were not retained because
+  they pushed the memory spike back into `prove-trace`
+- the current retained format therefore still splits before `compute_h_poly(...)`
+  and requires a fresh trace artifact for the current retained format
 
 This means:
 
 - the split path exists in code
-- but it is not yet semantically correct
-- it must be treated as experimental / broken until revalidated in a future pass
+- the trace half is semantically correct
+- the current next action is to rerun the split flow and use the finer-grained
+  finalize logs to identify which retained subphase still owns the memory spike
+- those reruns should always start from artifacts regenerated after the latest
+  relevant code change, not from older setup/trace/finalize outputs

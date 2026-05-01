@@ -264,6 +264,21 @@ impl<F: WithSmallOrderMulGroup<3>> EvaluationDomain<F> {
         }
     }
 
+    /// Returns one wrapped chunk of the extended-domain coset evaluations of a
+    /// coefficient-form polynomial.
+    pub fn coeff_to_extended_chunk(
+        &self,
+        poly: Polynomial<F, Coeff>,
+        start: usize,
+        len: usize,
+    ) -> Vec<F> {
+        let full = self.coeff_to_extended(poly);
+        let total = full.values.len();
+        (0..len)
+            .map(|offset| full.values[(start + offset) % total])
+            .collect::<Vec<_>>()
+    }
+
     /// This takes us from the extended evaluation domain and gets us the
     /// quotient polynomial coefficients.
     ///

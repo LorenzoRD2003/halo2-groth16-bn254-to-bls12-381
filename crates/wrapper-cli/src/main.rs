@@ -5,8 +5,8 @@
 
 use std::{
   fs,
-  io::{BufReader, BufWriter},
-  path::PathBuf,
+  io::{BufReader, BufWriter, Write as _},
+  path::{Path, PathBuf},
   time::Instant,
 };
 
@@ -63,8 +63,6 @@ struct Cli {
 }
 
 const DIRECT_EXECUTION_MEMORY_LIMIT_BYTES: u64 = 24 * 1024 * 1024 * 1024;
-const DIRECT_EXECUTION_DEFAULT_RAYON_THREADS: usize = 4;
-
 #[derive(Debug, Subcommand)]
 enum Commands {
   /// Report what the repository currently implements and what is still missing.
@@ -334,6 +332,10 @@ enum Commands {
     /// Path to the persisted prover-trace binary artifact produced by `execute-wrapper-direct-prove-trace`.
     #[arg(long)]
     trace: PathBuf,
+    /// Optional base-2 exponent for the chunked `h_poly` permutation row chunk
+    /// size in `prove-finalize`; for example, `16` means `2^16 = 65536` rows.
+    #[arg(long)]
+    h_poly_row_chunk_size: Option<u32>,
     /// Output path for the produced direct outer proof bundle JSON.
     #[arg(long)]
     output: PathBuf,
@@ -385,7 +387,7 @@ fn main() -> Result<()> {
     Commands::Doctor => run_doctor(),
     Commands::BenchInfo => run_bench_info(),
     Commands::ProfileLayout { family, outer_fixture, outer_host } => {
-      run_profile_layout(family, outer_fixture, outer_host)
+      run_profile_layout(family, outer_fixture, outer_host);
     }
     Commands::SearchExpByXChain {
       max_window,
@@ -400,17 +402,19 @@ fn main() -> Result<()> {
       start_window_cost,
       allowed_windows,
     } => run_search_exp_by_x_chain(
-      max_window,
-      max_square_count,
-      max_steps,
-      limit,
-      weight_profile,
-      square_cost,
-      positive_mul_cost,
-      negative_mul_cost,
-      unique_window_cost,
-      start_window_cost,
-      &allowed_windows,
+      ExpByXSearchArgs {
+        max_window,
+        max_square_count,
+        max_steps,
+        limit,
+        weight_profile,
+        square_cost,
+        positive_mul_cost,
+        negative_mul_cost,
+        unique_window_cost,
+        start_window_cost,
+        allowed_windows: &allowed_windows,
+      },
     ),
     Commands::InspectGroth16Bundle { id, proof, public, vk, public_input_names } => {
       run_inspect_groth16_bundle(&id, &proof, &public, &vk, &public_input_names)?;
@@ -436,7 +440,7 @@ fn main() -> Result<()> {
       backend,
       output,
     } => {
-      configure_direct_execution_runtime()?;
+      configure_direct_execution_runtime();
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct(
         &id,
@@ -457,7 +461,7 @@ fn main() -> Result<()> {
       backend,
       output,
     } => {
-      configure_direct_execution_runtime()?;
+      configure_direct_execution_runtime();
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct_setup(
         &id,
@@ -479,7 +483,7 @@ fn main() -> Result<()> {
       setup,
       output,
     } => {
-      configure_direct_execution_runtime()?;
+      configure_direct_execution_runtime();
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct_prove(
         &id,
@@ -502,7 +506,7 @@ fn main() -> Result<()> {
       bundle,
       output,
     } => {
-      configure_direct_execution_runtime()?;
+      configure_direct_execution_runtime();
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct_verify(
         &id,
@@ -525,7 +529,7 @@ fn main() -> Result<()> {
       setup,
       output,
     } => {
-      configure_direct_execution_runtime()?;
+      configure_direct_execution_runtime();
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct_prove_trace(
         &id,
@@ -547,20 +551,24 @@ fn main() -> Result<()> {
       backend,
       setup,
       trace,
+      h_poly_row_chunk_size,
       output,
     } => {
-      configure_direct_execution_runtime()?;
+      configure_direct_execution_runtime();
       apply_direct_execution_memory_limit()?;
       run_execute_wrapper_direct_prove_finalize(
-        &id,
-        &proof,
-        &public,
-        &vk,
-        &public_input_names,
-        backend,
-        &setup,
-        &trace,
-        &output,
+        DirectProveFinalizeArgs {
+          identifier: &id,
+          proof_path: &proof,
+          public_path: &public,
+          vk_path: &vk,
+          public_input_names: &public_input_names,
+          backend_arg: backend,
+          setup_path: &setup,
+          trace_path: &trace,
+          h_poly_row_chunk_size,
+          output_path: &output,
+        },
       )?;
     }
     Commands::PrintLayout => run_print_layout(),
@@ -614,6 +622,35 @@ struct LayoutProfileRow {
   layout_elapsed_ms: u128,
   elapsed_ms: u128,
   layout: LayoutMetrics,
+}
+
+#[derive(Clone, Copy)]
+struct ExpByXSearchArgs<'a> {
+  max_window: u64,
+  max_square_count: u8,
+  max_steps: usize,
+  limit: usize,
+  weight_profile: ExpByXWeightProfile,
+  square_cost: u64,
+  positive_mul_cost: u64,
+  negative_mul_cost: u64,
+  unique_window_cost: u64,
+  start_window_cost: u64,
+  allowed_windows: &'a [u64],
+}
+
+#[derive(Clone, Copy)]
+struct DirectProveFinalizeArgs<'a> {
+  identifier: &'a str,
+  proof_path: &'a PathBuf,
+  public_path: &'a PathBuf,
+  vk_path: &'a PathBuf,
+  public_input_names: &'a [String],
+  backend_arg: DirectOuterBackendArg,
+  setup_path: &'a PathBuf,
+  trace_path: &'a PathBuf,
+  h_poly_row_chunk_size: Option<u32>,
+  output_path: &'a PathBuf,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -699,35 +736,57 @@ fn init_tracing() -> Result<()> {
     .map_err(|error| anyhow::anyhow!("failed to initialize tracing subscriber: {error}"))
 }
 
-fn configure_direct_execution_runtime() -> Result<()> {
-  let thread_count = std::env::var("WRAPPER_DIRECT_RAYON_THREADS")
+fn configure_direct_execution_runtime() {
+  let explicit_thread_count = std::env::var("WRAPPER_DIRECT_RAYON_THREADS")
     .ok()
     .and_then(|value| value.parse::<usize>().ok())
-    .filter(|value| *value > 0)
-    .unwrap_or(DIRECT_EXECUTION_DEFAULT_RAYON_THREADS);
+    .filter(|value| *value > 0);
 
-  match ThreadPoolBuilder::new().num_threads(thread_count).build_global() {
-    Ok(()) => {
-      info!(
-        "configured direct execution rayon thread pool with {} thread(s)",
-        thread_count
-      );
+  let builder = match explicit_thread_count {
+    Some(thread_count) => ThreadPoolBuilder::new().num_threads(thread_count),
+    None => ThreadPoolBuilder::new(),
+  };
+
+  if let Ok(()) = builder.build_global() {
+    let active_thread_count = rayon::current_num_threads();
+    match explicit_thread_count {
+      Some(thread_count) => {
+        info!(
+          "configured direct execution rayon thread pool with {} thread(s) from explicit override (requested {})",
+          active_thread_count,
+          thread_count
+        );
+      }
+      None => {
+        info!(
+          "configured direct execution rayon thread pool with {} thread(s) from Rayon default sizing",
+          active_thread_count
+        );
+      }
     }
-    Err(_) => {
-      info!(
-        "rayon global thread pool was already initialized before direct execution; requested {} thread(s)",
-        thread_count
-      );
+  } else {
+    let active_thread_count = rayon::current_num_threads();
+    match explicit_thread_count {
+      Some(thread_count) => {
+        info!(
+          "rayon global thread pool was already initialized before direct execution; using existing {} thread(s) after explicit request for {}",
+          active_thread_count,
+          thread_count
+        );
+      }
+      None => {
+        info!(
+          "rayon global thread pool was already initialized before direct execution; using existing {} thread(s)",
+          active_thread_count
+        );
+      }
     }
   }
-
-  Ok(())
 }
 
 fn direct_execution_log_dir() -> PathBuf {
   std::env::var("HOME")
-    .map(PathBuf::from)
-    .unwrap_or_else(|_| PathBuf::from("."))
+    .map_or_else(|_| PathBuf::from("."), PathBuf::from)
     .join("tmp")
 }
 
@@ -752,7 +811,6 @@ fn append_direct_execution_log(
   let path = direct_execution_log_path(command, job_id, backend_id);
   let timestamp = chrono_like_timestamp();
   let line = format!("{timestamp} {message}\n");
-  use std::io::Write as _;
   let mut file = fs::OpenOptions::new()
     .create(true)
     .append(true)
@@ -783,7 +841,7 @@ fn apply_direct_execution_memory_limit() -> Result<()> {
     // Safety: `setrlimit` is called with a valid resource kind and a pointer
     // to a properly initialized `rlimit` struct that lives for the duration of
     // the call.
-    let result = unsafe { libc::setrlimit(libc::RLIMIT_AS, &limit) };
+    let result = unsafe { libc::setrlimit(libc::RLIMIT_AS, &raw const limit) };
     if result != 0 {
       return Err(anyhow::anyhow!(
         "failed to apply 24 GiB process memory limit for direct execution commands: {}",
@@ -937,19 +995,20 @@ fn run_profile_layout(
   }
 }
 
-fn run_search_exp_by_x_chain(
-  max_window: u64,
-  max_square_count: u8,
-  max_steps: usize,
-  limit: usize,
-  weight_profile: ExpByXWeightProfile,
-  square_cost: u64,
-  positive_mul_cost: u64,
-  negative_mul_cost: u64,
-  unique_window_cost: u64,
-  start_window_cost: u64,
-  allowed_windows: &[u64],
-) {
+fn run_search_exp_by_x_chain(args: ExpByXSearchArgs<'_>) {
+  let ExpByXSearchArgs {
+    max_window,
+    max_square_count,
+    max_steps,
+    limit,
+    weight_profile,
+    square_cost,
+    positive_mul_cost,
+    negative_mul_cost,
+    unique_window_cost,
+    start_window_cost,
+    allowed_windows,
+  } = args;
   let weights = match weight_profile {
     ExpByXWeightProfile::Linear => Bn254ExpByXChainSearchWeights::linear(
       square_cost,
@@ -1158,7 +1217,7 @@ fn layout_profile_rows(
 
   if matches!(family, ProfileFamily::All | ProfileFamily::Outer) {
     let fixture_filter =
-      |fixture: OuterProfileFixtureArg| outer_fixture.map_or(true, |selected| selected == fixture);
+      |fixture: OuterProfileFixtureArg| outer_fixture.is_none_or(|selected| selected == fixture);
     let host_filter = |host: OuterHostFlavor| match outer_host {
       None => true,
       Some(OuterProfileHostArg::MidnightBn254) => host == OuterHostFlavor::MidnightBn254,
@@ -1728,8 +1787,8 @@ fn run_execute_wrapper_direct_prove_trace(
   vk_path: &PathBuf,
   public_input_names: &[String],
   backend_arg: DirectOuterBackendArg,
-  setup_path: &PathBuf,
-  output_path: &PathBuf,
+  setup_path: &Path,
+  output_path: &Path,
 ) -> Result<()> {
   info!("running direct wrapper prove trace {}", identifier);
   let log_path = direct_execution_log_path(
@@ -1786,17 +1845,19 @@ fn run_execute_wrapper_direct_prove_trace(
   emit_json(&result, None, "direct wrapper prove trace result")
 }
 
-fn run_execute_wrapper_direct_prove_finalize(
-  identifier: &str,
-  proof_path: &PathBuf,
-  public_path: &PathBuf,
-  vk_path: &PathBuf,
-  public_input_names: &[String],
-  backend_arg: DirectOuterBackendArg,
-  setup_path: &PathBuf,
-  trace_path: &PathBuf,
-  output_path: &PathBuf,
-) -> Result<()> {
+fn run_execute_wrapper_direct_prove_finalize(args: DirectProveFinalizeArgs<'_>) -> Result<()> {
+  let DirectProveFinalizeArgs {
+    identifier,
+    proof_path,
+    public_path,
+    vk_path,
+    public_input_names,
+    backend_arg,
+    setup_path,
+    trace_path,
+    h_poly_row_chunk_size,
+    output_path,
+  } = args;
   info!("running direct wrapper prove finalize {}", identifier);
   let log_path = direct_execution_log_path(
     "execute-wrapper-direct-prove-finalize",
@@ -1807,6 +1868,21 @@ fn run_execute_wrapper_direct_prove_finalize(
   // process environment before entering the heavy backend work so the backend
   // can discover one log-file path for this invocation.
   unsafe { std::env::set_var("WRAPPER_DIRECT_LOG_FILE", &log_path) };
+  if let Some(row_chunk_log2) = h_poly_row_chunk_size {
+    let row_chunk_size = 1_usize
+      .checked_shl(row_chunk_log2)
+      .context("h_poly row chunk size exponent is too large for this machine word size")?;
+    // Safety: same rationale as the direct log-file env var above; this is
+    // process-local configuration applied before backend work begins.
+    unsafe {
+      std::env::set_var("WRAPPER_H_POLY_ROW_CHUNK_SIZE", row_chunk_size.to_string());
+    }
+    info!(
+      "configured prove-finalize h_poly row chunk size override to 2^{} = {} row(s)",
+      row_chunk_log2,
+      row_chunk_size
+    );
+  }
   let package = build_wrapper_execution_package_from_paths(
     identifier,
     proof_path,
@@ -1896,7 +1972,7 @@ fn execute_wrapper_direct_setup_with_bn254_backend(
   backend: &MidnightDirectOuterBackendBn254Host,
   package: &WrapperExecutionPackage,
   artifacts: OuterCircuitInputArtifacts<'_>,
-  output_path: &PathBuf,
+  output_path: &Path,
 ) -> Result<DirectWrapperSetupExecutionResult> {
   let started_at = Instant::now();
   let circuit = backend
@@ -1940,7 +2016,7 @@ fn execute_wrapper_direct_setup_with_bls12_backend(
   backend: &MidnightDirectOuterBackendBls12Host,
   package: &WrapperExecutionPackage,
   artifacts: OuterCircuitInputArtifacts<'_>,
-  output_path: &PathBuf,
+  output_path: &Path,
 ) -> Result<DirectWrapperSetupExecutionResult> {
   let started_at = Instant::now();
   let circuit = backend
@@ -1984,7 +2060,7 @@ fn execute_wrapper_direct_prove_with_bn254_backend(
   backend: &MidnightDirectOuterBackendBn254Host,
   package: &WrapperExecutionPackage,
   artifacts: OuterCircuitInputArtifacts<'_>,
-  setup_path: &PathBuf,
+  setup_path: &Path,
   setup_bundle: &ProducedOuterSetupArtifactBundle,
 ) -> Result<DirectWrapperProveExecutionResult> {
   let started_at = Instant::now();
@@ -2017,7 +2093,7 @@ fn execute_wrapper_direct_prove_with_bls12_backend(
   backend: &MidnightDirectOuterBackendBls12Host,
   package: &WrapperExecutionPackage,
   artifacts: OuterCircuitInputArtifacts<'_>,
-  setup_path: &PathBuf,
+  setup_path: &Path,
   setup_bundle: &ProducedOuterSetupArtifactBundle,
 ) -> Result<DirectWrapperProveExecutionResult> {
   let started_at = Instant::now();
@@ -2046,7 +2122,7 @@ fn execute_wrapper_direct_prove_with_bls12_backend(
   })
 }
 
-fn proving_key_sidecar_path(setup_manifest_path: &PathBuf) -> PathBuf {
+fn proving_key_sidecar_path(setup_manifest_path: &Path) -> PathBuf {
   let mut file_name = setup_manifest_path
     .file_name()
     .and_then(|name| name.to_str())
@@ -2057,7 +2133,7 @@ fn proving_key_sidecar_path(setup_manifest_path: &PathBuf) -> PathBuf {
 }
 
 fn resolve_setup_sidecar_path(
-  setup_manifest_path: &PathBuf,
+  setup_manifest_path: &Path,
   setup_bundle: &ProducedOuterSetupArtifactBundle,
 ) -> PathBuf {
   setup_manifest_path.with_file_name(&setup_bundle.proving_key.proving_key_artifact)
@@ -2092,9 +2168,9 @@ fn execute_wrapper_direct_prove_trace_with_bn254_backend(
   backend: &MidnightDirectOuterBackendBn254Host,
   package: &WrapperExecutionPackage,
   artifacts: OuterCircuitInputArtifacts<'_>,
-  setup_path: &PathBuf,
+  setup_path: &Path,
   setup_bundle: &ProducedOuterSetupArtifactBundle,
-  output_path: &PathBuf,
+  output_path: &Path,
 ) -> Result<DirectWrapperProveTraceExecutionResult> {
   let _ = append_direct_execution_log(
     "execute-wrapper-direct-prove-trace",
@@ -2158,9 +2234,9 @@ fn execute_wrapper_direct_prove_trace_with_bls12_backend(
   backend: &MidnightDirectOuterBackendBls12Host,
   package: &WrapperExecutionPackage,
   artifacts: OuterCircuitInputArtifacts<'_>,
-  setup_path: &PathBuf,
+  setup_path: &Path,
   setup_bundle: &ProducedOuterSetupArtifactBundle,
-  output_path: &PathBuf,
+  output_path: &Path,
 ) -> Result<DirectWrapperProveTraceExecutionResult> {
   let _ = append_direct_execution_log(
     "execute-wrapper-direct-prove-trace",
@@ -2224,9 +2300,9 @@ fn execute_wrapper_direct_prove_finalize_with_bn254_backend(
   backend: &MidnightDirectOuterBackendBn254Host,
   package: &WrapperExecutionPackage,
   artifacts: OuterCircuitInputArtifacts<'_>,
-  setup_path: &PathBuf,
+  setup_path: &Path,
   setup_bundle: &ProducedOuterSetupArtifactBundle,
-  trace_path: &PathBuf,
+  trace_path: &Path,
 ) -> Result<DirectWrapperProveExecutionResult> {
   let _ = append_direct_execution_log(
     "execute-wrapper-direct-prove-finalize",
@@ -2285,9 +2361,9 @@ fn execute_wrapper_direct_prove_finalize_with_bls12_backend(
   backend: &MidnightDirectOuterBackendBls12Host,
   package: &WrapperExecutionPackage,
   artifacts: OuterCircuitInputArtifacts<'_>,
-  setup_path: &PathBuf,
+  setup_path: &Path,
   setup_bundle: &ProducedOuterSetupArtifactBundle,
-  trace_path: &PathBuf,
+  trace_path: &Path,
 ) -> Result<DirectWrapperProveExecutionResult> {
   let _ = append_direct_execution_log(
     "execute-wrapper-direct-prove-finalize",

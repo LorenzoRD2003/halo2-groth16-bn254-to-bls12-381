@@ -76,7 +76,7 @@ use crate::{
 ///     }
 /// }
 ///
-/// #[test]
+/// ```
 /// fn some_circuit_test() {
 ///     // At the start of your test, enable tracing.
 ///     tracing_subscriber::fmt()
@@ -88,6 +88,7 @@ use crate::{
 ///     // Now when the rest of the test runs, you will get `tracing` output for every
 ///     // operation that the circuit performs under the hood!
 /// }
+/// ```
 /// ```
 #[derive(Debug)]
 pub struct TracingFloorPlanner<P: FloorPlanner> {

@@ -7,6 +7,7 @@
 
 use blake2b_simd::Params as Blake2bParams;
 use group::ff::FromUniformBytes;
+use std::{fs::OpenOptions, io, io::Write as _};
 
 use crate::{
     poly::{
@@ -39,8 +40,6 @@ pub mod bench;
 mod prover;
 mod verifier;
 
-use std::io;
-
 pub use circuit::*;
 pub use error::*;
 pub(crate) use evaluation::Evaluator;
@@ -68,6 +67,15 @@ pub struct VerifyingKey<F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
 
 // Current version of the VK
 const VERSION: u8 = 0x03;
+const DIRECT_LOG_FILE_ENV: &str = "WRAPPER_DIRECT_LOG_FILE";
+
+fn append_h_poly_key_log(message: &str) {
+    if let Ok(path) = std::env::var(DIRECT_LOG_FILE_ENV) {
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{message}");
+        }
+    }
+}
 
 impl<F, CS> VerifyingKey<F, CS>
 where
@@ -368,6 +376,27 @@ pub struct FinalizingKey<F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
     pub(crate) ev: Evaluator<F>,
 }
 
+/// Derived proving state required only for `compute_h_poly(...)`.
+#[derive(Debug)]
+pub struct HPolyKey<'a, F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
+    pub(crate) vk: VerifyingKey<F, CS>,
+    pub(crate) l0: Polynomial<F, ExtendedLagrangeCoeff>,
+    pub(crate) l_last: Polynomial<F, ExtendedLagrangeCoeff>,
+    pub(crate) l_active_row: Polynomial<F, ExtendedLagrangeCoeff>,
+    pub(crate) fixed_cosets: Vec<Option<Polynomial<F, ExtendedLagrangeCoeff>>>,
+    pub(crate) permutation: permutation::HPolyKey<'a, F>,
+    pub(crate) ev: Evaluator<F>,
+}
+
+/// Derived proving state required only for transcript evaluations and opening
+/// queries after `h_poly` has already been computed.
+#[derive(Clone, Debug)]
+pub struct OpeningKey<F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
+    pub(crate) vk: VerifyingKey<F, CS>,
+    pub(crate) fixed_polys: Vec<Option<Polynomial<F, Coeff>>>,
+    pub(crate) permutation: permutation::OpeningKey<F>,
+}
+
 impl<F: WithSmallOrderMulGroup<3>, CS: PolynomialCommitmentScheme<F>> ProvingKey<F, CS>
 where
     F: FromUniformBytes<64>,
@@ -408,10 +437,60 @@ impl<F: PrimeField, CS: PolynomialCommitmentScheme<F>> From<&ProvingKey<F, CS>>
             fixed_polys: value.fixed_polys.clone(),
             fixed_cosets: value.fixed_cosets.clone(),
             permutation: permutation::FinalizingKey {
+                permutations: value.permutation.permutations.clone(),
                 polys: value.permutation.polys.clone(),
-                cosets: value.permutation.cosets.clone(),
             },
             ev: value.ev.clone(),
+        }
+    }
+}
+
+impl<'a, F: PrimeField, CS: PolynomialCommitmentScheme<F>> From<&'a ProvingKey<F, CS>>
+    for HPolyKey<'a, F, CS>
+{
+    fn from(value: &'a ProvingKey<F, CS>) -> Self {
+        Self {
+            vk: value.vk.clone(),
+            l0: value.l0.clone(),
+            l_last: value.l_last.clone(),
+            l_active_row: value.l_active_row.clone(),
+            fixed_cosets: value.fixed_cosets.iter().cloned().map(Some).collect(),
+            permutation: permutation::HPolyKey {
+                permutations: &value.permutation.permutations,
+            },
+            ev: value.ev.clone(),
+        }
+    }
+}
+
+impl<'a, F: PrimeField, CS: PolynomialCommitmentScheme<F>> From<&'a FinalizingKey<F, CS>>
+    for HPolyKey<'a, F, CS>
+{
+    fn from(value: &'a FinalizingKey<F, CS>) -> Self {
+        Self {
+            vk: value.vk.clone(),
+            l0: value.l0.clone(),
+            l_last: value.l_last.clone(),
+            l_active_row: value.l_active_row.clone(),
+            fixed_cosets: value.fixed_cosets.iter().cloned().map(Some).collect(),
+            permutation: permutation::HPolyKey {
+                permutations: &value.permutation.permutations,
+            },
+            ev: value.ev.clone(),
+        }
+    }
+}
+
+impl<F: PrimeField, CS: PolynomialCommitmentScheme<F>> From<&ProvingKey<F, CS>>
+    for OpeningKey<F, CS>
+{
+    fn from(value: &ProvingKey<F, CS>) -> Self {
+        Self {
+            vk: value.vk.clone(),
+            fixed_polys: value.fixed_polys.iter().cloned().map(Some).collect(),
+            permutation: permutation::OpeningKey {
+                polys: value.permutation.polys.clone(),
+            },
         }
     }
 }
@@ -533,6 +612,100 @@ where
             fixed_cosets,
             permutation,
             ev,
+        }
+    }
+
+    /// Promotes the lean setup artifact into only the state required to compute
+    /// `h_poly`.
+    pub fn finalize_for_h_poly(&self) -> HPolyKey<'_, F, CS> {
+        append_h_poly_key_log("midnight finalize: before compute_lagrange_polys");
+        let [l0, l_last, l_active_row] = keygen::compute_lagrange_polys(&self.vk, &self.vk.cs);
+        append_h_poly_key_log("midnight finalize: after compute_lagrange_polys");
+        let mut used_fixed_columns = std::collections::BTreeSet::new();
+        let mut used_advice_columns = std::collections::BTreeSet::new();
+        let mut used_instance_columns = std::collections::BTreeSet::new();
+        let ev = Evaluator::new(self.vk.cs());
+        ev.custom_gates.collect_used_columns(
+            &mut used_fixed_columns,
+            &mut used_advice_columns,
+            &mut used_instance_columns,
+        );
+        for evaluator in &ev.lookups {
+            evaluator.collect_used_columns(
+                &mut used_fixed_columns,
+                &mut used_advice_columns,
+                &mut used_instance_columns,
+            );
+        }
+        for evaluator in &ev.trashcans {
+            evaluator.collect_used_columns(
+                &mut used_fixed_columns,
+                &mut used_advice_columns,
+                &mut used_instance_columns,
+            );
+        }
+        for column in &self.vk.cs.permutation.columns {
+            if let Any::Fixed = column.column_type() {
+                used_fixed_columns.insert(column.index());
+            }
+        }
+        append_h_poly_key_log("midnight finalize: before sparse fixed cosets");
+        let fixed_cosets = self
+            .fixed_values
+            .iter()
+            .enumerate()
+            .map(|(column_index, value)| {
+                used_fixed_columns
+                    .contains(&column_index)
+                    .then(|| {
+                        let coeffs = self.vk.domain.lagrange_to_coeff(value.clone());
+                        self.vk.domain.coeff_to_extended(coeffs)
+                    })
+            })
+            .collect();
+        append_h_poly_key_log("midnight finalize: after sparse fixed cosets");
+        append_h_poly_key_log("midnight finalize: before permutation h key");
+        let permutation = self
+            .permutation
+            .finalize_for_h_poly(&self.vk.domain, &self.vk.cs.permutation);
+        append_h_poly_key_log("midnight finalize: after permutation h key");
+
+        HPolyKey {
+            vk: self.vk.clone(),
+            l0,
+            l_last,
+            l_active_row,
+            fixed_cosets,
+            permutation,
+            ev,
+        }
+    }
+
+    /// Promotes the lean setup artifact into only the state required for
+    /// transcript evaluations and opening queries after `h_poly`.
+    pub fn finalize_for_openings(self) -> OpeningKey<F, CS> {
+        let mut used_fixed_columns = std::collections::BTreeSet::new();
+        for &(column, _) in self.vk.cs.fixed_queries.iter() {
+            used_fixed_columns.insert(column.index());
+        }
+        let fixed_polys = self
+            .fixed_values
+            .iter()
+            .enumerate()
+            .map(|(column_index, poly)| {
+                used_fixed_columns
+                    .contains(&column_index)
+                    .then(|| self.vk.domain.lagrange_to_coeff(poly.clone()))
+            })
+            .collect();
+        let permutation = self
+            .permutation
+            .finalize_for_openings(&self.vk.domain, &self.vk.cs.permutation);
+
+        OpeningKey {
+            vk: self.vk,
+            fixed_polys,
+            permutation,
         }
     }
 }
