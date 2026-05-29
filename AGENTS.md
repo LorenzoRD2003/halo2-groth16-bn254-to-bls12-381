@@ -52,7 +52,7 @@ Implemented in scope today:
 - serializable wrapper execution packages in `wrapper-core/src/package.rs`
 - expected honest direct outer artifact modeling in `wrapper-core/src/output.rs`
 - execution result modeling in `wrapper-core/src/execution.rs`
-- verifier-equation reduction to one multi-pairing product check using `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`
+- verifier-equation reduction to one multi-pairing product check using `e(A, B) * e(-vk_x, gamma) * e(-C, delta) = e(alpha, beta)`, with `e(alpha, beta)` precomputed as a fixed GT constant
 - a real Circom/snarkjs fixture under `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/`
 - a real Semaphore Groth16 BN254 fixture under `crates/wrapper-tests/fixtures/groth16/semaphore/`
 - end-to-end valid / invalid Groth16 verifier tests on top of the existing pairing core
@@ -80,7 +80,7 @@ Week 5 verifier-memory notes:
 - the committed real fixture lives under `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/`
 - it comes from `circom` + `snarkjs` and keeps the raw `proof.json`, `public.json`, and `verification_key.json` artifacts in the snarkjs `bn128` format
 - snarkjs G1 points in that fixture use projective `[x, y, z]`; the parser accepts affine `z = 1` plus the snarkjs G1 identity encoding `[0, 1, 0]`
-- the current Groth16 pairing reduction is `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`
+- the current Groth16 pairing reduction is `e(A, B) * e(-vk_x, gamma) * e(-C, delta) = e(alpha, beta)`, with `e(alpha, beta)` precomputed off-circuit
 - the current IC accumulation path is verifier-only and uses fixed public-input scalars over the existing Midnight G1 chip; it is not a broad public MSM API
 - the current generic artifact-set path is `snarkjs artifacts -> Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage -> WrapperExecutionResult`
 - the current delivery lane is `Groth16Bn254 -> Halo2Outer` over the canonical Halo2/Midnight outer circuit
@@ -132,11 +132,11 @@ If you need the current Semaphore migration fixture context:
 
 If you need the ZK Email integration study context:
 
-1. `docs/zk-email-integration-plan.md`
+1. `docs/plans/0004-zk-email-integration-plan.md`
 2. `crates/wrapper-tests/fixtures/groth16/semaphore/README.md`
 3. `crates/wrapper-tests/src/lib.rs`
 4. `crates/wrapper-backends/src/groth16.rs`
-5. `docs/plutus-aiken-integration-plan.md`
+5. `docs/plans/0003-plutus-aiken-integration-plan.md`
 
 If you need the remaining path to a real `.circom` end-to-end wrapper flow:
 
@@ -162,21 +162,22 @@ If you need pairing-core / final-exponentiation context:
 1. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
 2. `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`
 3. `crates/wrapper-circuits/src/bn254/tests/pairing.rs`
-4. `docs/midnight-local-optimization-notes.md`
+4. `docs/midnight-optimizations.md`
 5. `docs/profiling.md`
-6. `docs/midnight-local-optimization-notes.md`
+6. `docs/midnight-optimizations.md`
 
 If you need Midnight-local optimization context:
 
-1. `docs/midnight-local-optimization-notes.md`
+1. `docs/midnight-optimizations.md`
 2. `docs/decisions/0002-bn254-local-optimization-policy.md`
 3. `docs/plans/0005-halo2-row-optimization-plan.md`
-4. `crates/wrapper-circuits/src/bn254/types.rs`
-5. `crates/wrapper-circuits/src/bn254/fp2.rs`
-6. `crates/wrapper-circuits/src/bn254/fp6.rs`
-7. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
-8. `docs/profiling.md`
-9. `docs/plans/0002-cyclotomic-unitary-kernel-design.md`
+4. `docs/plans/0007-pairing-kernel-opportunity-audit-plan.md`
+5. `crates/wrapper-circuits/src/bn254/types.rs`
+6. `crates/wrapper-circuits/src/bn254/fp2.rs`
+7. `crates/wrapper-circuits/src/bn254/fp6.rs`
+8. `crates/wrapper-circuits/src/bn254/g2/miller.rs`
+9. `docs/profiling.md`
+10. `docs/plans/0002-cyclotomic-unitary-kernel-design.md`
 
 If you need BN254 primitive structure / ownership context:
 
@@ -192,7 +193,7 @@ If you need CLI / measurement context:
 3. `crates/wrapper-cli/src/main.rs`
 4. `docs/profiling.md`
 5. `docs/benchmarking.md`
-6. `docs/midnight-local-optimization-notes.md`
+6. `docs/midnight-optimizations.md`
 
 If you need deferred speed follow-up context after the current `h_poly` memory
 blocker is solved:
@@ -200,6 +201,16 @@ blocker is solved:
 1. `docs/h-poly-followup-speed-plan.md`
 2. `docs/decisions/0003-direct-outer-setup-cost-reduction.md`
 3. `docs/decisions/0004-local-midnight-proofs-patch.md`
+
+If you need ultra-fine finalize profiling context for the current memory
+blocker:
+
+1. `docs/plans/0006-finalize-checkpoint-profiling-plan.md`
+2. `docs/decisions/0003-direct-outer-setup-cost-reduction.md`
+3. `docs/decisions/0004-local-midnight-proofs-patch.md`
+4. `patches/midnight-proofs/src/plonk/prover.rs`
+5. `patches/midnight-proofs/src/plonk/mod.rs`
+6. `patches/midnight-proofs/src/plonk/evaluation.rs`
 
 If you need stage boundaries / "is this in scope?" context:
 
@@ -233,7 +244,7 @@ When you need to build context quickly, read in this order:
 20. `crates/wrapper-circuits/src/planning.rs`, `crates/wrapper-cli/src/main.rs`
 21. `docs/outer-prover-strategy-plan.md`
 22. `docs/profiling.md`
-23. `docs/midnight-local-optimization-notes.md`
+23. `docs/midnight-optimizations.md`
 
 This is the highest-signal order for understanding the current primitive surface, reusable helpers, and measured costs.
 
@@ -248,13 +259,15 @@ Use each top-level doc for one job:
 - `docs/profiling.md`: how to measure layout cost and compare optimization baselines
 - `docs/benchmarking.md`: benchmark naming, bench-info wiring, and benchmark/reporting sync rules
 - `docs/plans/0005-halo2-row-optimization-plan.md`: ordered implementation plan for row-count optimization work on the current BN254 pairing-core lane, with a ready-to-start Phase 1
-- `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates that already proved useful or look promising for the BN254 tower / pairing path
+- `docs/midnight-optimizations.md`: prioritized Midnight primitives and local optimization candidates that already proved useful or look promising for the BN254 tower / pairing path
 - `docs/decisions/0002-bn254-local-optimization-policy.md`: durable retained/rejected optimization decisions for the BN254 pairing-core lane
 - `docs/decisions/0003-direct-outer-setup-cost-reduction.md`: accepted direction for reducing direct outer setup cost via a lean setup artifact and later params caching
 - `docs/decisions/0004-local-midnight-proofs-patch.md`: accepted rationale for carrying a local `midnight-proofs` patch to support richer direct setup/prove artifacts
+- `docs/plans/0006-finalize-checkpoint-profiling-plan.md`: implementation plan for ultra-fine `prove-finalize` checkpoint logging, iteration heartbeats, memory snapshots, elapsed-time profiling, and real-time log inspection
+- `docs/plans/0007-pairing-kernel-opportunity-audit-plan.md`: prioritized audit and experiment plan for new pairing kernels that must reduce real base-arithmetic cost rather than merely repackage existing formulas
 - `docs/h-poly-followup-speed-plan.md`: deferred speed-oriented follow-ups for the retained chunked `h_poly` path once the current memory blocker is solved
-- `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus-region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` sites in the hard part
-- `docs/zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
+- `docs/plans/0002-cyclotomic-unitary-kernel-design.md`: proposed compressed-torus-region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` sites in the hard part
+- `docs/plans/0004-zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current status of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision and direct backend surface for the canonical Halo2/Midnight outer circuit
@@ -273,7 +286,7 @@ future agents know when to read it.
 - `docs/roadmap.md`: staged implementation plan
 - `docs/benchmarking.md`: benchmark structure and conventions
 - `docs/profiling.md`: reproducible layout-profiling workflow for the current Groth16 slice
-- `docs/midnight-local-optimization-notes.md`: local Midnight-backed optimization guidance for repeated tower operations and fixed-constant arithmetic
+- `docs/midnight-optimizations.md`: local Midnight-backed optimization guidance for repeated tower operations and fixed-constant arithmetic
 - `docs/outer-prover-strategy-plan.md`: strategy document for the remaining prover/backend decision on the outer Halo2/Midnight circuit
 - `docs/decisions/0001-initial-workspace-structure.md`: ADR for the workspace split
 - `docs/decisions/0002-bn254-local-optimization-policy.md`: ADR for retained versus rejected BN254 local pairing-core optimizations
@@ -407,8 +420,8 @@ When touching the current BN254 primitive code:
 - keep Miller-path G2 work aligned with the homogeneous prepared-step formulas used by arkworks BN prepared-G2 generation
 - keep final exponentiation work aligned with the standard BN easy-part / hard-part decomposition used by arkworks unless a measured circuit-oriented rewrite clearly improves the current slice
 - keep pairing-check work verifier-shaped: accumulate Miller outputs first, apply exactly one final exponentiation to the total product, and avoid per-term final exponentiation
-- for final-exponentiation and local tower optimization work, read `docs/midnight-local-optimization-notes.md` first so you inherit the current proved-useful Midnight primitives and ruled-out local paths
-- when looking for local tower wins, read `docs/midnight-local-optimization-notes.md` before inventing new gadgets; it records which `midnight-circuits` primitives (`mul_by_constant`, `linear_combination`, `add_constant`, etc.) already paid off in this repo, which ones were explicitly tried and ruled out, and which wins are only local instead of pairing-core-wide
+- for final-exponentiation and local tower optimization work, read `docs/midnight-optimizations.md` first so you inherit the current proved-useful Midnight primitives and ruled-out local paths
+- when looking for local tower wins, read `docs/midnight-optimizations.md` before inventing new gadgets; it records which `midnight-circuits` primitives (`mul_by_constant`, `linear_combination`, `add_constant`, etc.) already paid off in this repo, which ones were explicitly tried and ruled out, and which wins are only local instead of pairing-core-wide
 - when a public method contains a full algebraic step, prefer extracting the formula into a well-named internal helper such as `double_step_jacobian`, `double_step_hom_projective`, or `mixed_add_step_hom_projective`
 - preserve real layout measurement support
 - keep benchmarks honest and tied to actually implemented circuits
@@ -433,10 +446,10 @@ Concrete BN254 conventions already in use:
 - Miller-path `double_with_line` and `mixed_add_with_line` follow the homogeneous-projective BN prepared-G2 formulas used by arkworks / Midnight, not the Jacobian formulas used by `AssignedG2Projective`
 - final exponentiation follows the standard BN254 easy-part / hard-part split used by arkworks over the Miller-loop output
 - the narrow pairing-check path computes each real Miller loop, multiplies the Miller outputs in `Fp12`, applies exactly one final exponentiation, and checks equality with the `Fp12` multiplicative identity
-- the current Groth16 verifier route precomputes Miller-step line coefficients off-circuit for constant verifier-key G2 terms (`beta_g2`, `gamma_g2`, `delta_g2`) and feeds those prepared lines into the interleaved multi-Miller loop; only the proof term stays on the variable G2 path
+- the current Groth16 verifier route fully precomputes the fixed verifier-key term `e(alpha, beta)` into a GT constant, precomputes Miller-step line coefficients off-circuit for the remaining constant verifier-key G2 terms (`gamma_g2`, `delta_g2`), and feeds only those prepared lines into the interleaved multi-Miller loop; only the proof term stays on the variable G2 path
 - the current final-exponentiation code now exposes `final_exponentiation_easy_part(...)` and `final_exponentiation_hard_part(...)` as audit-friendly internal helpers without changing semantics
-- the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/profiling.md` plus `docs/midnight-local-optimization-notes.md` before changing it so you inherit the current measured state and the local Midnight primitives that already paid off
-- the current best class of local wins came from replacing generic constant multiplies in repeated tower helpers with Midnight-backed `mul_by_constant(...)`; check `docs/midnight-local-optimization-notes.md` before changing repeated `Fp2` / `Fp6` / `Fp12` transforms
+- the current hard-part hotspot is still the repeated `exp_by_neg_x(...)` lane; read `docs/profiling.md` plus `docs/midnight-optimizations.md` before changing it so you inherit the current measured state and the local Midnight primitives that already paid off
+- the current best class of local wins came from replacing generic constant multiplies in repeated tower helpers with Midnight-backed `mul_by_constant(...)`; check `docs/midnight-optimizations.md` before changing repeated `Fp2` / `Fp6` / `Fp12` transforms
 - the current repo evidence says foreign-field `linear_combination(...)` is not an automatic optimization win: an April 27, 2026 pass that rewrote `AssignedFp2::mul_by_constant(...)`, `AssignedFp6::mul_by_nonresidue_fp2(...)`, and the Fp12 `3t +/- 2z` helpers regressed `fp12 cyclotomic square` (`1622 -> 1886`), `final exponentiation` (`587420 -> 678119`), and `pairing check` (`1682524 -> 1805233`), so treat that exact rewrite family as ruled out unless you have a materially different constraint shape
 - if you revisit `linear_combination(...)` in the BN254 tower, compare against the retained `mul_by_constant(...)` baseline and do not keep the rewrite unless `wrapper-cli doctor` or `profile-layout --family blocks` shows a clear row win
 - the current repo evidence says `add_constant(...)` does have one retained win: folding the fixed BN254 twist coefficient directly into `AssignedG2Affine::assert_on_curve(...)` improved `g2 on_curve` (`400 -> 378`), `g2 neg` (`930 -> 886`), `g2 proj from_affine` (`970 -> 948`), `g2 proj double` (`2594 -> 2550`), `g2 proj add` (`4582 -> 4516`), `g2 double_with_line` (`2698 -> 2654`), and `g2 mixed_add_with_line` (`3374 -> 3330`)
@@ -490,7 +503,7 @@ Interpretation guidance:
 - `miller loop narrow` now measures the real fixed single-pair BN254 optimal-ate Miller traversal, not the earlier synthetic schedule
 - `final exponentiation` measures the narrow single-pair BN254 final-exponentiation sanity circuit over a Miller-loop output, not a verifier-facing full pairing API
 - `profile-layout --family blocks` now also exposes `final exponentiation easy part` and `final exponentiation hard part`; the current measured split is `12288` rows / `k=14` for the easy part and `492083` rows / `k=19` for the hard part, so future optimization work should focus overwhelmingly on the hard part
-- `docs/midnight-local-optimization-notes.md` is the canonical short list of Midnight primitives and local optimization targets; keep it updated when a new `midnight-circuits` primitive proves useful or a local candidate is ruled out
+- `docs/midnight-optimizations.md` is the canonical short list of Midnight primitives and local optimization targets; keep it updated when a new `midnight-circuits` primitive proves useful or a local candidate is ruled out
 - `pairing check` should always be described as the narrow verifier-shaped product-check slice with one shared final exponentiation, not as a full pairing engine or Groth16 verifier
 - as of the current repo state, local accumulator-square rewrites that only swap formulas inside the existing Fp12 tower did not beat the generic `miller accumulator square` cost; future square optimization likely needs a more structural/cross-step design rather than a small algebraic rewrite, so do not keep partial `square_optimized` experiments in the tree unless they measurably win in `wrapper-cli doctor`
 - as of the current repo state, the obvious foreign-field `linear_combination(...)` replacements for short `Fp2` affine transforms are also ruled out by measurement; do not re-land that family of rewrites without fresh `doctor` / `profile-layout --family blocks` evidence
@@ -594,7 +607,7 @@ Benchmark/metrics integration rules that have already bitten this repo:
 - use explicit honest names for Miller work such as `*_narrow`, `*_sparse`, or `*_baseline` when the slice is not a full pairing pipeline
 - when changing Groth16 optimization-baseline reporting, keep `crates/wrapper-circuits/src/groth16/profiling.rs`, `crates/wrapper-cli/src/main.rs`, `docs/profiling.md`, and the relevant README/AGENTS references in sync in the same turn
 - keep profiling identifiers stable: `family`, `id`, and `label` should remain diff-friendly across runs unless there is a deliberate reporting-schema change
-- when changing final-exponentiation decomposition or local-Midnight optimization guidance, keep `crates/wrapper-circuits/src/bn254/g2/miller.rs`, `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`, `crates/wrapper-circuits/src/bn254/metrics.rs`, `docs/profiling.md`, and `docs/midnight-local-optimization-notes.md` in sync in the same turn
+- when changing final-exponentiation decomposition or local-Midnight optimization guidance, keep `crates/wrapper-circuits/src/bn254/g2/miller.rs`, `crates/wrapper-circuits/src/bn254/host/pairing_host.rs`, `crates/wrapper-circuits/src/bn254/metrics.rs`, `docs/profiling.md`, and `docs/midnight-optimizations.md` in sync in the same turn
 
 ## Documentation Standards
 

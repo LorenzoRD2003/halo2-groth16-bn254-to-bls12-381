@@ -1,0 +1,701 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  pdftitle={Estado actual del proyecto Halo2 wrapper},
+  pdfauthor={OpenAI Codex}
+}
+
+\setlist[itemize]{leftmargin=1.4em}
+\setlist[enumerate]{leftmargin=1.6em}
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.15}
+
+\title{Documentaci\'on extensiva del estado actual del proyecto\\
+\large Halo2 wrapper para verificaci\'on Groth16 BN254 en un outer circuit Halo2/Midnight}
+\author{Documento t\'ecnico interno}
+\date{Estado relevado del repositorio al 28 de mayo de 2026}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Prop\'osito, alcance y advertencias}
+
+Este documento describe el estado real del repositorio \texttt{halo2-groth16-bn254-to-bls12-381}
+tal como est\'a implementado hoy. El objetivo no es presentar una visi\'on idealizada del proyecto,
+sino fijar con precisi\'on:
+
+\begin{itemize}
+  \item qu\'e piezas criptogr\'aficas, circuitales y de backend existen hoy;
+  \item qu\'e optimizaciones locales ya fueron retenidas, intentadas o descartadas;
+  \item cu\'al es el cuello de botella operativo actual;
+  \item cu\'al es el camino m\'as directo para destrabar la lane de ejecuci\'on real.
+\end{itemize}
+
+El repositorio est\'a en \textbf{Stage 1 / Week 5+} y ya no es una simple base de workspace:
+incluye una lane directa real de \texttt{setup -> prove -> verify} sobre el circuito can\'onico
+\texttt{OuterWrapperCircuit}. Sin embargo, \textbf{no} debe leerse como un wrapper verifier
+productivo, general o endurecido para producci\'on.
+
+La slice actual es deliberadamente estrecha:
+
+\begin{itemize}
+  \item el objetivo principal es envolver verificaci\'on Groth16 BN254 en una estructura outer Halo2/Midnight;
+  \item la aritm\'etica BN254 est\'a implementada s\'olo hasta la frontera necesaria para el pairing core y la slice Groth16 actual;
+  \item la lane directa existe, pero sigue bloqueada por presi\'on de memoria en la etapa \texttt{prove-finalize}.
+\end{itemize}
+
+\subsection{Fuente de verdad}
+
+Ante conflictos entre documentos, la fuente de verdad debe considerarse en este orden:
+
+\begin{enumerate}
+  \item el c\'odigo vigente del repositorio;
+  \item los ADRs aceptados bajo \texttt{docs/decisions/};
+  \item los documentos operativos y de profiling bajo \texttt{docs/};
+  \item referencias heredadas en \texttt{README.md} y \texttt{AGENTS.md} que puedan haber quedado desactualizadas.
+\end{enumerate}
+
+Este criterio es especialmente importante porque el repositorio hoy contiene algunas derivas
+documentales: hay nombres viejos de archivos, rutas renombradas y una referencia faltante
+a un plan de estrategia del prover que ya no est\'a presente en el \'arbol de archivos.
+
+\subsection{Tabla de alcance actual}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.72\textwidth}}
+\toprule
+\textbf{Categor\'ia} & \textbf{Contenido} \\
+\midrule
+\endhead
+
+\textbf{Implementado hoy} &
+Workspace multi-crate; parsing real de artefactos \texttt{snarkjs}; capa BN254 en circuito para
+\texttt{Fp}, \texttt{Fp2}, \texttt{Fp6}, \texttt{Fp12}, G1, G2 af\'in, G2 Jacobian estrecho,
+Miller path, final exponentiation, pairing-product check estrecho, slice Groth16 BN254,
+\texttt{OuterWrapperCircuit}, backend directo Halo2/Midnight, fixtures \texttt{circom\_multiplier2}
+y \texttt{semaphore}, profiling de layout y contratos de setup/prove/verify. \\
+
+\textbf{Parcialmente implementado / experimental} &
+Split \texttt{prove-trace} / \texttt{prove-finalize}; artefacto de setup enriquecido; patch local
+de \texttt{midnight-proofs}; chunking y materializaci\'on perezosa parcial en \texttt{compute\_h\_poly(...)}; lane can\'onica R1CS como backend alterno futuro; exploraci\'on de kernels torus/compressed-region. \\
+
+\textbf{Expl\'icitamente fuera de alcance actual} &
+Verificador Groth16 general; APIs p\'ublicas amplias de pairing o multi-pairing; subgroup checks de G2;
+scalar multiplication amplia en G2; wrapper verifier productivo; hardening de seguridad de producci\'on;
+CI r\'apido y estable para toda la lane pesada; optimizaci\'on global del prover m\'as all\'a de la lane estrecha hoy existente. \\
+
+\bottomrule
+\end{longtable}
+
+\section{Arquitectura del workspace y flujo de datos}
+
+\subsection{Responsabilidades por crate}
+
+\textbf{\texttt{wrapper-core}} concentra conceptos de dominio estables y evita, en lo posible,
+dependencias Halo2. All\'i viven \texttt{WrapperJob}, \texttt{WrapperExecutionPackage},
+\texttt{WrapperExecutionResult}, modelado de statement, packaging y contratos de artefactos.
+
+\textbf{\texttt{wrapper-circuits}} contiene la sem\'antica circuital y la capa BN254 activa:
+tipos asignados, gadgets sobre \texttt{midnight-circuits}, la slice Groth16 BN254 y el
+\texttt{OuterWrapperCircuit}. Tambi\'en aloja la l\'inea R1CS can\'onica, pero \'esta no es hoy
+el camino cr\'itico de entrega.
+
+\textbf{\texttt{wrapper-backends}} encapsula parsing, adaptaci\'on, normalizaci\'on de artefactos y
+la lane directa de outer proofs. Su responsabilidad es transformar artefactos externos
+en una forma apta para la capa circuital sin redefinir la sem\'antica del circuito.
+
+\textbf{\texttt{wrapper-cli}} expone comandos honestos de inspecci\'on, profiling, setup, prove,
+verify y diagn\'ostico.
+
+\textbf{\texttt{wrapper-tests}} agrupa fixtures, helpers de integraci\'on y benchmarks.
+
+\subsection{Flujo de datos real actual}
+
+La lane principal implementada hoy, y la que conviene priorizar operativamente, es:
+
+\begin{quote}
+\texttt{snarkjs artifacts}\\
+\(\downarrow\)\\
+\texttt{Groth16Bn254ArtifactBundle}\\
+\(\downarrow\)\\
+\texttt{WrapperJob}\\
+\(\downarrow\)\\
+\texttt{WrapperExecutionPackage}\\
+\(\downarrow\)\\
+\texttt{OuterWrapperCircuit}\\
+\(\downarrow\)\\
+\texttt{MidnightDirectOuterBackend}\\
+\(\downarrow\)\\
+\texttt{setup/prove/verify}
+\end{quote}
+
+En forma m\'as concreta:
+
+\begin{enumerate}
+  \item \texttt{wrapper-backends/src/snarkjs.rs} parsea \texttt{proof.json}, \texttt{public.json}
+  y \texttt{verification\_key.json} en formato \texttt{snarkjs bn128}.
+  \item \texttt{wrapper-backends/src/groth16.rs} normaliza eso en
+  \texttt{Groth16Bn254ArtifactBundle}.
+  \item Ese bundle se transforma en \texttt{WrapperJob} y luego en
+  \texttt{WrapperExecutionPackage}.
+  \item \texttt{wrapper-circuits/src/outer/} adapta el package a la entrada can\'onica del outer circuit.
+  \item \texttt{wrapper-backends/src/outer/direct/proving.rs} ejecuta la lane real de setup/prove/verify.
+\end{enumerate}
+
+\subsection{Separaci\'on entre sem\'antica y backend}
+
+La decisi\'on arquitect\'onica relevante es que el circuito can\'onico vive en
+\texttt{wrapper-circuits}, mientras que \texttt{wrapper-backends} expresa la lane concreta de
+materializaci\'on de artefactos. Esto evita que parsing, serializaci\'on o detalles del prover
+reemplacen la definici\'on sem\'antica del wrapper.
+
+\section{Fundamentos matem\'aticos}
+
+\subsection{Campo base y torre de extensi\'on}
+
+El proyecto trabaja sobre la familia BN254. La implementaci\'on usa la torre compatible con
+arkworks/Midnight:
+
+\[
+\mathbb{F}_{p^2} = \mathbb{F}_p[u]/(u^2 + 1)
+\]
+
+\[
+\mathbb{F}_{p^6} = \mathbb{F}_{p^2}[v]/(v^3 - (9 + u))
+\]
+
+\[
+\mathbb{F}_{p^{12}} = \mathbb{F}_{p^6}[w]/(w^2 - v)
+\]
+
+Las convenciones de representaci\'on activas en el c\'odigo son:
+
+\begin{itemize}
+  \item \(\texttt{Fp2} = c_0 + c_1 u\), con orden de coordenadas \((c_0, c_1)\);
+  \item \(\texttt{Fp6} = c_0 + c_1 v + c_2 v^2\), con orden \((c_0, c_1, c_2)\);
+  \item \(\texttt{Fp12} = c_0 + c_1 w\), con orden \((c_0, c_1)\).
+\end{itemize}
+
+\subsection{Curvas, twist y representaciones}
+
+La slice actual necesita:
+
+\begin{itemize}
+  \item G1 sobre \(\mathbb{F}_p\);
+  \item G2 sobre el twist cuadr\'atico sobre \(\mathbb{F}_{p^2}\);
+  \item una representaci\'on af\'in estrecha en G2;
+  \item una representaci\'on Jacobian estrecha para ciertos pasos;
+  \item una representaci\'on homog\'enea preparada para Miller traversal.
+\end{itemize}
+
+En G2 se implementan validaciones de curva sobre el twist, pero no subgroup checks amplios.
+
+\subsection{Funciones de l\'inea y embedding disperso}
+
+Durante el Miller path, los coeficientes de l\'inea se exponen en la forma dispersa:
+
+\[
+(\ell_0,\ell_w,\ell_{vw})
+\]
+
+Para un punto af\'in \(P = (x_P, y_P)\) de G1, la evaluaci\'on correspondiente es:
+
+\[
+\ell_0 y_P + \ell_w x_P w + \ell_{vw} v w
+\]
+
+La documentaci\'on y el c\'odigo convergen en que este embedding disperso mapea naturalmente a
+slots de \(\mathbb{F}_{p^{12}}\) compatibles con la ruta tipo \texttt{mul\_by\_034}.
+El borde p\'ublico activo para consumir esta estructura es
+\texttt{AssignedMillerAccumulator::mul\_by\_line(...)}.
+
+\subsection{Miller loop}
+
+La lane de pairing implementada es una optimal-ate Miller traversal con schedule preparado y
+determinista. El repositorio no expone hoy una API p\'ublica amplia de pairings; expone un
+pairing-product check estrecho y verificador-shaped.
+
+\subsection{Final exponentiation}
+
+La final exponentiation sigue la descomposici\'on cl\'asica en:
+
+\begin{itemize}
+  \item \textbf{easy part}: componentes de bajo costo relativo que usan conjugaci\'on, inversi\'on y Frobenius;
+  \item \textbf{hard part}: principal hotspot de filas, donde domina la rutina \texttt{exp\_by\_neg\_x(...)}.
+\end{itemize}
+
+La hard part es el foco principal de optimizaci\'on local del pairing core, porque impacta:
+
+\begin{itemize}
+  \item \texttt{bn254\_final\_exponentiation\_hard\_part};
+  \item \texttt{bn254\_final\_exponentiation};
+  \item \texttt{bn254\_pairing\_check\_sample};
+  \item \texttt{bn254\_pairing\_check\_groth16\_style};
+  \item el verificador Groth16 end-to-end.
+\end{itemize}
+
+\section{Estado implementado del stack criptogr\'afico}
+
+\subsection{Capa de campo y extensiones}
+
+La capa BN254 activa en circuito cubre:
+
+\begin{itemize}
+  \item \texttt{AssignedFp}: valores en \(\mathbb{F}_p\) sobre chips de foreign field;
+  \item \texttt{AssignedFp2}: pares de \texttt{AssignedFp};
+  \item \texttt{AssignedFp6}: ternas de \texttt{AssignedFp2};
+  \item \texttt{AssignedFp12}: pares de \texttt{AssignedFp6}.
+\end{itemize}
+
+Las operaciones activas son, seg\'un el nivel:
+
+\begin{itemize}
+  \item \texttt{zero}, \texttt{one}, \texttt{add}, \texttt{sub}, \texttt{neg}, igualdad;
+  \item \texttt{mul} y \texttt{square};
+  \item helpers internos para no-residue, conjugaci\'on, Frobenius y kernels usados por pairing.
+\end{itemize}
+
+\subsection{Capa de curva}
+
+En G1 existe soporte m\'inimo real para:
+
+\begin{itemize}
+  \item asignaci\'on;
+  \item construcci\'on desde coordenadas con chequeo \emph{on-curve};
+  \item suma;
+  \item cobertura de tests con referencia arkworks.
+\end{itemize}
+
+En G2 existe hoy:
+
+\begin{itemize}
+  \item \texttt{AssignedG2Affine} con asignaci\'on, negaci\'on, igualdad y \emph{on-curve};
+  \item \texttt{AssignedG2Projective} en Jacobian estrecho con \texttt{from\_affine}, \texttt{neg},
+  \texttt{double} y \texttt{add} incompleta;
+  \item \texttt{AssignedG2MillerPoint} con \texttt{double\_with\_line} y
+  \texttt{mixed\_add\_with\_line}.
+\end{itemize}
+
+\subsection{Pairing core}
+
+La slice Week 4 efectivamente aterrizada incluye:
+
+\begin{itemize}
+  \item traversal real de Miller;
+  \item acumulaci\'on en \(\mathbb{F}_{p^{12}}\);
+  \item final exponentiation;
+  \item pairing-product check que multiplica primero los outputs de Miller y aplica
+  exactamente \emph{una} final exponentiation compartida.
+\end{itemize}
+
+Esta decisi\'on es importante: el repositorio no realiza final exponentiation por t\'ermino, sino una
+reducci\'on verificador-shaped acorde al producto total.
+
+\subsection{Slice Groth16 BN254}
+
+El m\'odulo \texttt{crates/wrapper-circuits/src/groth16.rs} implementa una slice estrecha de
+verificaci\'on Groth16 BN254 con las siguientes restricciones deliberadas:
+
+\begin{itemize}
+  \item el \texttt{proof} y la \texttt{verification key} ya llegan normalizados;
+  \item los public inputs s\'olo se usan como escalares del acumulador de IC;
+  \item la verificaci\'on se reduce directamente a un pairing-product check;
+  \item no se presenta un framework Groth16 general ni multi-backend.
+\end{itemize}
+
+\subsection{Outer circuit y backend directo}
+
+El circuito outer can\'onico es \texttt{OuterWrapperCircuit}. Su sem\'antica es:
+
+\begin{quote}
+verificar la slice Groth16 BN254 soportada hoy y exponer el statement outer correspondiente.
+\end{quote}
+
+El backend directo concreto es \texttt{MidnightDirectOuterBackend}, con variantes de host lane.
+La implementaci\'on activa permite:
+
+\begin{itemize}
+  \item setup real;
+  \item prove real;
+  \item verify real;
+  \item split adicional \texttt{prove-trace} / \texttt{prove-finalize}.
+\end{itemize}
+
+\section{Verificador Groth16 BN254 actual}
+
+\subsection{Ecuaci\'on de verificaci\'on usada}
+
+La reducci\'on concreta implementada es:
+
+\[
+e(A,B) \cdot e(-vk_x,\gamma) \cdot e(-C,\delta) = e(\alpha,\beta)
+\]
+
+Aqu\'i:
+
+\begin{itemize}
+  \item \(A\) y \(C\) est\'an en G1;
+  \item \(B\) est\'a en G2;
+  \item \((\alpha,\beta,\gamma,\delta)\) provienen de la verification key;
+  \item \(vk_x\) es la combinaci\'on lineal del vector IC con los public inputs.
+\end{itemize}
+
+\subsection{Acumulaci\'on de \texorpdfstring{$vk_x$}{vk\_x}}
+
+Si la verification key trae puntos
+\(\texttt{ic}[0], \texttt{ic}[1], \dots, \texttt{ic}[n]\)
+y los public inputs son
+\(x_1,\dots,x_n\),
+entonces:
+
+\[
+vk_x = \texttt{ic}[0] + \sum_{i=1}^{n} x_i \cdot \texttt{ic}[i]
+\]
+
+En el repositorio actual esta acumulaci\'on es:
+
+\begin{itemize}
+  \item verifier-only;
+  \item apoyada sobre la G1 chip existente;
+  \item estrecha y no dise\~nada como una API p\'ublica de MSM general.
+\end{itemize}
+
+\subsection{Camino variable y camino preparado constante}
+
+La shape actual del pairing check Groth16 est\'a optimizada de manera verificador-shaped:
+
+\begin{itemize}
+  \item el t\'ermino de prueba \(e(A,B)\) conserva camino variable sobre G2;
+  \item el t\'ermino completamente fijo \(e(\alpha,\beta)\) se precomputa
+  off-circuit como una constante de GT;
+  \item los t\'erminos constantes restantes de verification key
+  \(\gamma_{g2}\) y \(\delta_{g2}\)
+  se preprocesan off-circuit en una forma preparada constante de Miller.
+\end{itemize}
+
+En otras palabras, el circuito evita pagar el costo completo de recorrer el
+t\'ermino \((\alpha,\beta)\) dentro del Miller loop y tampoco recorre
+\(\gamma_{g2}\) ni \(\delta_{g2}\) como si fueran witness variables. Esta es
+una de las decisiones estructurales m\'as valiosas ya retenidas en la slice
+Groth16 actual.
+
+\section{Historial de optimizaciones: retenidas, intentadas y descartadas}
+
+\subsection{Tabla consolidada}
+
+\scriptsize
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.14\textwidth} >{\raggedright\arraybackslash}p{0.10\textwidth} >{\raggedright\arraybackslash}p{0.16\textwidth} >{\raggedright\arraybackslash}p{0.16\textwidth} >{\raggedright\arraybackslash}p{0.21\textwidth} >{\raggedright\arraybackslash}p{0.15\textwidth}}
+\toprule
+\textbf{Cambio} & \textbf{Estado} & \textbf{Motivaci\'on} & \textbf{Ubicaci\'on conceptual} & \textbf{M\'etrica antes/despu\'es} & \textbf{Conclusi\'on} \\
+\midrule
+\endhead
+
+\texttt{mul\_by\_constant(...)} & Retenida & Reemplazar multiplies gen\'ericas por constantes chicas con una ruta m\'as barata del foreign-field chip & Helpers de torre BN254, especialmente \texttt{mul\_by\_nonresidue\_fp2} & Se documenta como una de las principales razones por las que el verificador total baj\'o de \texttt{k=22} a \texttt{k=21} & Es la primitive local m\'as confiable descubierta hasta ahora \\
+
+\texttt{add\_constant(...)} en \texttt{AssignedG2Affine::assert\_on\_curve(...)} & Retenida & Evitar witness fijo para el coeficiente de twist y absorber el offset como constante del chip & G2 af\'in y preparaci\'on para Miller & \texttt{g2 on\_curve: 400 -> 378}; \texttt{g2 neg: 930 -> 886}; \texttt{g2 proj double: 2594 -> 2550}; \texttt{g2 mixed\_add\_with\_line: 3374 -> 3330} & Win local real en G2/prep, sin mover por s\'i sola el total del pairing core \\
+
+Signed-window \texttt{exp\_by\_neg\_x(...)} & Retenida & Cambiar una cadena positiva por una signed chain que ahorra un multiply principal por llamada & Hard part de final exponentiation & \texttt{hard part: 574112 -> 561254}; \texttt{final exponentiation: 587420 -> 574562}; \texttt{pairing sample: 1682524 -> 1669666}; \texttt{Groth16-style: 1949238 -> 1936380} & Win retenida y can\'onica; la metadata vive en \texttt{final\_exp\_chain.rs} \\
+
+Compressed cyclotomic squaring dentro de \texttt{exp\_by\_neg\_x(...)} & Retenida & Aprovechar que los bloques repetidos de squaring tienen una estructura mejor que el cuadrado ciclot\'omico gen\'erico & Repeated square blocks de la hard part & \texttt{hard part: 561254 -> 492083}; \texttt{final exponentiation: 574562 -> 505391}; \texttt{pairing sample: 1669666 -> 1600495}; \texttt{Groth16-style: 1936380 -> 1867209} & Es la mejor optimizaci\'on local retenida hoy en el pairing core \\
+
+Precomputar \texttt{e(\alpha,\beta)} como constante de GT & Retenida & Sacar del multi-Miller loop el t\'ermino de verification key que es completamente fijo & Reducci\'on Groth16 verifier-shaped & \texttt{pairing check Groth16-style: 1866759 -> 1632579} & Win estructural fuerte: cuando el t\'ermino es totalmente constante, colapsarlo fuera del Miller loop gana bastante m\'as que dejarlo s\'olo como G2 preparado \\
+
+\texttt{linear\_combination(...)} sobre \texttt{Fp2/Fp6/Fp12} hot path & Descartada & Hip\'otesis de que una forma af\'in compacta reducir\'ia filas & \texttt{AssignedFp2::mul\_by\_constant}, \texttt{AssignedFp6::mul\_by\_nonresidue\_fp2}, helpers \texttt{3t \textpm 2z} & \texttt{fp6 mul: 1252 -> 1318}; \texttt{fp12 cyclotomic square: 1622 -> 1886}; \texttt{final exponentiation: 587420 -> 678119}; \texttt{pairing check: 1682524 -> 1805233} & Regresi\'on medida; no debe relandearse salvo con shape materialmente distinta \\
+
+Helpers \texttt{select}/\texttt{is\_equal*}/\texttt{is\_zero} para identidad GT & Descartada como optimizaci\'on & Limpiar control de flujo y empaquetar la comparaci\'on final de identidad & Check final del pairing-product & Row-neutral seg\'un \texttt{doctor} y \texttt{profile-layout --family blocks} & Puede servir para claridad, no para rendimiento medido \\
+
+Prototipo torus-style aislado en \texttt{y7} & Descartada & Explorar \texttt{cyclotomic * unitary\_inverse(cyclotomic)} mediante coordenada de torus & Sitio aislado de la hard part & \texttt{hard part: 561254 -> 571604}; \texttt{final exponentiation: 574562 -> 584912}; \texttt{pairing sample: 1669666 -> 1680016}; \texttt{Groth16-style: 1936380 -> 1946730} & Una sustituci\'on aislada no amortiza compresi\'on/descompresi\'on \\
+
+Rollout de \texttt{CyclotomicFp12MulChip} & Descartada & Reempaquetar multiplicaciones ciclot\'omicas repetidas como gadget expl\'icito & Sitios \texttt{y3}, \texttt{y9}, \texttt{y10}, \texttt{y11} & \texttt{hard part: 561254 -> 561344}; \texttt{final exponentiation: 574562 -> 574652}; \texttt{pairing sample: 1669666 -> 1669756}; \texttt{Groth16-style: 1936380 -> 1936470} & Reempaque sin kernel nuevo no alcanza para ganar filas \\
+
+Refactors schedule-only del Miller accumulator & Poco prometedor / no retenido & Intentar ganar por ordenamiento o fusi\'on superficial & Secuenciaci\'on de square + line consumption & Sin reducci\'on material de filas & La siguiente mejora debe atacar costo aritm\'etico subyacente, no wrapper sequencing \\
+
+\bottomrule
+\end{longtable}
+\normalsize
+
+\subsection{Cadena retenida de \texttt{exp\_by\_neg\_x(...)}}
+
+La cadena signed-window can\'onica actual parte de \(35\) y consume:
+
+\begin{itemize}
+  \item \texttt{\string<\string< 6, -35}
+  \item \texttt{\string<\string< 9, +101}
+  \item \texttt{\string<\string< 8, -83}
+  \item \texttt{\string<\string< 9, +37}
+  \item \texttt{\string<\string< 9, +105}
+  \item \texttt{\string<\string< 11, +79}
+  \item \texttt{\string<\string< 5, +17}
+\end{itemize}
+
+La metadata compartida entre host y circuito vive en
+\texttt{crates/wrapper-circuits/src/bn254/final\_exp\_chain.rs}.
+
+\subsection{Tabla de mediciones clave}
+
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.42\textwidth} >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Bloque / m\'etrica} & \textbf{Serie relevante documentada} \\
+\midrule
+\texttt{g2 on\_curve} & \texttt{400 -> 378} \\
+\texttt{final exponentiation hard part} & \texttt{574112 -> 561254 -> 492083} \\
+\texttt{final exponentiation} & \texttt{587420 -> 574562 -> 505391} \\
+\texttt{pairing check sample} & \texttt{1682524 -> 1669666 -> 1600495} \\
+\texttt{pairing check Groth16-style} & \texttt{1949238 -> 1936380 -> 1867209 -> 1866759 -> 1632579} \\
+\texttt{linear\_combination} sobre \texttt{fp12 cyclotomic square} & \texttt{1622 -> 1886} \\
+\texttt{linear\_combination} sobre \texttt{final exponentiation} & \texttt{587420 -> 678119} \\
+\texttt{linear\_combination} sobre \texttt{pairing check} & \texttt{1682524 -> 1805233} \\
+\bottomrule
+\end{tabularx}
+
+\section{Bloqueo actual y camino para destrabar el proyecto}
+
+\subsection{Diagn\'ostico operativo actual}
+
+El cuello de botella m\'as importante ya no es de plumbing, ni de sem\'antica circuital, ni de falta de
+backend directo. La lane principal ya existe. El problema es \textbf{memoria} durante
+\texttt{execute-wrapper-direct-prove-finalize}.
+
+El s\'intoma documentado es:
+
+\begin{quote}
+\texttt{memory allocation of 268435456 bytes failed}
+\end{quote}
+
+Ese tama\~no coincide con un bloque de \(256\ \text{MiB}\) y es consistente con la hip\'otesis
+de materializaci\'on pesada de polinomios/cosets en el extended domain para \texttt{k = 21}.
+
+\subsection{Lo ya resuelto}
+
+Las siguientes piezas ya fueron resueltas o materialmente mejoradas:
+
+\begin{itemize}
+  \item existe un \textbf{artefacto de setup m\'as rico} que evita rerun completo de \texttt{keygen\_pk(...)} en la wrapper lane;
+  \item el repo mantiene un \textbf{patch local de \texttt{midnight-proofs}} con
+  \texttt{BaseProvingKey}, \texttt{keygen\_pk\_base(...)},
+  \texttt{create\_proof\_from\_base(...)},
+  \texttt{create\_proof\_trace\_from\_base(...)} y
+  \texttt{finalise\_proof\_from\_base\_trace(...)};
+  \item el split \texttt{prove-trace} ya \textbf{funciona};
+  \item el trace persistido ya migr\'o para guardar advice/instance polynomials en coefficient form;
+  \item \texttt{HPolyKey} y \texttt{OpeningKey} ya redujeron duplicaci\'on de estado en varios puntos;
+  \item existe chunking configurable para la parte de \texttt{h\_poly} vinculada a permutation constraints;
+  \item el setup directo ya tiene al menos una corrida exitosa medida en \texttt{circom\_multiplier2}:
+  \texttt{circuit\_k = 21}, \texttt{public\_input\_count = 1},
+  \texttt{setup\_elapsed\_ms = 1554572} (aprox.\ 25m 54s).
+\end{itemize}
+
+\subsection{Lo parcialmente resuelto}
+
+Hay mejoras que aislaron mejor el problema, pero no lo eliminaron:
+
+\begin{itemize}
+  \item el split \texttt{prove-trace}/\texttt{prove-finalize} reduce recomputaci\'on y permite diagn\'ostico m\'as fino;
+  \item hay \textbf{fixed columns esparsas} y \textbf{lazy sigma cosets} por chunk en zonas relevantes;
+  \item el tama\~no de chunk para la evaluaci\'on de \texttt{h\_poly} ya puede calibrarse desde CLI;
+  \item el backend emite \textbf{checkpoints de finalize} m\'as finos, lo que permite localizar la \'ultima subfase exitosa antes del OOM.
+\end{itemize}
+
+\subsection{Lo no resuelto}
+
+Lo que sigue abierto hoy es:
+
+\begin{itemize}
+  \item \texttt{execute-wrapper-direct-prove-finalize} todav\'ia aborta por memoria;
+  \item el candidato principal sigue siendo el peso de estado alrededor de
+  \texttt{compute\_h\_poly(...)} y la materializaci\'on de cosets extendidos;
+  \item todav\'ia no est\'a decidido con evidencia suficiente si el siguiente recorte fuerte
+  debe hacerse del lado \emph{pre-}\texttt{compute\_h\_poly} o \emph{post-}\texttt{compute\_h\_poly};
+  \item por lo tanto, la lane directa existe pero no puede considerarse operacionalmente destrabada.
+\end{itemize}
+
+\section{Plan de acci\'on priorizado para destrabe}
+
+El orden correcto, seg\'un el estado actual del repositorio y sus ADRs, es el siguiente.
+
+\begin{enumerate}
+  \item \textbf{Aislar el \'ultimo checkpoint exitoso de finalize.}\\
+  Hay que usar la instrumentaci\'on actual para distinguir si el fallo ocurre antes o despu\'es de:
+  \texttt{compute\_lagrange\_polys},
+  sparse fixed cosets,
+  permutation h key,
+  y las subfases posteriores de opening/query.
+
+  \item \textbf{Decidir con evidencia si el siguiente recorte debe ser pre-\texttt{compute\_h\_poly} o post-\texttt{compute\_h\_poly}.}\\
+  El repositorio ya elimin\'o bastante duplicaci\'on wrapper-side. El siguiente paso no debe guiarse por intuici\'on:
+  debe apoyarse en los logs de la instrumentaci\'on fina.
+
+  \item \textbf{Seguir explotando sparse fixed columns, lazy sigma cosets y chunking.}\\
+  La direcci\'on retenida actual es:
+  materializar s\'olo lo necesario, lo m\'as tarde posible, y en porciones controlables.
+  Esto debe profundizarse antes de intentar redise\~nos estructurales mayores.
+
+  \item \textbf{Rerreproducir sistem\'aticamente con el split \texttt{prove-trace}/\texttt{prove-finalize}.}\\
+  La experimentaci\'on debe regenerar artefactos cuando cambien formatos o supuestos de setup/trace/finalize.
+  No conviene mezclar resultados obtenidos con artefactos obsoletos.
+
+  \item \textbf{S\'olo despu\'es pasar al \texttt{h\_poly} speed follow-up.}\\
+  El documento \texttt{docs/h-poly-followup-speed-plan.md} es expl\'icitamente posterior a la resoluci\'on del OOM.
+  Antes de estabilizar memoria, optimizar velocidad es prematuro.
+\end{enumerate}
+
+En t\'erminos de prioridad ejecutiva, esto significa:
+
+\begin{quote}
+primero confiabilidad y estabilidad de memoria; despu\'es throughput.
+\end{quote}
+
+\section{Reproducibilidad}
+
+\subsection{Fixtures de referencia}
+
+El repositorio contiene dos fixtures principales para la lane actual:
+
+\begin{itemize}
+  \item \texttt{crates/wrapper-tests/fixtures/groth16/circom\_multiplier2/}
+  como caso peque\~no y controlado;
+  \item \texttt{crates/wrapper-tests/fixtures/groth16/semaphore/}
+  como caso de integraci\'on m\'as application-shaped.
+\end{itemize}
+
+El fixture \texttt{circom\_multiplier2} corresponde a:
+
+\begin{itemize}
+  \item circuito \texttt{multiplier2.circom};
+  \item entrada \(a = 3\), \(b = 11\);
+  \item salida p\'ublica \(33\);
+  \item artefactos \texttt{snarkjs} sobre la curva etiquetada como \texttt{bn128}, esto es, la familia BN254 usada por el repo.
+\end{itemize}
+
+\subsection{Comandos clave de CLI}
+
+Los comandos m\'as relevantes para reproducir el estado actual son:
+
+\begin{quote}
+\texttt{cargo run -p wrapper-cli -- inspect-groth16-bundle ...}\\
+\texttt{cargo run -p wrapper-cli -- plan-wrapper-job ...}\\
+\texttt{cargo run -p wrapper-cli -- profile-layout}\\
+\texttt{cargo run -p wrapper-cli -- execute-wrapper-direct-setup ...}\\
+\texttt{cargo run -p wrapper-cli -- execute-wrapper-direct-prove ...}\\
+\texttt{cargo run -p wrapper-cli -- execute-wrapper-direct-prove-trace ...}\\
+\texttt{cargo run -p wrapper-cli -- execute-wrapper-direct-prove-finalize ...}\\
+\texttt{cargo run -p wrapper-cli -- execute-wrapper-direct-verify ...}
+\end{quote}
+
+Para profiling de layout, la surface vigente incluye familias como:
+
+\begin{itemize}
+  \item \texttt{groth16};
+  \item \texttt{pairing-terms};
+  \item \texttt{public-inputs};
+  \item \texttt{blocks};
+  \item \texttt{outer}.
+\end{itemize}
+
+Para la experimentaci\'on del bloqueo actual, el comando m\'as sensible es
+\texttt{execute-wrapper-direct-prove-finalize}, en combinaci\'on con el flag
+\texttt{--h-poly-row-chunk-size} cuando se est\'a calibrando el tradeoff entre memoria y tiempo.
+
+\subsection{Regla de higiene de artefactos}
+
+La reproducci\'on fiel exige respetar la higiene de artefactos ya explicitada por el repositorio:
+
+\begin{itemize}
+  \item si cambia la producci\'on de setup, deben descartarse setup artifacts previos;
+  \item si cambia la producci\'on o serializaci\'on de trace, deben descartarse traces previos;
+  \item si cambia finalize o el formato del proof bundle, deben descartarse artifacts finales previos.
+\end{itemize}
+
+\section{Derivas documentales detectadas}
+
+El relevamiento inicial detect\'o varias derivas documentales, y desde entonces
+el repositorio fue corregido para que esas rutas vuelvan a ser navegables y la
+documentaci\'on central apunte a referencias can\'onicas actuales.
+
+\subsection{Archivo restaurado}
+
+El repositorio ahora vuelve a incluir:
+
+\begin{quote}
+\texttt{docs/outer-prover-strategy-plan.md}
+\end{quote}
+
+Ese documento resume la estrategia vigente del prover outer y evita que el
+estado de la lane directa tenga que reconstruirse s\'olo a partir de ADRs y
+c\'odigo.
+
+\subsection{Documento can\'onico de optimizaciones}
+
+La referencia can\'onica actual para optimizaciones Midnight-locales es:
+
+\begin{quote}
+\texttt{docs/midnight-optimizations.md}
+\end{quote}
+
+El repositorio tambi\'en conserva una nota de compatibilidad en:
+
+\begin{quote}
+\texttt{docs/midnight-local-optimization-notes.md}
+\end{quote}
+
+de modo que enlaces hist\'oricos no queden rotos abruptamente.
+
+\subsection{Compatibilidad para planes renombrados}
+
+Las referencias a planes movidos bajo \texttt{docs/plans/} fueron corregidas en
+la documentaci\'on central, y adem\'as el repositorio ahora expone archivos de
+compatibilidad para rutas hist\'oricas como:
+
+\begin{itemize}
+  \item \texttt{docs/zk-email-integration-plan.md};
+  \item \texttt{docs/plutus-aiken-integration-plan.md};
+  \item \texttt{docs/cyclotomic-unitary-kernel-design.md}.
+\end{itemize}
+
+Eso permite que:
+
+\begin{itemize}
+  \item las referencias nuevas usen los paths can\'onicos bajo \texttt{docs/plans/};
+  \item las referencias viejas sigan resolviendo sin ambig\"uedad.
+\end{itemize}
+
+\section{Conclusi\'on}
+
+El proyecto ya alcanz\'o un punto importante: existe una lane directa real para envolver una slice
+estrecha de verificaci\'on Groth16 BN254 dentro de un outer circuit Halo2/Midnight can\'onico.
+La capa BN254, el pairing core y la reducci\'on Groth16 hoy est\'an implementados con suficiente
+profundidad como para producir costos reales, optimizaciones medibles y cuellos de botella
+aut\'enticos.
+
+El principal bloqueo restante no es conceptual sino operativo: memoria en \texttt{prove-finalize}.
+Por eso, el camino correcto para destrabar el proyecto no es ensanchar el alcance funcional,
+sino completar el diagn\'ostico fino del estado alrededor de \texttt{compute\_h\_poly(...)} y seguir
+reduciendo materializaci\'on simult\'anea de polinomios, cosets y estado de opening.
+
+En s\'intesis: el proyecto ya sali\'o de la fase puramente experimental en arquitectura, pero todav\'ia
+no sali\'o de la fase experimental en confiabilidad del prover directo.
+
+\end{document}

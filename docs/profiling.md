@@ -7,7 +7,7 @@ The goal is reproducible measurement for optimization work, not a new
 benchmarking framework.
 
 For the current prioritized list of local optimization opportunities backed by
-existing Midnight primitives, see `docs/midnight-local-optimization-notes.md`.
+existing Midnight primitives, see `docs/midnight-optimizations.md`.
 
 ## What Was Added
 
@@ -32,20 +32,21 @@ Groth16-specific blocks:
   fixture.
 - `groth16_fixture_vk_x_accumulator`
   Measures the verifier-side `vk_x` accumulation block on the same fixture.
-- `groth16_pairing_check_proxy_4_terms`
-  Measures an isolated 4-term pairing-check proxy circuit that matches the
+- `groth16_pairing_check_proxy_3_terms`
+  Measures an isolated 3-term pairing-check proxy circuit that matches the
   current Groth16 term count.
 
-The current Groth16 verifier path now precomputes Miller-step line
-coefficients off-circuit for constant verifier-key G2 terms:
+The current Groth16 verifier path now fully precomputes the fixed verifier-key
+pairing term `e(alpha, beta)` into a GT constant, and precomputes Miller-step
+line coefficients off-circuit for the remaining constant verifier-key G2 terms:
 
-- `beta_g2`
 - `gamma_g2`
 - `delta_g2`
 
-This is valid because those G2 points are fixed verifier-key data, not proof
-witnesses. The tradeoff is a larger prepared verifier-key representation in host
-memory and orchestration code in exchange for lower circuit cost.
+This is valid because all of that material comes from fixed verifier-key data,
+not proof witnesses. The tradeoff is more host-side preprocessing and a larger
+prepared/verifier-side constant representation in exchange for lower circuit
+cost.
 
 ### 2. `pairing-terms`
 
@@ -85,7 +86,7 @@ already available:
 - final exponentiation easy part
 - final exponentiation hard part
 - final exponentiation
-- pairing check groth16-style (1 variable + 3 prepared)
+- pairing check groth16-style (1 variable + 2 prepared + GT constant)
 - pairing check primitive sample
 
 ### 5. `outer`
@@ -196,7 +197,7 @@ Important workflow note:
   `outer_wrapper_semaphore_end_to_end_bls12_381_host` are the matching direct
   end-to-end baselines for the committed Semaphore fixture across both Midnight
   host lanes.
-- `groth16_pairing_check_proxy_4_terms` is intentionally a term-count proxy for
+- `groth16_pairing_check_proxy_3_terms` is intentionally a term-count proxy for
   the Groth16 reduction, not a second semantic verifier implementation.
 - `public-inputs` isolates the current accumulator path only; it does not
   remeasure the full verifier for every input count.
@@ -204,7 +205,7 @@ Important workflow note:
   exponentiation directly.
 - for local follow-up targets that specifically leverage `midnight-circuits`
   primitives such as `mul_by_constant`, read
-  `docs/midnight-local-optimization-notes.md`
+  `docs/midnight-optimizations.md`
 - treat `linear_combination(...)` as a measured hypothesis, not as a presumed
   optimization:
   the April 27, 2026 foreign-field pass regressed the retained baseline and was
@@ -232,7 +233,10 @@ Important workflow note:
   and `bn254_pairing_check_sample_2_terms` from `1669666` to `1600495`
 - `bn254_pairing_check_groth16_style` is the current optimized verifier-shaped
   pairing-core snapshot:
-  one variable proof term plus three prepared constant verifier-key terms
+  one variable proof term, two prepared constant verifier-key terms, and one
+  fixed GT target `e(alpha, beta)`
+- fully precomputing `e(alpha, beta)` out of the Groth16-style Miller loop
+  reduced that row from `1866759` to `1632579`
 - `bn254_pairing_check_sample_2_terms` remains a lower-level primitive sample
   and should not be read as the optimized Groth16 structure
 

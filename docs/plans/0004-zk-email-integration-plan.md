@@ -8,7 +8,7 @@ The immediate goal is:
 
 - to integrate a real Circom-origin proof artifact set into this repository in the same operational style as the current Semaphore fixture track
 - to validate that the existing wrapper planning and direct outer proving lane can ingest that artifact set
-- to keep the long-term target aligned with the BLS12-381 outer proving lane and Aiken verifier generation already described in [docs/plutus-aiken-integration-plan.md](./plutus-aiken-integration-plan.md)
+- to keep the long-term target aligned with the BLS12-381 outer proving lane and Aiken verifier generation already described in [docs/plans/0003-plutus-aiken-integration-plan.md](./0003-plutus-aiken-integration-plan.md)
 
 The immediate goal is not:
 
@@ -18,7 +18,7 @@ The immediate goal is not:
 
 Important constraint:
 
-- the current inner-proof ingestion path in this repository is still the narrow `snarkjs` Groth16 BN254 path described in [crates/wrapper-backends/src/snarkjs.rs](../crates/wrapper-backends/src/snarkjs.rs), [crates/wrapper-backends/src/groth16.rs](../crates/wrapper-backends/src/groth16.rs), and [docs/plutus-aiken-integration-plan.md](./plutus-aiken-integration-plan.md)
+- the current inner-proof ingestion path in this repository is still the narrow `snarkjs` Groth16 BN254 path described in [crates/wrapper-backends/src/snarkjs.rs](../crates/wrapper-backends/src/snarkjs.rs), [crates/wrapper-backends/src/groth16.rs](../crates/wrapper-backends/src/groth16.rs), and [docs/plans/0003-plutus-aiken-integration-plan.md](./0003-plutus-aiken-integration-plan.md)
 
 Current outer-lane execution note:
 
@@ -445,7 +445,7 @@ Today this repo consumes `snarkjs` Groth16 BN254 inner proofs, then wraps them i
 
 - [crates/wrapper-backends/src/snarkjs.rs](../crates/wrapper-backends/src/snarkjs.rs)
 - [crates/wrapper-backends/src/groth16.rs](../crates/wrapper-backends/src/groth16.rs)
-- [docs/plutus-aiken-integration-plan.md](./plutus-aiken-integration-plan.md)
+- [docs/plans/0003-plutus-aiken-integration-plan.md](./0003-plutus-aiken-integration-plan.md)
 
 So a ZK Email Circom integration can answer:
 
@@ -747,7 +747,7 @@ Possibly:
 
 - `crates/wrapper-tests/benches/outer/mod.rs`
 - `crates/wrapper-cli/src/main.rs`
-- `docs/plutus-aiken-integration-plan.md`
+- `docs/plans/0003-plutus-aiken-integration-plan.md`
 
 #### Suggested commands
 
@@ -789,7 +789,7 @@ Sources:
 
 - [crates/wrapper-backends/src/outer/direct/mod.rs](../crates/wrapper-backends/src/outer/direct/mod.rs)
 - [crates/wrapper-cli/src/main.rs](../crates/wrapper-cli/src/main.rs)
-- [docs/plutus-aiken-integration-plan.md](./plutus-aiken-integration-plan.md)
+- [docs/plans/0003-plutus-aiken-integration-plan.md](./0003-plutus-aiken-integration-plan.md)
 
 ### Phase 5: Decide the post-fixture path for the non-Groth16 product goal
 
@@ -802,7 +802,7 @@ Make the architectural decision that the Phase 1 through Phase 4 work deliberate
 
 #### Files likely to be modified
 
-- `docs/plutus-aiken-integration-plan.md`
+- `docs/plans/0003-plutus-aiken-integration-plan.md`
 - possibly a new decision doc under `docs/decisions/`
 
 #### Suggested commands

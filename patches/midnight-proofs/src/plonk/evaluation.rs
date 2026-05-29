@@ -1,25 +1,16 @@
 use ff::{PrimeField, WithSmallOrderMulGroup};
 use group::ff::Field;
-use std::{borrow::Cow, collections::BTreeSet, fs::OpenOptions, io::Write as _};
+use std::{borrow::Cow, collections::BTreeSet, time::Instant};
 
-use super::{ConstraintSystem, Expression};
+use super::{ConstraintSystem, Expression, direct_logging};
 use crate::{
     plonk::{lookup, permutation, trash, Any},
     poly::{EvaluationDomain, LagrangeCoeff, Polynomial, PolynomialRepresentation, Rotation},
     utils::arithmetic::parallelize,
 };
 
-const DIRECT_LOG_FILE_ENV: &str = "WRAPPER_DIRECT_LOG_FILE";
 const H_POLY_ROW_CHUNK_ENV: &str = "WRAPPER_H_POLY_ROW_CHUNK_SIZE";
 const DEFAULT_H_POLY_ROW_CHUNK_SIZE: usize = 1_usize << 15;
-
-fn append_h_poly_log(message: &str) {
-    if let Ok(path) = std::env::var(DIRECT_LOG_FILE_ENV) {
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(file, "{message}");
-        }
-    }
-}
 
 fn h_poly_row_chunk_size() -> usize {
     std::env::var(H_POLY_ROW_CHUNK_ENV)
@@ -27,42 +18,6 @@ fn h_poly_row_chunk_size() -> usize {
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(DEFAULT_H_POLY_ROW_CHUNK_SIZE)
-}
-
-enum ChunkView<'a, F> {
-    Contiguous(&'a [F]),
-    Wrapped {
-        first: &'a [F],
-        second: &'a [F],
-    },
-}
-
-impl<'a, F: Copy> ChunkView<'a, F> {
-    fn get(&self, index: usize) -> F {
-        match self {
-            Self::Contiguous(values) => values[index],
-            Self::Wrapped { first, second } => {
-                if index < first.len() {
-                    first[index]
-                } else {
-                    second[index - first.len()]
-                }
-            }
-        }
-    }
-}
-
-fn wrapped_chunk<'a, F, B>(poly: &'a Polynomial<F, B>, start: usize, len: usize) -> ChunkView<'a, F> {
-    let total = poly.values.len();
-    if start + len <= total {
-        ChunkView::Contiguous(&poly.values[start..start + len])
-    } else {
-        let split = total - start;
-        ChunkView::Wrapped {
-            first: &poly.values[start..],
-            second: &poly.values[..len - split],
-        }
-    }
 }
 
 /// Return the index in the polynomial of size `isize` after rotation `rot`.
@@ -370,9 +325,20 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
 
         let p = &cs.permutation;
 
-        append_h_poly_log("midnight h_poly: before values allocation");
+        let values_allocation_started_at = Instant::now();
+        direct_logging::log_event(
+            "h_poly",
+            "values_allocation",
+            "start",
+            &format!("domain_len={size} rot_scale={rot_scale}"),
+        );
         let mut values = B::empty(domain);
-        append_h_poly_log("midnight h_poly: after values allocation");
+        direct_logging::log_elapsed(
+            "h_poly",
+            "values_allocation",
+            values_allocation_started_at,
+            &format!("domain_len={size} rot_scale={rot_scale}"),
+        );
 
         // Core expression evaluations
         let num_threads = rayon::current_num_threads();
@@ -385,11 +351,28 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
             .enumerate()
         {
             // Custom gates
-            append_h_poly_log(&format!("midnight h_poly: before custom gates proof={proof_index}"));
+            let custom_gates_started_at = Instant::now();
+            direct_logging::log_event(
+                "h_poly",
+                "custom_gates",
+                "start",
+                &format!("proof_index={proof_index} num_threads={num_threads}"),
+            );
             rayon::scope(|scope| {
                 let chunk_size = size.div_ceil(num_threads);
                 for (thread_idx, values) in values.chunks_mut(chunk_size).enumerate() {
                     let start = thread_idx * chunk_size;
+                    direct_logging::log_event(
+                        "h_poly",
+                        "custom_gates_chunk",
+                        "iter",
+                        &format!(
+                            "proof_index={proof_index} iteration={} chunk_start={} chunk_len={}",
+                            thread_idx,
+                            start,
+                            values.len()
+                        ),
+                    );
                     scope.spawn(move |_| {
                         let mut eval_data = self.custom_gates.instance();
                         for (i, value) in values.iter_mut().enumerate() {
@@ -414,30 +397,31 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                     });
                 }
             });
-            append_h_poly_log(&format!("midnight h_poly: after custom gates proof={proof_index}"));
+            direct_logging::log_elapsed(
+                "h_poly",
+                "custom_gates",
+                custom_gates_started_at,
+                &format!("proof_index={proof_index} num_threads={num_threads}"),
+            );
 
             // Permutations
             let sets = &permutation.sets;
             if !sets.is_empty() {
-                append_h_poly_log(&format!(
-                    "midnight h_poly: before permutation constraints proof={proof_index}"
-                ));
+                let permutation_constraints_started_at = Instant::now();
                 let row_chunk_size = h_poly_row_chunk_size();
-                append_h_poly_log(&format!(
-                    "midnight h_poly: permutation row chunk size={} proof={proof_index}",
-                    row_chunk_size
-                ));
-                let total_chunks = size.div_ceil(row_chunk_size);
+                direct_logging::log_event(
+                    "h_poly",
+                    "permutation_constraints",
+                    "start",
+                    &format!(
+                        "proof_index={proof_index} set_count={} row_chunk_size={row_chunk_size}",
+                        sets.len()
+                    ),
+                );
                 let blinding_factors = cs.blinding_factors();
                 let last_rotation = Rotation(-((blinding_factors + 1) as i32));
                 let chunk_len = cs.degree() - 2;
                 let delta_start = beta * &B::g_coset(domain);
-                let first_set_poly = &sets.first().unwrap().permutation_product_poly;
-                let last_set_poly = if sets.len() == 1 {
-                    None
-                } else {
-                    Some(&sets.last().unwrap().permutation_product_poly)
-                };
 
                 let mut previous_set_permutation_product_coset: Option<Cow<'_, Polynomial<F, B>>> =
                     None;
@@ -447,150 +431,276 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                     .zip(permutation_pk_values.chunks(chunk_len))
                     .enumerate()
                 {
-                    append_h_poly_log(&format!(
-                        "midnight h_poly: before permutation set cosets set={}/{} proof={proof_index}",
-                        set_idx + 1,
-                        sets.len()
-                    ));
-                    let current_set_permutation_product_coset = Cow::Owned(B::coeff_to_self(
-                        domain,
-                        set.permutation_product_poly.clone(),
-                    ));
-                    append_h_poly_log(&format!(
-                        "midnight h_poly: after permutation set cosets set={}/{} proof={proof_index}",
-                        set_idx + 1,
-                        sets.len()
-                    ));
-
                     let total_sets = sets.len();
-                    for (chunk_index, start) in (0..size).step_by(row_chunk_size).enumerate() {
-                        append_h_poly_log(&format!(
-                            "midnight h_poly: permutation set={}/{} chunk={}/{} proof={proof_index}",
+                    direct_logging::log_event(
+                        "h_poly",
+                        "permutation_set",
+                        "iter",
+                        &format!(
+                            "proof_index={proof_index} iteration={} set_idx={} set_count={} row_chunk_size={row_chunk_size}",
+                            set_idx,
+                            set_idx + 1,
+                            total_sets
+                        ),
+                    );
+                    let permutation_set_cosets_started_at = Instant::now();
+                    direct_logging::log_event(
+                        "h_poly",
+                        "permutation_set_cosets",
+                        "start",
+                        &format!(
+                            "proof_index={proof_index} set_idx={} set_count={}",
+                            set_idx + 1,
+                            total_sets
+                        ),
+                    );
+                    let current_set_permutation_product_coset: Cow<'_, Polynomial<F, B>> =
+                        Cow::Owned(B::coeff_to_self(domain, set.permutation_product_poly.clone()));
+                    direct_logging::log_elapsed(
+                        "h_poly",
+                        "permutation_set_cosets",
+                        permutation_set_cosets_started_at,
+                        &format!(
+                            "proof_index={proof_index} set_idx={} set_count={}",
+                            set_idx + 1,
+                            total_sets
+                        ),
+                    );
+                    let materialize_columns_started_at = Instant::now();
+                    direct_logging::log_event(
+                        "h_poly",
+                        "permutation_column_views",
+                        "start",
+                        &format!(
+                            "proof_index={proof_index} set_idx={} set_count={}",
+                            set_idx + 1,
+                            total_sets
+                        ),
+                    );
+                    let column_values = columns
+                        .iter()
+                        .map(|&column| match column.column_type() {
+                            Any::Advice(_) => advice[column.index()]
+                                .as_ref()
+                                .expect("permutation advice column should be materialized"),
+                            Any::Fixed => fixed[column.index()]
+                                .as_ref()
+                                .expect("permutation fixed column should be materialized"),
+                            Any::Instance => instance[column.index()]
+                                .as_ref()
+                                .expect("permutation instance column should be materialized"),
+                        })
+                        .collect::<Vec<_>>();
+                    direct_logging::log_elapsed(
+                        "h_poly",
+                        "permutation_column_views",
+                        materialize_columns_started_at,
+                        &format!(
+                            "proof_index={proof_index} set_idx={} set_count={} column_count={}",
                             set_idx + 1,
                             total_sets,
-                            chunk_index + 1,
-                            total_chunks
-                        ));
-                        let len = (size - start).min(row_chunk_size);
-                        let r_next_start = get_rotation_idx(start, 1, rot_scale, isize);
-                        let r_last_start = get_rotation_idx(start, last_rotation.0, rot_scale, isize);
+                            column_values.len()
+                        ),
+                    );
 
-                        let first_chunk = if set_idx == 0 {
-                            let first_set_permutation_product_coset = B::coeff_to_self(
-                                domain,
-                                first_set_poly.clone(),
-                            );
-                            let first_view =
-                                wrapped_chunk(&first_set_permutation_product_coset, start, len);
-                            Some(
-                                (0..len)
-                                    .map(|i| first_view.get(i))
-                                    .collect::<Vec<_>>(),
-                            )
-                        } else {
-                            None
-                        };
-                        let last_chunk = if set_idx + 1 == sets.len() && sets.len() > 1 {
-                            let last_set_permutation_product_coset = B::coeff_to_self(
-                                domain,
-                                last_set_poly
-                                    .expect("last set poly should exist for non-first final set")
-                                    .clone(),
-                            );
-                            let last_view =
-                                wrapped_chunk(&last_set_permutation_product_coset, start, len);
-                            Some(
-                                (0..len)
-                                    .map(|i| last_view.get(i))
-                                    .collect::<Vec<_>>(),
-                            )
-                        } else {
-                            None
-                        };
-                        let current_chunk =
-                            wrapped_chunk(&current_set_permutation_product_coset, start, len);
-                        let current_next_chunk =
-                            wrapped_chunk(&current_set_permutation_product_coset, r_next_start, len);
-                        let previous_last_chunk = previous_set_permutation_product_coset
-                            .as_ref()
-                            .map(|previous_set| wrapped_chunk(previous_set, r_last_start, len));
+                    let left_products_init_started_at = Instant::now();
+                    direct_logging::log_event(
+                        "h_poly",
+                        "permutation_left_products_init",
+                        "start",
+                        &format!(
+                            "proof_index={proof_index} set_idx={} set_count={} column_count={}",
+                            set_idx + 1,
+                            total_sets,
+                            column_values.len()
+                        ),
+                    );
+                    let mut left_products = vec![F::ZERO; size];
+                    parallelize(&mut left_products, |left_chunk, start| {
+                        direct_logging::log_event(
+                            "h_poly",
+                            "permutation_left_products_init_chunk",
+                            "iter",
+                            &format!(
+                                "proof_index={proof_index} set_idx={} chunk_start={} chunk_len={}",
+                                set_idx + 1,
+                                start,
+                                left_chunk.len()
+                            ),
+                        );
+                        for (i, left) in left_chunk.iter_mut().enumerate() {
+                            let idx = start + i;
+                            let r_next = get_rotation_idx(idx, 1, rot_scale, isize);
+                            *left = current_set_permutation_product_coset[r_next];
+                        }
+                    });
+                    direct_logging::log_elapsed(
+                        "h_poly",
+                        "permutation_left_products_init",
+                        left_products_init_started_at,
+                        &format!(
+                            "proof_index={proof_index} set_idx={} set_count={} column_count={}",
+                            set_idx + 1,
+                            total_sets,
+                            column_values.len()
+                        ),
+                    );
 
-                        let values_chunk = &mut values.values[start..start + len];
-                        let mut left_chunk = (0..len)
-                            .map(|i| current_next_chunk.get(i))
-                            .collect::<Vec<_>>();
-                        for (&column, permutation_value) in columns.iter().zip(permutation_values.iter()) {
-                            let sigma_coeffs = domain.lagrange_to_coeff(permutation_value.clone());
-                            let sigma_coset = B::coeff_to_self(domain, sigma_coeffs);
-                            let sigma_chunk = wrapped_chunk(&sigma_coset, start, len);
+                    for (column_idx, (values, permutation_value)) in column_values
+                        .iter()
+                        .zip(permutation_values.iter())
+                        .enumerate()
+                    {
+                        let sigma_started_at = Instant::now();
+                        direct_logging::log_event(
+                            "h_poly",
+                            "permutation_sigma",
+                            "iter",
+                            &format!(
+                                "proof_index={proof_index} iteration={} set_idx={} set_count={} column_idx={} column_count={}",
+                                column_idx,
+                                set_idx + 1,
+                                total_sets,
+                                column_idx + 1,
+                                column_values.len()
+                            ),
+                        );
+                        direct_logging::log_event(
+                            "h_poly",
+                            "permutation_sigma",
+                            "start",
+                            &format!(
+                                "proof_index={proof_index} set_idx={} set_count={} column_idx={} column_count={}",
+                                set_idx + 1,
+                                total_sets,
+                                column_idx + 1,
+                                column_values.len()
+                            ),
+                        );
+                        let sigma_coset = domain.lagrange_to_extended(permutation_value.clone());
+                        parallelize(&mut left_products, |left_chunk, start| {
+                            direct_logging::log_event(
+                                "h_poly",
+                                "permutation_sigma_chunk",
+                                "iter",
+                                &format!(
+                                    "proof_index={proof_index} set_idx={} column_idx={} chunk_start={} chunk_len={}",
+                                    set_idx + 1,
+                                    column_idx + 1,
+                                    start,
+                                    left_chunk.len()
+                                ),
+                            );
                             for (i, left) in left_chunk.iter_mut().enumerate() {
                                 let idx = start + i;
-                                let values = match column.column_type() {
-                                    Any::Advice(_) => advice[column.index()]
-                                        .as_ref()
-                                        .expect("permutation advice column should be materialized"),
-                                    Any::Fixed => fixed[column.index()]
-                                        .as_ref()
-                                        .expect("permutation fixed column should be materialized"),
-                                    Any::Instance => instance[column.index()]
-                                        .as_ref()
-                                        .expect("permutation instance column should be materialized"),
-                                };
-                                *left *= values[idx] + beta * sigma_chunk.get(i) + gamma;
+                                *left *= values[idx] + beta * sigma_coset[idx] + gamma;
                             }
-                        }
+                        });
+                        direct_logging::log_elapsed(
+                            "h_poly",
+                            "permutation_sigma",
+                            sigma_started_at,
+                            &format!(
+                                "proof_index={proof_index} set_idx={} set_count={} column_idx={} column_count={}",
+                                set_idx + 1,
+                                total_sets,
+                                column_idx + 1,
+                                column_values.len()
+                            ),
+                        );
+                    }
 
+                    let final_accumulation_started_at = Instant::now();
+                    direct_logging::log_event(
+                        "h_poly",
+                        "permutation_final_accumulation",
+                        "start",
+                        &format!(
+                            "proof_index={proof_index} set_idx={} set_count={} column_count={}",
+                            set_idx + 1,
+                            total_sets,
+                            column_values.len()
+                        ),
+                    );
+                    parallelize(&mut values, |values_chunk, start| {
+                        direct_logging::log_event(
+                            "h_poly",
+                            "permutation_final_accumulation_chunk",
+                            "iter",
+                            &format!(
+                                "proof_index={proof_index} set_idx={} chunk_start={} chunk_len={}",
+                                set_idx + 1,
+                                start,
+                                values_chunk.len()
+                            ),
+                        );
                         let mut beta_term = omega.pow_vartime([start as u64, 0, 0, 0]);
                         for (i, value) in values_chunk.iter_mut().enumerate() {
                             let idx = start + i;
+                            let current = current_set_permutation_product_coset[idx];
 
-                            if let Some(first_chunk) = first_chunk.as_ref() {
-                                *value = *value * y + ((one - first_chunk[i]) * l0[idx]);
+                            if set_idx == 0 {
+                                *value = *value * y + ((one - current) * l0[idx]);
                             }
-                            if let Some(last_chunk) = last_chunk.as_ref() {
-                                let last = last_chunk[i];
-                                *value =
-                                    *value * y + ((last * last - last) * l_last[idx]);
+                            if set_idx + 1 == sets.len() && sets.len() > 1 {
+                                *value = *value * y + ((current * current - current) * l_last[idx]);
                             }
-                            if let Some(previous_last_chunk) = previous_last_chunk.as_ref() {
-                                *value = *value * y
-                                    + ((current_chunk.get(i) - previous_last_chunk.get(i)) * l0[idx]);
+                            if let Some(previous_set) = previous_set_permutation_product_coset.as_ref() {
+                                let r_last = get_rotation_idx(idx, last_rotation.0, rot_scale, isize);
+                                *value = *value * y + ((current - previous_set[r_last]) * l0[idx]);
                             }
 
-                            let mut right = current_chunk.get(i);
+                            let mut right = current;
                             let mut current_delta = delta_start * beta_term;
-                            for values in columns.iter().map(|&column| match column.column_type() {
-                                Any::Advice(_) => advice[column.index()]
-                                    .as_ref()
-                                    .expect("permutation advice column should be materialized"),
-                                Any::Fixed => fixed[column.index()]
-                                    .as_ref()
-                                    .expect("permutation fixed column should be materialized"),
-                                Any::Instance => instance[column.index()]
-                                    .as_ref()
-                                    .expect("permutation instance column should be materialized"),
-                            }) {
+                            for values in &column_values {
                                 right *= values[idx] + current_delta + gamma;
                                 current_delta *= &F::DELTA;
                             }
 
-                            *value = *value * y + ((left_chunk[i] - right) * l_active_row[idx]);
+                            *value = *value * y + ((left_products[idx] - right) * l_active_row[idx]);
                             beta_term *= &omega;
                         }
-                    }
+                    });
+                    direct_logging::log_elapsed(
+                        "h_poly",
+                        "permutation_final_accumulation",
+                        final_accumulation_started_at,
+                        &format!(
+                            "proof_index={proof_index} set_idx={} set_count={} column_count={}",
+                            set_idx + 1,
+                            total_sets,
+                            column_values.len()
+                        ),
+                    );
 
                     previous_set_permutation_product_coset = Some(current_set_permutation_product_coset);
                 }
-                append_h_poly_log(&format!(
-                    "midnight h_poly: after permutation constraints proof={proof_index}"
-                ));
+                direct_logging::log_elapsed(
+                    "h_poly",
+                    "permutation_constraints",
+                    permutation_constraints_started_at,
+                    &format!(
+                        "proof_index={proof_index} set_count={} row_chunk_size={row_chunk_size}",
+                        sets.len()
+                    ),
+                );
             }
 
             // Lookups
             for (n, lookup) in lookups.iter().enumerate() {
-                append_h_poly_log(&format!(
-                    "midnight h_poly: before lookup {n} cosets proof={proof_index}"
-                ));
+                let lookup_cosets_started_at = Instant::now();
+                direct_logging::log_event(
+                    "h_poly",
+                    "lookup_cosets",
+                    "iter",
+                    &format!("proof_index={proof_index} iteration={n} lookup_idx={n}"),
+                );
+                direct_logging::log_event(
+                    "h_poly",
+                    "lookup_cosets",
+                    "start",
+                    &format!("proof_index={proof_index} lookup_idx={n}"),
+                );
                 // Polynomials required for this lookup.
                 // Calculated here so these only have to be kept in memory for the short time
                 // they are actually needed.
@@ -599,15 +709,32 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                     B::coeff_to_self(domain, lookup.permuted_input_poly.clone());
                 let permuted_table_coset =
                     B::coeff_to_self(domain, lookup.permuted_table_poly.clone());
-                append_h_poly_log(&format!(
-                    "midnight h_poly: after lookup {n} cosets proof={proof_index}"
-                ));
+                direct_logging::log_elapsed(
+                    "h_poly",
+                    "lookup_cosets",
+                    lookup_cosets_started_at,
+                    &format!("proof_index={proof_index} lookup_idx={n}"),
+                );
 
                 // Lookup constraints
-                append_h_poly_log(&format!(
-                    "midnight h_poly: before lookup {n} constraints proof={proof_index}"
-                ));
+                let lookup_constraints_started_at = Instant::now();
+                direct_logging::log_event(
+                    "h_poly",
+                    "lookup_constraints",
+                    "start",
+                    &format!("proof_index={proof_index} lookup_idx={n}"),
+                );
                 parallelize(&mut values, |values, start| {
+                    direct_logging::log_event(
+                        "h_poly",
+                        "lookup_constraints_chunk",
+                        "iter",
+                        &format!(
+                            "proof_index={proof_index} lookup_idx={n} chunk_start={} chunk_len={}",
+                            start,
+                            values.len()
+                        ),
+                    );
                     let lookup_evaluator = &self.lookups[n];
                     let mut eval_data = lookup_evaluator.instance();
                     for (i, value) in values.iter_mut().enumerate() {
@@ -666,29 +793,59 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                                 * l_active_row[idx]);
                     }
                 });
-                append_h_poly_log(&format!(
-                    "midnight h_poly: after lookup {n} constraints proof={proof_index}"
-                ));
+                direct_logging::log_elapsed(
+                    "h_poly",
+                    "lookup_constraints",
+                    lookup_constraints_started_at,
+                    &format!("proof_index={proof_index} lookup_idx={n}"),
+                );
             }
 
             // Trashcans
             for (n, trash) in trashcans.iter().enumerate() {
-                append_h_poly_log(&format!(
-                    "midnight h_poly: before trash {n} coset proof={proof_index}"
-                ));
+                let trash_coset_started_at = Instant::now();
+                direct_logging::log_event(
+                    "h_poly",
+                    "trash_coset",
+                    "iter",
+                    &format!("proof_index={proof_index} iteration={n} trash_idx={n}"),
+                );
+                direct_logging::log_event(
+                    "h_poly",
+                    "trash_coset",
+                    "start",
+                    &format!("proof_index={proof_index} trash_idx={n}"),
+                );
                 // Polynomials required for this trash argument.
                 // Calculated here so these only have to be kept in memory for the short time
                 // they are actually needed.
                 let trash_poly = B::coeff_to_self(domain, trash.trash_poly.clone());
-                append_h_poly_log(&format!(
-                    "midnight h_poly: after trash {n} coset proof={proof_index}"
-                ));
+                direct_logging::log_elapsed(
+                    "h_poly",
+                    "trash_coset",
+                    trash_coset_started_at,
+                    &format!("proof_index={proof_index} trash_idx={n}"),
+                );
 
                 // Trash argument constraints.
-                append_h_poly_log(&format!(
-                    "midnight h_poly: before trash {n} constraints proof={proof_index}"
-                ));
+                let trash_constraints_started_at = Instant::now();
+                direct_logging::log_event(
+                    "h_poly",
+                    "trash_constraints",
+                    "start",
+                    &format!("proof_index={proof_index} trash_idx={n}"),
+                );
                 parallelize(&mut values, |values, start| {
+                    direct_logging::log_event(
+                        "h_poly",
+                        "trash_constraints_chunk",
+                        "iter",
+                        &format!(
+                            "proof_index={proof_index} trash_idx={n} chunk_start={} chunk_len={}",
+                            start,
+                            values.len()
+                        ),
+                    );
                     let trash_evaluator = &self.trashcans[n];
                     let argument = &cs.trashcans[n];
                     let mut eval_data = trash_evaluator.instance();
@@ -723,9 +880,12 @@ impl<F: WithSmallOrderMulGroup<3>> Evaluator<F> {
                         *value = *value * y + (compressed_expression - (one - q) * trash_poly[idx]);
                     }
                 });
-                append_h_poly_log(&format!(
-                    "midnight h_poly: after trash {n} constraints proof={proof_index}"
-                ));
+                direct_logging::log_elapsed(
+                    "h_poly",
+                    "trash_constraints",
+                    trash_constraints_started_at,
+                    &format!("proof_index={proof_index} trash_idx={n}"),
+                );
             }
         }
         values

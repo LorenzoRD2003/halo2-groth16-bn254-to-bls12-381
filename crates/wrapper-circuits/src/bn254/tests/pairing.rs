@@ -218,7 +218,6 @@ fn miller_loop_then_final_exponentiation_matches_arkworks_pairing() {
   }
 }
 
-
 #[test]
 fn multi_miller_loop_matches_product_of_individual_miller_outputs() {
   let g1 = ArkG1Affine::generator();

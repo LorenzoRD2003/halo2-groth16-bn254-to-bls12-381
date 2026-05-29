@@ -55,7 +55,7 @@ preferred baseline path for optimization work on:
 - existing pairing-core block costs
 
 For the current list of local optimization opportunities backed by existing
-Midnight primitives, see `docs/midnight-local-optimization-notes.md`.
+Midnight primitives, see `docs/midnight-optimizations.md`.
 
 ## Current Structure
 

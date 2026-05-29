@@ -25,7 +25,24 @@ This was especially effective in:
 That change materially reduced the verifier and was enough to move the current
 Groth16 verifier total from `k = 22` down to `k = 21`.
 
-The most recent retained pairing-core win was:
+The most recent retained verifier-shaped structural win was:
+
+- fully precompute the fixed verifier-key term `e(alpha, beta)` into a GT
+  constant instead of keeping `e(-alpha, beta)` inside the Groth16-style
+  multi-Miller loop
+
+That rewrite improved the current optimized Groth16-style pairing block from
+`1866759` to `1632579` rows.
+
+Takeaway:
+
+- once a verifier-key term is fully fixed, removing it from the Miller loop is
+  materially better than merely preparing its G2 side
+- this is a verifier-shaped structural win rather than a new local arithmetic
+  primitive, but it is now the single biggest current reduction in the
+  Groth16-specific pairing block
+
+The most recent retained pairing-core-local win before that was:
 
 - replace repeated full cyclotomic squaring blocks inside `exp_by_neg_x(...)`
   with compressed cyclotomic squaring plus verified decompression

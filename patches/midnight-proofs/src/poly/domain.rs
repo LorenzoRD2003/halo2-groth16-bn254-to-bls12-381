@@ -233,6 +233,31 @@ impl<F: WithSmallOrderMulGroup<3>> EvaluationDomain<F> {
         }
     }
 
+    /// This takes us directly from the small Lagrange domain into a coset of
+    /// the extended evaluation domain.
+    ///
+    /// This reuses one backing buffer instead of materializing a separate
+    /// coefficient-form polynomial first.
+    pub fn lagrange_to_extended(
+        &self,
+        mut a: Polynomial<F, LagrangeCoeff>,
+    ) -> Polynomial<F, ExtendedLagrangeCoeff> {
+        assert_eq!(a.values.len(), 1 << self.k);
+
+        // Move into coefficient form first.
+        Self::ifft(&mut a.values, self.omega_inv, self.k, self.ifft_divisor);
+
+        // Then move the same buffer into the extended coset domain.
+        self.distribute_powers_zeta(&mut a.values, true);
+        a.values.resize(self.extended_len(), F::ZERO);
+        best_fft(&mut a.values, self.extended_omega, self.extended_k);
+
+        Polynomial {
+            values: a.values,
+            _marker: PhantomData,
+        }
+    }
+
     /// This takes us from an n-length coefficient vector into the
     /// lagrange evaluation domain.
     pub fn coeff_to_lagrange(&self, mut a: Polynomial<F, Coeff>) -> Polynomial<F, LagrangeCoeff> {
@@ -552,6 +577,23 @@ fn test_rotate() {
         eval_polynomial(&poly[..], x * domain.omega_inv),
         eval_polynomial(&poly_rotated_prev[..], x)
     );
+}
+
+#[test]
+fn test_lagrange_to_extended_matches_two_step_path() {
+    use midnight_curves::Fq as Scalar;
+    use rand_core::OsRng;
+
+    let domain = EvaluationDomain::<Scalar>::new(1, 4);
+    let mut poly = domain.empty_lagrange();
+    for value in poly.iter_mut() {
+        *value = Scalar::random(OsRng);
+    }
+
+    let via_two_step = domain.coeff_to_extended(domain.lagrange_to_coeff(poly.clone()));
+    let direct = domain.lagrange_to_extended(poly);
+
+    assert_eq!(&direct[..], &via_two_step[..]);
 }
 
 #[test]

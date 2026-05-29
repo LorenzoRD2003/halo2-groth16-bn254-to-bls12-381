@@ -7,10 +7,10 @@ use midnight_circuits::midnight_proofs::{
 
 use super::{
   AssignedFp, AssignedFp2, AssignedFp6, AssignedFp12, AssignedG2Affine, Bn254FieldChip,
-  Bn254FieldConfig, ForeignField, Fp2Value, G2AffineConstant,
-  G2AffineValue, G2LineCoeffsConstant, G2LineCoeffsValue, G2MillerPointConstant, NativeField,
-  bn254_final_exponentiation_constant, fp12_mul_constant, fp12_one_constant, fp12_square_constant,
-  g1_generator_constant, g2_affine_from_miller_point_constant, g2_curve_coeff_b, g2_generator,
+  Bn254FieldConfig, ForeignField, Fp2Value, G2AffineConstant, G2AffineValue, G2LineCoeffsConstant,
+  G2LineCoeffsValue, G2MillerPointConstant, NativeField, bn254_final_exponentiation_constant,
+  fp12_mul_constant, fp12_one_constant, fp12_square_constant, g1_generator_constant,
+  g2_affine_from_miller_point_constant, g2_curve_coeff_b, g2_generator,
   g2_line_evaluation_constant, g2_miller_double_with_line_constant,
   g2_miller_mixed_add_with_line_constant, g2_miller_point_from_affine_constant,
 };
@@ -1323,13 +1323,8 @@ where
   let y11 = y10.mul_with_precomputed_sums(chip, layouter, &r, &y10_components_sum, &r_sum)?;
   let y11_components_sum = y11.sum_components(chip, layouter)?;
   // frobenius(cyclotomic) * cyclotomic
-  let y12 = y9.frobenius_mul_with_precomputed_rhs_sum(
-    chip,
-    layouter,
-    1,
-    &y11,
-    &y11_components_sum,
-  )?;
+  let y12 =
+    y9.frobenius_mul_with_precomputed_rhs_sum(chip, layouter, 1, &y11, &y11_components_sum)?;
   let y12_after_mul_sum = y12.sum_components(chip, layouter)?;
   // frobenius(cyclotomic) * cyclotomic
   let y14 =
@@ -1391,20 +1386,7 @@ where
 {
   let total_miller = multi_miller_loop_on_host(chip, layouter, terms)?;
   let gt = final_exponentiation_on_host(chip, layouter, &total_miller)?;
-  let c0_0 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c0, ForeignField::ONE)?;
-  let c0_1 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c1, ForeignField::ZERO)?;
-  let c0_2 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c0, ForeignField::ZERO)?;
-  let c0_3 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c1, ForeignField::ZERO)?;
-  let c0_4 = chip.is_equal_to_fixed(layouter, &gt.c0.c2.c0, ForeignField::ZERO)?;
-  let c0_5 = chip.is_equal_to_fixed(layouter, &gt.c0.c2.c1, ForeignField::ZERO)?;
-  let c1_0 = chip.is_equal_to_fixed(layouter, &gt.c1.c0.c0, ForeignField::ZERO)?;
-  let c1_1 = chip.is_equal_to_fixed(layouter, &gt.c1.c0.c1, ForeignField::ZERO)?;
-  let c1_2 = chip.is_equal_to_fixed(layouter, &gt.c1.c1.c0, ForeignField::ZERO)?;
-  let c1_3 = chip.is_equal_to_fixed(layouter, &gt.c1.c1.c1, ForeignField::ZERO)?;
-  let c1_4 = chip.is_equal_to_fixed(layouter, &gt.c1.c2.c0, ForeignField::ZERO)?;
-  let c1_5 = chip.is_equal_to_fixed(layouter, &gt.c1.c2.c1, ForeignField::ZERO)?;
-
-  bool_chip.and(layouter, &[c0_0, c0_1, c0_2, c0_3, c0_4, c0_5, c1_0, c1_1, c1_2, c1_3, c1_4, c1_5])
+  fp12_equals_fixed_on_host(chip, bool_chip, layouter, &gt, fp12_one_constant())
 }
 
 /// Compatibility wrapper for the current BN254-hosted pairing product check.
@@ -1428,23 +1410,59 @@ where
   FHost: PrimeField + Field,
   MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
 {
+  pairing_check_with_prepared_terms_against_fixed_target_on_host(
+    chip,
+    bool_chip,
+    layouter,
+    variable_terms,
+    prepared_terms,
+    fp12_one_constant(),
+  )
+}
+
+fn fp12_equals_fixed_on_host<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  bool_chip: &Bn254BoolChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  value: &AssignedFp12<FHost>,
+  expected: Fp12Constant,
+) -> Result<AssignedBool<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
+  let c0_0 = chip.is_equal_to_fixed(layouter, &value.c0.c0.c0, expected.0.0.0)?;
+  let c0_1 = chip.is_equal_to_fixed(layouter, &value.c0.c0.c1, expected.0.0.1)?;
+  let c0_2 = chip.is_equal_to_fixed(layouter, &value.c0.c1.c0, expected.0.1.0)?;
+  let c0_3 = chip.is_equal_to_fixed(layouter, &value.c0.c1.c1, expected.0.1.1)?;
+  let c0_4 = chip.is_equal_to_fixed(layouter, &value.c0.c2.c0, expected.0.2.0)?;
+  let c0_5 = chip.is_equal_to_fixed(layouter, &value.c0.c2.c1, expected.0.2.1)?;
+  let c1_0 = chip.is_equal_to_fixed(layouter, &value.c1.c0.c0, expected.1.0.0)?;
+  let c1_1 = chip.is_equal_to_fixed(layouter, &value.c1.c0.c1, expected.1.0.1)?;
+  let c1_2 = chip.is_equal_to_fixed(layouter, &value.c1.c1.c0, expected.1.1.0)?;
+  let c1_3 = chip.is_equal_to_fixed(layouter, &value.c1.c1.c1, expected.1.1.1)?;
+  let c1_4 = chip.is_equal_to_fixed(layouter, &value.c1.c2.c0, expected.1.2.0)?;
+  let c1_5 = chip.is_equal_to_fixed(layouter, &value.c1.c2.c1, expected.1.2.1)?;
+
+  bool_chip.and(layouter, &[c0_0, c0_1, c0_2, c0_3, c0_4, c0_5, c1_0, c1_1, c1_2, c1_3, c1_4, c1_5])
+}
+
+pub fn pairing_check_with_prepared_terms_against_fixed_target_on_host<FHost>(
+  chip: &Bn254FieldChip<FHost>,
+  bool_chip: &Bn254BoolChip<FHost>,
+  layouter: &mut impl Layouter<FHost>,
+  variable_terms: &[(&AssignedG1Point<FHost>, &AssignedG2Affine<FHost>)],
+  prepared_terms: &[(&AssignedG1Point<FHost>, &PreparedConstantG2Miller)],
+  expected_gt: Fp12Constant,
+) -> Result<AssignedBool<FHost>, Error>
+where
+  FHost: PrimeField + Field,
+  MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
+{
   let total_miller =
     multi_miller_loop_with_prepared_terms_on_host(chip, layouter, variable_terms, prepared_terms)?;
   let gt = final_exponentiation_on_host(chip, layouter, &total_miller)?;
-  let c0_0 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c0, ForeignField::ONE)?;
-  let c0_1 = chip.is_equal_to_fixed(layouter, &gt.c0.c0.c1, ForeignField::ZERO)?;
-  let c0_2 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c0, ForeignField::ZERO)?;
-  let c0_3 = chip.is_equal_to_fixed(layouter, &gt.c0.c1.c1, ForeignField::ZERO)?;
-  let c0_4 = chip.is_equal_to_fixed(layouter, &gt.c0.c2.c0, ForeignField::ZERO)?;
-  let c0_5 = chip.is_equal_to_fixed(layouter, &gt.c0.c2.c1, ForeignField::ZERO)?;
-  let c1_0 = chip.is_equal_to_fixed(layouter, &gt.c1.c0.c0, ForeignField::ZERO)?;
-  let c1_1 = chip.is_equal_to_fixed(layouter, &gt.c1.c0.c1, ForeignField::ZERO)?;
-  let c1_2 = chip.is_equal_to_fixed(layouter, &gt.c1.c1.c0, ForeignField::ZERO)?;
-  let c1_3 = chip.is_equal_to_fixed(layouter, &gt.c1.c1.c1, ForeignField::ZERO)?;
-  let c1_4 = chip.is_equal_to_fixed(layouter, &gt.c1.c2.c0, ForeignField::ZERO)?;
-  let c1_5 = chip.is_equal_to_fixed(layouter, &gt.c1.c2.c1, ForeignField::ZERO)?;
-
-  bool_chip.and(layouter, &[c0_0, c0_1, c0_2, c0_3, c0_4, c0_5, c1_0, c1_1, c1_2, c1_3, c1_4, c1_5])
+  fp12_equals_fixed_on_host(chip, bool_chip, layouter, &gt, expected_gt)
 }
 
 /// Compatibility wrapper for the current BN254-hosted pairing product check
@@ -2620,6 +2638,7 @@ type PreparedPairingTermValue =
 pub struct PairingCheckCircuit {
   variable_terms: Vec<PairingTermValue>,
   prepared_terms: Vec<PreparedPairingTermValue>,
+  expected_gt: Fp12Constant,
   expected: bool,
 }
 
@@ -2647,6 +2666,7 @@ impl PairingCheckCircuit {
         })
         .collect(),
       prepared_terms: Vec::new(),
+      expected_gt: fp12_one_constant(),
       expected,
     }
   }
@@ -2656,6 +2676,23 @@ impl PairingCheckCircuit {
   pub fn new_with_prepared_constant_terms(
     variable_terms: &[((ForeignField, ForeignField), G2AffineConstant)],
     prepared_terms: &[((ForeignField, ForeignField), PreparedConstantG2Miller)],
+    expected: bool,
+  ) -> Self {
+    Self::new_with_prepared_constant_terms_and_target(
+      variable_terms,
+      prepared_terms,
+      fp12_one_constant(),
+      expected,
+    )
+  }
+
+  /// Builds a pairing-product-check circuit with variable terms, prepared
+  /// constant G2 terms, and an explicit fixed GT target.
+  #[must_use]
+  pub fn new_with_prepared_constant_terms_and_target(
+    variable_terms: &[((ForeignField, ForeignField), G2AffineConstant)],
+    prepared_terms: &[((ForeignField, ForeignField), PreparedConstantG2Miller)],
+    expected_gt: Fp12Constant,
     expected: bool,
   ) -> Self {
     Self {
@@ -2675,6 +2712,7 @@ impl PairingCheckCircuit {
         .iter()
         .map(|term| ((Value::known((term.0).0), Value::known((term.0).1)), term.1.clone()))
         .collect(),
+      expected_gt,
       expected,
     }
   }
@@ -2717,6 +2755,7 @@ impl Circuit<NativeField> for PairingCheckCircuit {
         .iter()
         .map(|term| ((Value::unknown(), Value::unknown()), term.1.clone()))
         .collect(),
+      expected_gt: self.expected_gt,
       expected: self.expected,
     }
   }
@@ -2754,13 +2793,24 @@ impl Circuit<NativeField> for PairingCheckCircuit {
       assigned_variable_terms.iter().map(|term| (&term.0, &term.1)).collect();
     let borrowed_prepared_terms: Vec<_> =
       assigned_prepared_terms.iter().map(|term| (&term.0, &term.1)).collect();
-    let result = pairing_check_with_prepared_terms(
-      &chip,
-      &bool_chip,
-      &mut layouter,
-      &borrowed_variable_terms,
-      &borrowed_prepared_terms,
-    )?;
+    let result = if self.expected_gt == fp12_one_constant() {
+      pairing_check_with_prepared_terms(
+        &chip,
+        &bool_chip,
+        &mut layouter,
+        &borrowed_variable_terms,
+        &borrowed_prepared_terms,
+      )?
+    } else {
+      pairing_check_with_prepared_terms_against_fixed_target_on_host(
+        &chip,
+        &bool_chip,
+        &mut layouter,
+        &borrowed_variable_terms,
+        &borrowed_prepared_terms,
+        self.expected_gt,
+      )?
+    };
     bool_chip.assert_equal_to_fixed(&mut layouter, &result, self.expected)?;
     chip.load(&mut layouter)?;
     bool_chip.load(&mut layouter)

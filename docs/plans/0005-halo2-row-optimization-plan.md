@@ -38,7 +38,7 @@ Relevant retained measurements from existing docs:
 See:
 
 - `docs/profiling.md`
-- `docs/midnight-local-optimization-notes.md`
+- `docs/midnight-optimizations.md`
 - `docs/decisions/0002-bn254-local-optimization-policy.md`
 
 ## Guiding Constraints
@@ -497,7 +497,7 @@ Secondary rows to watch:
 
 - `bn254_miller_loop_narrow`
 - `groth16_fixture_verifier_total`
-- `groth16_pairing_check_proxy_4_terms`
+- `groth16_pairing_check_proxy_3_terms`
 
 ## Phase 1 Ready State
 
@@ -526,7 +526,7 @@ If Phase 1 is neutral:
 If Phase 1 loses:
 
 - revert cleanly
-- record the result in `docs/midnight-local-optimization-notes.md`
+- record the result in `docs/midnight-optimizations.md`
 - move to the next phase without stacking the regression
 
 ## Phase 1 Attempt Result

@@ -1,5 +1,4 @@
 use blake2b_simd::State as Blake2bState;
-use std::{fs::OpenOptions, io, io::Write as _};
 use midnight_curves::{Bls12, bn256::Bn256};
 use midnight_proofs::{
   plonk::{
@@ -15,6 +14,12 @@ use midnight_proofs::{
   utils::SerdeFormat,
 };
 use rand_core::OsRng;
+use std::{
+  fs::OpenOptions,
+  io,
+  io::{BufRead, BufReader, Write as _},
+  time::{Instant, SystemTime, UNIX_EPOCH},
+};
 use wrapper_circuits::{
   Bls12HostField, HostedOuterWrapperCircuit, HostedOuterWrapperCircuitBls12, OuterHostField,
   OuterWrapperCircuit,
@@ -32,12 +37,96 @@ use crate::outer::{
 
 const DIRECT_LOG_FILE_ENV: &str = "WRAPPER_DIRECT_LOG_FILE";
 
+fn now_millis() -> u128 {
+  SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis()
+}
+
+fn parse_status_kb_field(line: &str, label: &str) -> Option<u64> {
+  let rest = line.strip_prefix(label)?.trim();
+  let numeric = rest.split_whitespace().next()?;
+  numeric.parse::<u64>().ok()
+}
+
+fn memory_snapshot() -> (Option<u64>, Option<u64>, Option<u64>) {
+  let Ok(file) = std::fs::File::open("/proc/self/status") else {
+    return (None, None, None);
+  };
+  let reader = BufReader::new(file);
+  let mut rss_kb = None;
+  let mut hwm_kb = None;
+  let mut vmsize_kb = None;
+  for line in reader.lines().map_while(Result::ok) {
+    if let Some(value) = parse_status_kb_field(&line, "VmRSS:") {
+      rss_kb = Some(value);
+    } else if let Some(value) = parse_status_kb_field(&line, "VmHWM:") {
+      hwm_kb = Some(value);
+    } else if let Some(value) = parse_status_kb_field(&line, "VmSize:") {
+      vmsize_kb = Some(value);
+    }
+  }
+  (rss_kb, hwm_kb, vmsize_kb)
+}
+
 fn append_backend_log(message: &str) {
   if let Ok(path) = std::env::var(DIRECT_LOG_FILE_ENV) {
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
       let _ = writeln!(file, "{message}");
     }
   }
+}
+
+fn append_backend_event(phase: &str, step: &str, event: &str, extra: &str) {
+  let (rss_kb, hwm_kb, vmsize_kb) = memory_snapshot();
+  let run_id = std::env::var("WRAPPER_DIRECT_LOG_RUN_ID")
+    .unwrap_or_else(|_| format!("pid{}", std::process::id()));
+  let command = std::env::var("WRAPPER_DIRECT_LOG_COMMAND").unwrap_or_default();
+  let identifier = std::env::var("WRAPPER_DIRECT_LOG_IDENTIFIER").unwrap_or_default();
+  let backend = std::env::var("WRAPPER_DIRECT_LOG_BACKEND").unwrap_or_default();
+  let host = std::env::var("WRAPPER_DIRECT_LOG_HOST").unwrap_or_default();
+  let mut line = format!(
+    "ts_ms={} level=INFO run_id={} pid={} phase={} step={} event={}",
+    now_millis(),
+    run_id,
+    std::process::id(),
+    phase,
+    step,
+    event
+  );
+  if !command.is_empty() {
+    line.push_str(&format!(" command={command}"));
+  }
+  if !identifier.is_empty() {
+    line.push_str(&format!(" identifier={identifier}"));
+  }
+  if !backend.is_empty() {
+    line.push_str(&format!(" backend={backend}"));
+  }
+  if !host.is_empty() {
+    line.push_str(&format!(" host={host}"));
+  }
+  if let Some(rss_kb) = rss_kb {
+    line.push_str(&format!(" rss_kb={rss_kb}"));
+  }
+  if let Some(hwm_kb) = hwm_kb {
+    line.push_str(&format!(" hwm_kb={hwm_kb}"));
+  }
+  if let Some(vmsize_kb) = vmsize_kb {
+    line.push_str(&format!(" vmsize_kb={vmsize_kb}"));
+  }
+  if !extra.is_empty() {
+    line.push(' ');
+    line.push_str(extra);
+  }
+  append_backend_log(&line);
+}
+
+fn append_backend_elapsed(phase: &str, step: &str, started_at: Instant, extra: &str) {
+  let mut merged_extra = format!("elapsed_ms={}", started_at.elapsed().as_millis());
+  if !extra.is_empty() {
+    merged_extra.push(' ');
+    merged_extra.push_str(extra);
+  }
+  append_backend_event(phase, step, "end", &merged_extra);
 }
 
 impl MidnightDirectOuterBackend {
@@ -58,8 +147,8 @@ impl MidnightDirectOuterBackend {
       })?;
     let pk = keygen_pk_base::<OuterHostField, KZGCommitmentScheme<Bn256>, _>(vk.clone(), &hosted)
       .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
-        reason: format!("midnight keygen_pk_base failed: {error}"),
-      })?;
+      reason: format!("midnight keygen_pk_base failed: {error}"),
+    })?;
     pk.write(proving_key_writer, SerdeFormat::Processed).map_err(|error| {
       OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("failed to serialize proving key: {error}"),
@@ -143,8 +232,7 @@ impl MidnightDirectOuterBackend {
       return Err(OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!(
           "setup bundle circuit_k mismatch: expected {}, got {}",
-          k,
-          setup.proving_key.circuit_k
+          k, setup.proving_key.circuit_k
         ),
       });
     }
@@ -173,7 +261,7 @@ impl MidnightDirectOuterBackend {
     )
     .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
       reason: format!("midnight create_proof failed: {error}"),
-      })?;
+    })?;
 
     let proof =
       self.metadata().proof_serialization().materialize(hex_encode(&transcript.finalize()));
@@ -228,7 +316,7 @@ impl MidnightDirectOuterBackend {
     append_backend_log("prove-trace: serializing persisted prover trace");
     trace.write(trace_writer, base_pk.get_vk()).map_err(|error| {
       OuterProofBackendError::OuterCircuitInputInvalid {
-      reason: format!("failed to serialize persisted prover trace: {error}"),
+        reason: format!("failed to serialize persisted prover trace: {error}"),
       }
     })?;
     append_backend_log("prove-trace: trace serialization complete");
@@ -245,14 +333,21 @@ impl MidnightDirectOuterBackend {
     proving_key_reader: &mut R,
     trace_reader: &mut TR,
   ) -> Result<ProducedOuterProofArtifactBundle, OuterProofBackendError> {
-    append_backend_log("prove-finalize: validating setup verification key");
+    append_backend_event("backend_finalize", "validate_setup_vk", "start", "");
     self.validate_setup_verification_key(package, &setup.verification_key)?;
+    append_backend_event("backend_finalize", "validate_setup_vk", "end", "");
 
     let hosted = circuit.hosted();
     let k = k_from_circuit(&hosted);
-    append_backend_log(&format!("prove-finalize: using circuit_k={k}"));
+    append_backend_event("backend_finalize", "context", "point", &format!("circuit_k={k}"));
     let params = KZGCommitmentScheme::<Bn256>::gen_params(k);
-    append_backend_log("prove-finalize: deserializing BaseProvingKey");
+    let deserialize_base_pk_started_at = Instant::now();
+    append_backend_event(
+      "backend_finalize",
+      "deserialize_base_pk",
+      "start",
+      &format!("circuit_k={k}"),
+    );
     let base_pk = BaseProvingKey::<OuterHostField, KZGCommitmentScheme<Bn256>>::read::<
       _,
       HostedOuterWrapperCircuit,
@@ -260,15 +355,48 @@ impl MidnightDirectOuterBackend {
     .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
       reason: format!("failed to deserialize proving key: {error}"),
     })?;
-    append_backend_log("prove-finalize: deserializing persisted prover trace");
+    append_backend_elapsed(
+      "backend_finalize",
+      "deserialize_base_pk",
+      deserialize_base_pk_started_at,
+      &format!("circuit_k={k}"),
+    );
+
+    let deserialize_prepared_trace_started_at = Instant::now();
+    append_backend_event(
+      "backend_finalize",
+      "deserialize_prepared_trace",
+      "start",
+      &format!("circuit_k={k}"),
+    );
     let prepared_trace = PersistedProverTrace::<OuterHostField>::read_prepared(trace_reader)
-      .map_err(|error| {
-      OuterProofBackendError::OuterCircuitInputInvalid {
+      .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("failed to deserialize persisted prover trace: {error}"),
-      }
-    })?;
+      })?;
+    append_backend_elapsed(
+      "backend_finalize",
+      "deserialize_prepared_trace",
+      deserialize_prepared_trace_started_at,
+      &format!("circuit_k={k}"),
+    );
+
+    let init_transcript_started_at = Instant::now();
+    append_backend_event("backend_finalize", "init_transcript", "start", &format!("circuit_k={k}"));
     let mut transcript = prepared_trace.init_transcript::<CircuitTranscript<Blake2bState>>();
-    append_backend_log("prove-finalize: entering finalise_proof_from_base_trace");
+    append_backend_elapsed(
+      "backend_finalize",
+      "init_transcript",
+      init_transcript_started_at,
+      &format!("circuit_k={k}"),
+    );
+
+    let finalize_from_trace_started_at = Instant::now();
+    append_backend_event(
+      "backend_finalize",
+      "finalise_proof_from_base_trace",
+      "start",
+      &format!("circuit_k={k}"),
+    );
     finalise_proof_from_base_trace::<OuterHostField, KZGCommitmentScheme<Bn256>, _, _>(
       &params,
       base_pk,
@@ -280,12 +408,29 @@ impl MidnightDirectOuterBackend {
     .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
       reason: format!("midnight finalise_proof_from_base_trace failed: {error}"),
     })?;
-    append_backend_log("prove-finalize: finalise_proof_from_base_trace complete");
+    append_backend_elapsed(
+      "backend_finalize",
+      "finalise_proof_from_base_trace",
+      finalize_from_trace_started_at,
+      &format!("circuit_k={k}"),
+    );
 
+    let serialize_validate_proof_started_at = Instant::now();
+    append_backend_event(
+      "backend_finalize",
+      "serialize_and_validate_proof",
+      "start",
+      &format!("circuit_k={k}"),
+    );
     let proof =
       self.metadata().proof_serialization().materialize(hex_encode(&transcript.finalize()));
     self.validate_produced_proof(package, &proof)?;
-    append_backend_log("prove-finalize: proof serialization and validation complete");
+    append_backend_elapsed(
+      "backend_finalize",
+      "serialize_and_validate_proof",
+      serialize_validate_proof_started_at,
+      &format!("circuit_k={k}"),
+    );
     self.assemble_produced_bundle(package, proof, setup.verification_key.clone())
   }
 
@@ -434,8 +579,8 @@ impl MidnightDirectOuterBackendBls12Host {
       })?;
     let pk = keygen_pk_base::<Bls12HostField, KZGCommitmentScheme<Bls12>, _>(vk.clone(), &hosted)
       .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
-        reason: format!("midnight BLS12 keygen_pk_base failed: {error}"),
-      })?;
+      reason: format!("midnight BLS12 keygen_pk_base failed: {error}"),
+    })?;
     pk.write(proving_key_writer, SerdeFormat::Processed).map_err(|error| {
       OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("failed to serialize BLS12 proving key: {error}"),
@@ -519,8 +664,7 @@ impl MidnightDirectOuterBackendBls12Host {
       return Err(OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!(
           "setup bundle circuit_k mismatch: expected {}, got {}",
-          k,
-          setup.proving_key.circuit_k
+          k, setup.proving_key.circuit_k
         ),
       });
     }
@@ -606,7 +750,7 @@ impl MidnightDirectOuterBackendBls12Host {
     append_backend_log("prove-trace: serializing persisted prover trace");
     trace.write(trace_writer, base_pk.get_vk()).map_err(|error| {
       OuterProofBackendError::OuterCircuitInputInvalid {
-      reason: format!("failed to serialize BLS12 persisted prover trace: {error}"),
+        reason: format!("failed to serialize BLS12 persisted prover trace: {error}"),
       }
     })?;
     append_backend_log("prove-trace: trace serialization complete");
@@ -623,14 +767,21 @@ impl MidnightDirectOuterBackendBls12Host {
     proving_key_reader: &mut R,
     trace_reader: &mut TR,
   ) -> Result<ProducedOuterProofArtifactBundle, OuterProofBackendError> {
-    append_backend_log("prove-finalize: validating setup verification key");
+    append_backend_event("backend_finalize", "validate_setup_vk", "start", "");
     self.validate_setup_verification_key(package, &setup.verification_key)?;
+    append_backend_event("backend_finalize", "validate_setup_vk", "end", "");
 
     let hosted = circuit.hosted_bls12();
     let k = k_from_circuit(&hosted);
-    append_backend_log(&format!("prove-finalize: using circuit_k={k}"));
+    append_backend_event("backend_finalize", "context", "point", &format!("circuit_k={k}"));
     let params = KZGCommitmentScheme::<Bls12>::gen_params(k);
-    append_backend_log("prove-finalize: deserializing BaseProvingKey");
+    let deserialize_base_pk_started_at = Instant::now();
+    append_backend_event(
+      "backend_finalize",
+      "deserialize_base_pk",
+      "start",
+      &format!("circuit_k={k}"),
+    );
     let base_pk = BaseProvingKey::<Bls12HostField, KZGCommitmentScheme<Bls12>>::read::<
       _,
       HostedOuterWrapperCircuitBls12,
@@ -638,15 +789,48 @@ impl MidnightDirectOuterBackendBls12Host {
     .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
       reason: format!("failed to deserialize BLS12 proving key: {error}"),
     })?;
-    append_backend_log("prove-finalize: deserializing persisted prover trace");
+    append_backend_elapsed(
+      "backend_finalize",
+      "deserialize_base_pk",
+      deserialize_base_pk_started_at,
+      &format!("circuit_k={k}"),
+    );
+
+    let deserialize_prepared_trace_started_at = Instant::now();
+    append_backend_event(
+      "backend_finalize",
+      "deserialize_prepared_trace",
+      "start",
+      &format!("circuit_k={k}"),
+    );
     let prepared_trace = PersistedProverTrace::<Bls12HostField>::read_prepared(trace_reader)
-      .map_err(|error| {
-      OuterProofBackendError::OuterCircuitInputInvalid {
+      .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("failed to deserialize BLS12 persisted prover trace: {error}"),
-      }
-    })?;
+      })?;
+    append_backend_elapsed(
+      "backend_finalize",
+      "deserialize_prepared_trace",
+      deserialize_prepared_trace_started_at,
+      &format!("circuit_k={k}"),
+    );
+
+    let init_transcript_started_at = Instant::now();
+    append_backend_event("backend_finalize", "init_transcript", "start", &format!("circuit_k={k}"));
     let mut transcript = prepared_trace.init_transcript::<CircuitTranscript<Blake2bState>>();
-    append_backend_log("prove-finalize: entering finalise_proof_from_base_trace");
+    append_backend_elapsed(
+      "backend_finalize",
+      "init_transcript",
+      init_transcript_started_at,
+      &format!("circuit_k={k}"),
+    );
+
+    let finalize_from_trace_started_at = Instant::now();
+    append_backend_event(
+      "backend_finalize",
+      "finalise_proof_from_base_trace",
+      "start",
+      &format!("circuit_k={k}"),
+    );
     finalise_proof_from_base_trace::<Bls12HostField, KZGCommitmentScheme<Bls12>, _, _>(
       &params,
       base_pk,
@@ -658,12 +842,29 @@ impl MidnightDirectOuterBackendBls12Host {
     .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
       reason: format!("midnight BLS12 finalise_proof_from_base_trace failed: {error}"),
     })?;
-    append_backend_log("prove-finalize: finalise_proof_from_base_trace complete");
+    append_backend_elapsed(
+      "backend_finalize",
+      "finalise_proof_from_base_trace",
+      finalize_from_trace_started_at,
+      &format!("circuit_k={k}"),
+    );
 
+    let serialize_validate_proof_started_at = Instant::now();
+    append_backend_event(
+      "backend_finalize",
+      "serialize_and_validate_proof",
+      "start",
+      &format!("circuit_k={k}"),
+    );
     let proof =
       self.metadata().proof_serialization().materialize(hex_encode(&transcript.finalize()));
     self.validate_produced_proof(package, &proof)?;
-    append_backend_log("prove-finalize: proof serialization and validation complete");
+    append_backend_elapsed(
+      "backend_finalize",
+      "serialize_and_validate_proof",
+      serialize_validate_proof_started_at,
+      &format!("circuit_k={k}"),
+    );
     self.assemble_produced_bundle(package, proof, setup.verification_key.clone())
   }
 

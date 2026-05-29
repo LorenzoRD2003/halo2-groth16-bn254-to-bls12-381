@@ -20,8 +20,8 @@ use thiserror::Error;
 use crate::bn254::AssignedFieldExt;
 use crate::bn254::{
   AssignedBool, AssignedG1Point, AssignedG2Affine, Bn254BoolChip, Bn254BoolConfig, Bn254FieldChip,
-  Bn254FieldConfig, ForeignCurve, ForeignField, NativeField, PreparedConstantG2Miller,
-  pairing_check_with_prepared_terms_on_host,
+  Bn254FieldConfig, ForeignCurve, ForeignField, Fp12Constant, NativeField,
+  PreparedConstantG2Miller, pairing_check_with_prepared_terms_against_fixed_target_on_host,
 };
 
 pub mod fixtures;
@@ -85,14 +85,11 @@ pub(crate) fn groth16_verifier_pairing_term_constants(
   vk: &Groth16Bn254VerifyingKey,
   proof: &Groth16Bn254Proof,
   public_inputs: &[NativeField],
-) -> (Vec<Groth16VariablePairingTermConstant>, Vec<Groth16PreparedPairingTermConstant>) {
+) -> (Vec<Groth16VariablePairingTermConstant>, Vec<Groth16PreparedPairingTermConstant>, Fp12Constant)
+{
   let vk_x = groth16_public_input_accumulator_constant(vk, public_inputs);
   let variable_terms = vec![(groth16_g1_affine_coordinates(proof.a), proof.b)];
   let prepared_terms = vec![
-    (
-      groth16_g1_affine_coordinates(groth16_negate_g1(vk.alpha_g1)),
-      PreparedConstantG2Miller::from_affine_constant(vk.beta_g2),
-    ),
     (
       groth16_g1_affine_coordinates(groth16_negate_g1(vk_x)),
       PreparedConstantG2Miller::from_affine_constant(vk.gamma_g2),
@@ -102,8 +99,9 @@ pub(crate) fn groth16_verifier_pairing_term_constants(
       PreparedConstantG2Miller::from_affine_constant(vk.delta_g2),
     ),
   ];
+  let expected_gt = reference::host_alpha_beta_pairing_target_constant(vk);
 
-  (variable_terms, prepared_terms)
+  (variable_terms, prepared_terms, expected_gt)
 }
 
 pub(crate) fn groth16_split_first_variable_and_prepare_rest(
@@ -301,12 +299,11 @@ where
 {
   proof_a_pair: &'a AssignedG1Point<FHost>,
   proof_b: &'a AssignedG2Affine<FHost>,
-  neg_alpha_pair: &'a AssignedG1Point<FHost>,
   neg_vk_x_pair: &'a AssignedG1Point<FHost>,
   neg_c_pair: &'a AssignedG1Point<FHost>,
-  prepared_beta_g2: &'a PreparedConstantG2Miller,
   prepared_gamma_g2: &'a PreparedConstantG2Miller,
   prepared_delta_g2: &'a PreparedConstantG2Miller,
+  expected_gt: Fp12Constant,
 }
 
 fn groth16_verify_with_pairing_points_on_host<FHost>(
@@ -320,28 +317,22 @@ where
   MultiEmulationParams: FieldEmulationParams<FHost, ForeignField>,
 {
   assert_non_identity_pairing_point_on_host(field_chip, bool_chip, layouter, points.proof_a_pair)?;
-  assert_non_identity_pairing_point_on_host(
-    field_chip,
-    bool_chip,
-    layouter,
-    points.neg_alpha_pair,
-  )?;
   assert_non_identity_pairing_point_on_host(field_chip, bool_chip, layouter, points.neg_vk_x_pair)?;
   assert_non_identity_pairing_point_on_host(field_chip, bool_chip, layouter, points.neg_c_pair)?;
 
   let variable_terms = [(points.proof_a_pair, points.proof_b)];
   let prepared_terms = [
-    (points.neg_alpha_pair, points.prepared_beta_g2),
     (points.neg_vk_x_pair, points.prepared_gamma_g2),
     (points.neg_c_pair, points.prepared_delta_g2),
   ];
 
-  pairing_check_with_prepared_terms_on_host(
+  pairing_check_with_prepared_terms_against_fixed_target_on_host(
     field_chip,
     bool_chip,
     layouter,
     &variable_terms,
     &prepared_terms,
+    points.expected_gt,
   )
   .map_err(Groth16VerifierError::Circuit)
 }
@@ -362,15 +353,13 @@ where
 
   let proof_a_pair = assign_g1_affine_on_host(field_chip, layouter, proof.a)?;
   let neg_c_pair = assign_g1_affine_on_host(field_chip, layouter, groth16_negate_g1(proof.c))?;
-  let neg_alpha_pair =
-    assign_g1_affine_on_host(field_chip, layouter, groth16_negate_g1(vk.alpha_g1))?;
   let vk_x_constant = groth16_public_input_accumulator_constant(vk, public_inputs);
   let neg_vk_x_pair =
     assign_g1_affine_on_host(field_chip, layouter, groth16_negate_g1(vk_x_constant))?;
   let proof_b = assign_g2_affine_on_host(field_chip, layouter, proof.b)?;
-  let prepared_beta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.beta_g2);
   let prepared_gamma_g2 = PreparedConstantG2Miller::from_affine_constant(vk.gamma_g2);
   let prepared_delta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.delta_g2);
+  let expected_gt = reference::host_alpha_beta_pairing_target_constant(vk);
 
   groth16_verify_with_pairing_points_on_host(
     field_chip,
@@ -379,12 +368,11 @@ where
     Groth16PairingPoints {
       proof_a_pair: &proof_a_pair,
       proof_b: &proof_b,
-      neg_alpha_pair: &neg_alpha_pair,
       neg_vk_x_pair: &neg_vk_x_pair,
       neg_c_pair: &neg_c_pair,
-      prepared_beta_g2: &prepared_beta_g2,
       prepared_gamma_g2: &prepared_gamma_g2,
       prepared_delta_g2: &prepared_delta_g2,
+      expected_gt,
     },
   )
 }
@@ -410,12 +398,15 @@ pub fn groth16_accumulate_ic(
 /// The standard Groth16 verifier relation is
 /// `e(A, B) = e(alpha, beta) * e(vk_x, gamma) * e(C, delta)`.
 ///
-/// We move every right-hand-side term to the left by negating the G1 inputs,
-/// which is valid because pairings are bilinear in G1:
+/// We keep the fully constant verifier-key term `e(alpha, beta)` on the right,
+/// and move only the remaining right-hand-side pairings to the left by
+/// negating their G1 inputs, which is valid because pairings are bilinear in G1:
 /// `e(-P, Q) = e(P, Q)^(-1)`.
 ///
-/// The product-check form consumed by `pairing_check(...)` is therefore:
-/// `e(A, B) * e(-alpha, beta) * e(-vk_x, gamma) * e(-C, delta) = 1`.
+/// The optimized product-check form consumed by the current Groth16 path is
+/// therefore:
+/// `e(A, B) * e(-vk_x, gamma) * e(-C, delta) = e(alpha, beta)`,
+/// with the fixed GT target `e(alpha, beta)` precomputed off-circuit.
 pub fn groth16_verify(
   field_chip: &Bn254FieldChip,
   bool_chip: &Bn254BoolChip,
@@ -428,14 +419,13 @@ pub fn groth16_verify(
 
   let proof_a_pair = assign_g1_affine(field_chip, layouter, proof.a)?;
   let neg_c_pair = assign_g1_affine(field_chip, layouter, groth16_negate_g1(proof.c))?;
-  let neg_alpha_pair = assign_g1_affine(field_chip, layouter, groth16_negate_g1(vk.alpha_g1))?;
   let vk_x_constant = groth16_accumulate_ic(field_chip, layouter, vk, public_inputs)?;
   let neg_vk_x_pair = assign_g1_affine(field_chip, layouter, groth16_negate_g1(vk_x_constant))?;
 
   let proof_b = assign_g2_affine(field_chip, layouter, proof.b)?;
-  let prepared_beta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.beta_g2);
   let prepared_gamma_g2 = PreparedConstantG2Miller::from_affine_constant(vk.gamma_g2);
   let prepared_delta_g2 = PreparedConstantG2Miller::from_affine_constant(vk.delta_g2);
+  let expected_gt = reference::host_alpha_beta_pairing_target_constant(vk);
 
   groth16_verify_with_pairing_points_on_host(
     field_chip,
@@ -444,12 +434,11 @@ pub fn groth16_verify(
     Groth16PairingPoints {
       proof_a_pair: &proof_a_pair,
       proof_b: &proof_b,
-      neg_alpha_pair: &neg_alpha_pair,
       neg_vk_x_pair: &neg_vk_x_pair,
       neg_c_pair: &neg_c_pair,
-      prepared_beta_g2: &prepared_beta_g2,
       prepared_gamma_g2: &prepared_gamma_g2,
       prepared_delta_g2: &prepared_delta_g2,
+      expected_gt,
     },
   )
 }

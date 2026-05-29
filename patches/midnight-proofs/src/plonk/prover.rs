@@ -1,11 +1,10 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    io::Write as _,
     hash::Hash,
     iter,
     io,
-    fs::OpenOptions,
     ops::RangeTo,
+    time::Instant,
 };
 
 use ff::{Field, FromUniformBytes, PrimeField, WithSmallOrderMulGroup};
@@ -13,6 +12,7 @@ use rand_core::{CryptoRng, RngCore};
 use midnight_curves::serde::SerdeObject;
 
 use super::{
+    direct_logging,
     circuit::{
         sealed::{self},
         Advice, Any, Assignment, Challenge, Circuit, Column, ConstraintSystem, Fixed, FloorPlanner,
@@ -34,16 +34,6 @@ use crate::{
     transcript::{Hashable, Sampleable, Transcript},
     utils::{arithmetic::eval_polynomial, rational::Rational},
 };
-
-const DIRECT_LOG_FILE_ENV: &str = "WRAPPER_DIRECT_LOG_FILE";
-
-fn append_finalize_log(message: &str) {
-    if let Ok(path) = std::env::var(DIRECT_LOG_FILE_ENV) {
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(file, "{message}");
-        }
-    }
-}
 
 #[cfg(feature = "committed-instances")]
 /// Commit to a vector of raw instances. This function can be used to prepare
@@ -709,9 +699,35 @@ where
         ..
     } = prepared_trace;
 
-    append_finalize_log("midnight finalize: building h_poly key");
+    let build_h_poly_key_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "build_h_poly_key",
+        "start",
+        &format!("proof_index=0"),
+    );
     let h_pk = pk.finalize_for_h_poly();
-    append_finalize_log("midnight finalize: computing h_poly from prepared cosets");
+    direct_logging::log_elapsed(
+        "finalize",
+        "build_h_poly_key",
+        build_h_poly_key_started_at,
+        "proof_index=0",
+    );
+
+    let compute_h_poly_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "compute_h_poly",
+        "start",
+        &format!(
+            "proof_index=0 advice_coset_sets={} instance_coset_sets={} lookup_sets={} trash_sets={} permutation_sets={}",
+            advice_cosets.len(),
+            instance_cosets.len(),
+            lookups.len(),
+            trashcans.len(),
+            permutations.len()
+        ),
+    );
     let h_poly = compute_h_poly_from_prepared_parts(
         &h_pk,
         &advice_cosets,
@@ -726,24 +742,75 @@ where
         theta,
         trash_challenge,
     );
-    append_finalize_log("midnight finalize: h_poly complete");
+    direct_logging::log_elapsed(
+        "finalize",
+        "compute_h_poly",
+        compute_h_poly_started_at,
+        &format!(
+            "proof_index=0 advice_coset_sets={} instance_coset_sets={} lookup_sets={} trash_sets={} permutation_sets={}",
+            advice_cosets.len(),
+            instance_cosets.len(),
+            lookups.len(),
+            trashcans.len(),
+            permutations.len()
+        ),
+    );
     drop(h_pk);
 
-    append_finalize_log("midnight finalize: building opening key");
+    let build_opening_key_started_at = Instant::now();
+    direct_logging::log_event("finalize", "build_opening_key", "start", "proof_index=0");
     let pk = pk.finalize_for_openings();
+    direct_logging::log_elapsed(
+        "finalize",
+        "build_opening_key",
+        build_opening_key_started_at,
+        "proof_index=0",
+    );
 
-    append_finalize_log("midnight finalize: constructing vanishing h commitments");
+    let vanishing_commitments_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "construct_vanishing_commitments",
+        "start",
+        "proof_index=0",
+    );
     let domain = pk.vk.get_domain();
     let vanishing = vanishing.construct::<CS, T>(params, domain, h_poly, transcript)?;
-    append_finalize_log("midnight finalize: vanishing h commitments complete");
+    direct_logging::log_elapsed(
+        "finalize",
+        "construct_vanishing_commitments",
+        vanishing_commitments_started_at,
+        "proof_index=0",
+    );
     let x: F = transcript.squeeze_challenge();
 
-    append_finalize_log("midnight finalize: deserializing opening polys");
+    let deserialize_opening_polys_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "deserialize_opening_polys",
+        "start",
+        "proof_index=0",
+    );
     let crate::plonk::traces::OpeningPolysTrace { advice_polys, instance_polys } =
         PersistedProverTrace::read_opening_polys(trace_reader)?;
-    append_finalize_log("midnight finalize: opening polys deserialized");
+    direct_logging::log_elapsed(
+        "finalize",
+        "deserialize_opening_polys",
+        deserialize_opening_polys_started_at,
+        &format!(
+            "proof_index=0 advice_poly_sets={} instance_poly_sets={}",
+            advice_polys.len(),
+            instance_polys.len()
+        ),
+    );
 
-    append_finalize_log("midnight finalize: writing evals to transcript");
+    let transcript_evals_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "write_evals_to_transcript",
+        "start",
+        "proof_index=0",
+    );
     write_evals_to_transcript_for_openings(
         &pk,
         nb_committed_instances,
@@ -752,22 +819,64 @@ where
         x,
         transcript,
     )?;
-    append_finalize_log("midnight finalize: transcript evals complete");
+    direct_logging::log_elapsed(
+        "finalize",
+        "write_evals_to_transcript",
+        transcript_evals_started_at,
+        "proof_index=0",
+    );
 
-    append_finalize_log("midnight finalize: evaluating vanishing");
+    let evaluate_vanishing_started_at = Instant::now();
+    direct_logging::log_event("finalize", "evaluate_vanishing", "start", "proof_index=0");
     let vanishing = vanishing.evaluate(x, domain, transcript)?;
-    append_finalize_log("midnight finalize: vanishing evaluation complete");
-    append_finalize_log("midnight finalize: evaluating shared permutation data");
-    pk.permutation.evaluate(x, transcript)?;
-    append_finalize_log("midnight finalize: shared permutation data complete");
+    direct_logging::log_elapsed(
+        "finalize",
+        "evaluate_vanishing",
+        evaluate_vanishing_started_at,
+        "proof_index=0",
+    );
 
-    append_finalize_log("midnight finalize: evaluating permutation commitments");
+    let shared_permutation_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "evaluate_shared_permutation_data",
+        "start",
+        "proof_index=0",
+    );
+    pk.permutation.evaluate(x, transcript)?;
+    direct_logging::log_elapsed(
+        "finalize",
+        "evaluate_shared_permutation_data",
+        shared_permutation_started_at,
+        "proof_index=0",
+    );
+
+    let permutation_commitments_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "evaluate_permutation_commitments",
+        "start",
+        &format!("proof_index=0 permutation_set_count={}", permutations.len()),
+    );
+
     let permutations: Vec<permutation::prover::Evaluated<F>> = permutations
         .into_iter()
         .map(|permutation| -> Result<_, _> { permutation.evaluate_with_vk(&pk.vk, x, transcript) })
         .collect::<Result<Vec<_>, _>>()?;
-    append_finalize_log("midnight finalize: permutation commitments complete");
-    append_finalize_log("midnight finalize: evaluating lookup commitments");
+    direct_logging::log_elapsed(
+        "finalize",
+        "evaluate_permutation_commitments",
+        permutation_commitments_started_at,
+        &format!("proof_index=0 permutation_set_count={}", permutations.len()),
+    );
+
+    let lookup_commitments_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "evaluate_lookup_commitments",
+        "start",
+        &format!("proof_index=0 lookup_set_count={}", lookups.len()),
+    );
     let lookups: Vec<Vec<lookup::prover::Evaluated<F>>> = lookups
         .into_iter()
         .map(|lookups| -> Result<Vec<_>, _> {
@@ -777,8 +886,20 @@ where
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
-    append_finalize_log("midnight finalize: lookup commitments complete");
-    append_finalize_log("midnight finalize: evaluating trash commitments");
+    direct_logging::log_elapsed(
+        "finalize",
+        "evaluate_lookup_commitments",
+        lookup_commitments_started_at,
+        &format!("proof_index=0 lookup_set_count={}", lookups.len()),
+    );
+
+    let trash_commitments_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "evaluate_trash_commitments",
+        "start",
+        &format!("proof_index=0 trash_set_count={}", trashcans.len()),
+    );
     let trashcans: Vec<Vec<trash::prover::Evaluated<F>>> = trashcans
         .into_iter()
         .map(|trash| -> Result<Vec<_>, _> {
@@ -788,9 +909,20 @@ where
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
-    append_finalize_log("midnight finalize: trash commitments complete");
+    direct_logging::log_elapsed(
+        "finalize",
+        "evaluate_trash_commitments",
+        trash_commitments_started_at,
+        &format!("proof_index=0 trash_set_count={}", trashcans.len()),
+    );
 
-    append_finalize_log("midnight finalize: computing opening queries");
+    let opening_queries_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "compute_opening_queries",
+        "start",
+        "proof_index=0",
+    );
     let queries = compute_queries_for_openings(
         &pk,
         nb_committed_instances,
@@ -802,10 +934,31 @@ where
         &vanishing,
         x,
     );
-    append_finalize_log("midnight finalize: opening queries complete");
+    direct_logging::log_elapsed(
+        "finalize",
+        "compute_opening_queries",
+        opening_queries_started_at,
+        &format!("proof_index=0 query_count={}", queries.len()),
+    );
 
-    append_finalize_log("midnight finalize: entering multi_open");
-    CS::multi_open(params, &queries, transcript).map_err(|_| Error::ConstraintSystemFailure)
+    let multi_open_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "multi_open",
+        "start",
+        &format!("proof_index=0 query_count={}", queries.len()),
+    );
+    let result = CS::multi_open(params, &queries, transcript)
+        .map_err(|_| Error::ConstraintSystemFailure);
+    if result.is_ok() {
+        direct_logging::log_elapsed(
+            "finalize",
+            "multi_open",
+            multi_open_started_at,
+            &format!("proof_index=0 query_count={}", queries.len()),
+        );
+    }
+    result
 }
 
 fn write_evals_to_transcript_for_openings<F, CS, T>(

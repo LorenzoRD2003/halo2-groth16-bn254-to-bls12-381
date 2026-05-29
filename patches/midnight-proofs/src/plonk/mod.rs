@@ -7,7 +7,7 @@
 
 use blake2b_simd::Params as Blake2bParams;
 use group::ff::FromUniformBytes;
-use std::{fs::OpenOptions, io, io::Write as _};
+use std::{io, time::Instant};
 
 use crate::{
     poly::{
@@ -25,6 +25,7 @@ use crate::{
 };
 
 mod circuit;
+mod direct_logging;
 mod error;
 pub(crate) mod evaluation;
 mod keygen;
@@ -67,15 +68,6 @@ pub struct VerifyingKey<F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
 
 // Current version of the VK
 const VERSION: u8 = 0x03;
-const DIRECT_LOG_FILE_ENV: &str = "WRAPPER_DIRECT_LOG_FILE";
-
-fn append_h_poly_key_log(message: &str) {
-    if let Ok(path) = std::env::var(DIRECT_LOG_FILE_ENV) {
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(file, "{message}");
-        }
-    }
-}
 
 impl<F, CS> VerifyingKey<F, CS>
 where
@@ -618,9 +610,6 @@ where
     /// Promotes the lean setup artifact into only the state required to compute
     /// `h_poly`.
     pub fn finalize_for_h_poly(&self) -> HPolyKey<'_, F, CS> {
-        append_h_poly_key_log("midnight finalize: before compute_lagrange_polys");
-        let [l0, l_last, l_active_row] = keygen::compute_lagrange_polys(&self.vk, &self.vk.cs);
-        append_h_poly_key_log("midnight finalize: after compute_lagrange_polys");
         let mut used_fixed_columns = std::collections::BTreeSet::new();
         let mut used_advice_columns = std::collections::BTreeSet::new();
         let mut used_instance_columns = std::collections::BTreeSet::new();
@@ -649,8 +638,40 @@ where
                 used_fixed_columns.insert(column.index());
             }
         }
-        append_h_poly_key_log("midnight finalize: before sparse fixed cosets");
-        let fixed_cosets = self
+
+        let base_context = format!(
+            "k={} domain_n={} used_fixed_columns={} used_advice_columns={} used_instance_columns={} permutation_columns={}",
+            self.vk.domain.k(),
+            self.vk.domain.n,
+            used_fixed_columns.len(),
+            used_advice_columns.len(),
+            used_instance_columns.len(),
+            self.vk.cs.permutation.columns.len()
+        );
+
+        let compute_lagrange_started_at = Instant::now();
+        direct_logging::log_event(
+            "finalize_for_h_poly",
+            "compute_lagrange_polys",
+            "start",
+            &base_context,
+        );
+        let [l0, l_last, l_active_row] = keygen::compute_lagrange_polys(&self.vk, &self.vk.cs);
+        direct_logging::log_elapsed(
+            "finalize_for_h_poly",
+            "compute_lagrange_polys",
+            compute_lagrange_started_at,
+            &base_context,
+        );
+
+        let sparse_fixed_started_at = Instant::now();
+        direct_logging::log_event(
+            "finalize_for_h_poly",
+            "sparse_fixed_cosets",
+            "start",
+            &base_context,
+        );
+        let fixed_cosets: Vec<_> = self
             .fixed_values
             .iter()
             .enumerate()
@@ -663,12 +684,32 @@ where
                     })
             })
             .collect();
-        append_h_poly_key_log("midnight finalize: after sparse fixed cosets");
-        append_h_poly_key_log("midnight finalize: before permutation h key");
+        let materialized_fixed_cosets = fixed_cosets.iter().filter(|coset| coset.is_some()).count();
+        direct_logging::log_elapsed(
+            "finalize_for_h_poly",
+            "sparse_fixed_cosets",
+            sparse_fixed_started_at,
+            &format!(
+                "{base_context} materialized_fixed_cosets={materialized_fixed_cosets}"
+            ),
+        );
+
+        let permutation_h_key_started_at = Instant::now();
+        direct_logging::log_event(
+            "finalize_for_h_poly",
+            "permutation_h_key",
+            "start",
+            &format!("{base_context} permutation_sets={}", self.vk.cs.permutation.columns.len()),
+        );
         let permutation = self
             .permutation
             .finalize_for_h_poly(&self.vk.domain, &self.vk.cs.permutation);
-        append_h_poly_key_log("midnight finalize: after permutation h key");
+        direct_logging::log_elapsed(
+            "finalize_for_h_poly",
+            "permutation_h_key",
+            permutation_h_key_started_at,
+            &base_context,
+        );
 
         HPolyKey {
             vk: self.vk.clone(),

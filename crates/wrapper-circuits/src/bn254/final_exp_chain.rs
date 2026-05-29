@@ -261,7 +261,8 @@ fn score_chain_candidate(
   weights: Bn254ExpByXChainSearchWeights,
 ) -> Bn254ExpByXChainCandidate {
   let reconstructed_value = reconstruct_chain_value(start_window, steps);
-  let square_cost_total = steps.iter().map(|step| weights.square_block_cost(step.square_count)).sum();
+  let square_cost_total =
+    steps.iter().map(|step| weights.square_block_cost(step.square_count)).sum();
   let multiply_cost_total = steps
     .iter()
     .map(|step| match step.sign {
@@ -318,7 +319,8 @@ fn backward_search_candidates(
   let running_cost: u64 = steps_reversed
     .iter()
     .map(|step| {
-      config.weights.square_block_cost(step.square_count) + match step.sign {
+      config.weights.square_block_cost(step.square_count)
+        + match step.sign {
           Bn254ExpByXWindowSign::Positive => config.weights.positive_mul_cost,
           Bn254ExpByXWindowSign::Negative => config.weights.negative_mul_cost,
         }

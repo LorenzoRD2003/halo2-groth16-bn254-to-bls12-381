@@ -11,11 +11,11 @@ use crate::metrics::LayoutMetrics;
 
 use super::{
   FinalExponentiationCircuit, FinalExponentiationEasyPartCircuit,
-  FinalExponentiationHardPartCircuit, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit, Fp6AddCircuit,
-  Fp6MulCircuit, Fp6SquareCircuit, Fp12AddCircuit, Fp12CompressedCyclotomicSquareBlockCircuit,
-  Fp12CyclotomicSquareCircuit, Fp12MulByUnitaryInverseCircuit, Fp12MulCircuit, Fp12SquareCircuit,
-  FpAddCircuit, FpMulCircuit, G1AddCircuit,
-  G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
+  FinalExponentiationHardPartCircuit, Fp2AddCircuit, Fp2MulCircuit, Fp2SquareCircuit,
+  Fp6AddCircuit, Fp6MulCircuit, Fp6SquareCircuit, Fp12AddCircuit,
+  Fp12CompressedCyclotomicSquareBlockCircuit, Fp12CyclotomicSquareCircuit,
+  Fp12MulByUnitaryInverseCircuit, Fp12MulCircuit, Fp12SquareCircuit, FpAddCircuit, FpMulCircuit,
+  G1AddCircuit, G2DoubleWithLineCircuit, G2MixedAddWithLineCircuit, G2NegCircuit, G2OnCurveCircuit,
   G2ProjectiveAddCircuit, G2ProjectiveDoubleCircuit, G2ProjectiveFromAffineCircuit,
   MillerAccumulatorMulByLineCircuit, MillerAccumulatorMulByLineSparseCircuit,
   MillerAccumulatorSquareCircuit, MillerLoopCircuit, NativeField, PairingCheckCircuit,
@@ -277,7 +277,6 @@ pub fn final_exponentiation_easy_part_layout_metrics_v1() -> LayoutMetrics {
 pub fn final_exponentiation_hard_part_layout_metrics() -> LayoutMetrics {
   measure_layout(&FinalExponentiationHardPartCircuit::sample())
 }
-
 
 /// Real layout metrics for the current narrow BN254 final-exponentiation
 /// hard-part circuit under the V1 floor planner.

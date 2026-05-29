@@ -47,15 +47,16 @@ Use the shortest route that matches the task:
 - Groth16 verifier slice: `crates/wrapper-circuits/src/groth16.rs` -> `crates/wrapper-backends/src/snarkjs.rs` -> `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/README.md`
 - Wrapper planning / package flow: `crates/wrapper-backends/src/groth16.rs` -> `crates/wrapper-core/src/job.rs` -> `crates/wrapper-core/src/package.rs` -> `crates/wrapper-core/src/output.rs` -> `crates/wrapper-core/src/execution.rs`
 - Semaphore migration fixture: `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `crates/wrapper-tests/src/lib.rs` -> `crates/wrapper-cli/src/main.rs`
-- ZK Email integration study: `docs/zk-email-integration-plan.md` -> `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `docs/plutus-aiken-integration-plan.md`
+- ZK Email integration study: `docs/plans/0004-zk-email-integration-plan.md` -> `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `docs/plans/0003-plutus-aiken-integration-plan.md`
 - Real `.circom` integration plan: `docs/real-circom-wrapper-integration-plan.md`
 - Canonical R1CS backend status: `docs/r1cs-backend-status.md`
 - Outer prover strategy: `docs/outer-prover-strategy-plan.md`
 - Direct setup-cost reduction: `docs/decisions/0003-direct-outer-setup-cost-reduction.md`
+- Ultra-fine finalize profiling plan: `docs/plans/0006-finalize-checkpoint-profiling-plan.md`
 - H poly speed follow-up work after memory is solved: `docs/h-poly-followup-speed-plan.md`
-- Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/midnight-local-optimization-notes.md`
+- Pairing / final exponentiation: `crates/wrapper-circuits/src/bn254/g2/miller.rs` -> `crates/wrapper-circuits/src/bn254/host/pairing_host.rs` -> `docs/midnight-optimizations.md`
 - Layout profiling / optimization: `crates/wrapper-circuits/src/groth16/profiling.rs` -> `crates/wrapper-cli/src/main.rs` -> `docs/profiling.md`
-- Midnight-local optimization opportunities: `docs/midnight-local-optimization-notes.md` -> `crates/wrapper-circuits/src/bn254/types.rs` -> `crates/wrapper-circuits/src/bn254/fp6.rs`
+- Midnight-local optimization opportunities: `docs/midnight-optimizations.md` -> `crates/wrapper-circuits/src/bn254/types.rs` -> `crates/wrapper-circuits/src/bn254/fp6.rs`
 - Scope / stage boundaries: `AGENTS.md` `Current Phase and Scope Boundaries` -> `docs/roadmap.md`
 
 Top-level doc roles:
@@ -65,12 +66,13 @@ Top-level doc roles:
 - `docs/architecture.md`: ownership boundaries and current implementation shape
 - `docs/roadmap.md`: stage intent and explicit non-goals
 - `docs/profiling.md`: how to measure layout-cost changes
-- `docs/midnight-local-optimization-notes.md`: prioritized Midnight primitives and local optimization candidates for repeated BN254 tower operations
-- `docs/cyclotomic-unitary-kernel-design.md`: proposed compressed-torus region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` work in the hard part
+- `docs/midnight-optimizations.md`: prioritized Midnight primitives and local optimization candidates for repeated BN254 tower operations
+- `docs/plans/0002-cyclotomic-unitary-kernel-design.md`: proposed compressed-torus region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` work in the hard part
 - `docs/decisions/0003-direct-outer-setup-cost-reduction.md`: accepted direction for reducing direct outer setup cost via a lean setup artifact and later params caching
 - `docs/decisions/0004-local-midnight-proofs-patch.md`: accepted rationale for carrying a local `midnight-proofs` patch to support richer direct setup/prove artifacts
+- `docs/plans/0006-finalize-checkpoint-profiling-plan.md`: implementation plan for ultra-fine `prove-finalize` checkpoint logging, iteration heartbeats, memory snapshots, elapsed-time profiling, and real-time log inspection
 - `docs/h-poly-followup-speed-plan.md`: deferred speed follow-ups for the retained chunked `h_poly` path after the current memory blocker is solved
-- `docs/zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
+- `docs/plans/0004-zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
 - `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current state of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision for the canonical outer circuit and the direct backend surface
@@ -113,10 +115,12 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 │   ├── architecture.md
 │   ├── benchmarking.md
 │   ├── cyclotomic-unitary-kernel-design.md
-│   ├── midnight-local-optimization-notes.md
+│   ├── midnight-optimizations.md
 │   ├── outer-prover-strategy-plan.md
 │   ├── profiling.md
+│   ├── real-circom-wrapper-integration-plan.md
 │   ├── roadmap.md
+│   ├── plans/
 │   └── decisions/
 │       ├── 0001-initial-workspace-structure.md
 │       └── 0002-bn254-local-optimization-policy.md
@@ -134,12 +138,12 @@ The design keeps `wrapper-core` mostly independent from Halo2 so project concept
 - Go to `AGENTS.md` before editing code or docs so you inherit repo-specific constraints.
 - Go to `docs/architecture.md` when deciding where code should live.
 - Go to `docs/roadmap.md` when checking whether an idea belongs in the current stage.
-- Go to `docs/profiling.md` and `docs/midnight-local-optimization-notes.md` for optimization work.
-- Go to `docs/midnight-local-optimization-notes.md` when you want the current prioritized list of local Midnight-backed optimization opportunities.
-- Go to `docs/midnight-local-optimization-notes.md` when you want local tower wins driven by existing `midnight-circuits` primitives such as `mul_by_constant` and `add_constant`, or when you need the current record of which `linear_combination` rewrites were already measured and ruled out and which `add_constant` uses actually paid off.
-- Go to `docs/midnight-local-optimization-notes.md` when working on `exp_by_neg_x(...)`; it now records the retained signed-window chain that improved the final-exponentiation hard part.
-- Go to `docs/midnight-local-optimization-notes.md` when working on compressed cyclotomic squaring; it now records the retained compressed-square rewrite inside `exp_by_neg_x(...)` that materially improved the hard part.
-- Go to `docs/cyclotomic-unitary-kernel-design.md` when evaluating whether to keep a short run of hard-part intermediates in torus/compressed form for repeated `cyclotomic * unitary_inverse(cyclotomic)` products.
+- Go to `docs/profiling.md` and `docs/midnight-optimizations.md` for optimization work.
+- Go to `docs/midnight-optimizations.md` when you want the current prioritized list of local Midnight-backed optimization opportunities.
+- Go to `docs/midnight-optimizations.md` when you want local tower wins driven by existing `midnight-circuits` primitives such as `mul_by_constant` and `add_constant`, or when you need the current record of which `linear_combination` rewrites were already measured and ruled out and which `add_constant` uses actually paid off.
+- Go to `docs/midnight-optimizations.md` when working on `exp_by_neg_x(...)`; it now records the retained signed-window chain that improved the final-exponentiation hard part.
+- Go to `docs/midnight-optimizations.md` when working on compressed cyclotomic squaring; it now records the retained compressed-square rewrite inside `exp_by_neg_x(...)` that materially improved the hard part.
+- Go to `docs/plans/0002-cyclotomic-unitary-kernel-design.md` when evaluating whether to keep a short run of hard-part intermediates in torus/compressed form for repeated `cyclotomic * unitary_inverse(cyclotomic)` products.
 
 ## Build Instructions
 
@@ -219,8 +223,8 @@ Notes:
 - if you inspect the output file before the command exits, it may look empty or
   incomplete; wait for the command to finish before comparing baselines
 - `blocks` now includes `final exponentiation easy part`, `final exponentiation hard part`, and total `final exponentiation`
-- for final-exponentiation work specifically, start with `docs/profiling.md` and `docs/midnight-local-optimization-notes.md`
-- for the current local Midnight-backed optimization picture, start with `docs/midnight-local-optimization-notes.md`
+- for final-exponentiation work specifically, start with `docs/profiling.md` and `docs/midnight-optimizations.md`
+- for the current local Midnight-backed optimization picture, start with `docs/midnight-optimizations.md`
 - the current Groth16 verifier route also precomputes Miller-step line
   coefficients off-circuit for constant verifier-key G2 terms (`beta_g2`,
   `gamma_g2`, `delta_g2`), trading a larger prepared VK representation for

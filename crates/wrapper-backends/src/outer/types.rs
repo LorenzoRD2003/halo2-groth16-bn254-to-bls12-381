@@ -1,10 +1,10 @@
+use serde::{Deserialize, Serialize};
 use wrapper_circuits::{
   Groth16Bn254Proof, Groth16Bn254VerifyingKey, InnerVerifierFlavor,
   OuterArtifactSerializationFlavor, OuterHostField, OuterHostFlavor, OuterStatementInput,
   OuterStatementSemantics, OuterWrapperCircuitInput,
 };
 use wrapper_core::{ProducedOuterProofJson, ProducedOuterVerificationKeyJson};
-use serde::{Deserialize, Serialize};
 
 /// Stable capability summary for one selected outer backend lane.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

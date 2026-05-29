@@ -227,18 +227,20 @@ pub fn groth16_pairing_block_pairing_check_layout_metrics_v1() -> LayoutMetrics 
 }
 
 /// Returns a Groth16-shaped optimized pairing-check block:
-/// one variable proof term plus three prepared constant verifier-key terms.
+/// one variable proof term, two prepared constant verifier-key terms, and one
+/// fully precomputed fixed GT target `e(alpha, beta)`.
 #[must_use]
 pub fn groth16_pairing_block_pairing_check_groth16_style_layout_metrics() -> LayoutMetrics {
   let vk = fixtures::typed::verifying_key();
   let proof = fixtures::typed::proof();
   let public_inputs = fixtures::typed::public_inputs();
-  let (variable_terms, prepared_terms) =
+  let (variable_terms, prepared_terms, expected_gt) =
     groth16_verifier_pairing_term_constants(&vk, &proof, &public_inputs);
 
-  measure_layout(&PairingCheckCircuit::new_with_prepared_constant_terms(
+  measure_layout(&PairingCheckCircuit::new_with_prepared_constant_terms_and_target(
     &variable_terms,
     &prepared_terms,
+    expected_gt,
     true,
   ))
 }
@@ -249,12 +251,13 @@ pub fn groth16_pairing_block_pairing_check_groth16_style_layout_metrics_v1() -> 
   let vk = fixtures::typed::verifying_key();
   let proof = fixtures::typed::proof();
   let public_inputs = fixtures::typed::public_inputs();
-  let (variable_terms, prepared_terms) =
+  let (variable_terms, prepared_terms, expected_gt) =
     groth16_verifier_pairing_term_constants(&vk, &proof, &public_inputs);
 
-  measure_layout_with_v1(&PairingCheckCircuit::new_with_prepared_constant_terms(
+  measure_layout_with_v1(&PairingCheckCircuit::new_with_prepared_constant_terms_and_target(
     &variable_terms,
     &prepared_terms,
+    expected_gt,
     true,
   ))
 }

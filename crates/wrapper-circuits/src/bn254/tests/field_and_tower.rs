@@ -41,8 +41,13 @@ impl Circuit<NativeField> for Fp12FrobeniusMulCircuit {
     let left = assign_fixed_fp12(&chip, &mut layouter, self.left)?;
     let right = assign_fixed_fp12(&chip, &mut layouter, self.right)?;
     let right_sum = right.sum_components(&chip, &mut layouter)?;
-    let actual =
-      left.frobenius_mul_with_precomputed_rhs_sum(&chip, &mut layouter, self.power, &right, &right_sum)?;
+    let actual = left.frobenius_mul_with_precomputed_rhs_sum(
+      &chip,
+      &mut layouter,
+      self.power,
+      &right,
+      &right_sum,
+    )?;
     actual.assert_equal_to_fixed(&chip, &mut layouter, self.expected)?;
     chip.load(&mut layouter)
   }
@@ -575,8 +580,7 @@ fn fp12_frobenius_mul_circuit_matches_host_on_random_elements() {
       let right = ArkFq12::rand(&mut rng);
       let left_midnight = ark_to_midnight_fq12(&left);
       let right_midnight = ark_to_midnight_fq12(&right);
-      let frobenius_left =
-        super::super::host::fp12_frobenius_map_constant(&left_midnight, power);
+      let frobenius_left = super::super::host::fp12_frobenius_map_constant(&left_midnight, power);
       let expected = super::super::host::fp12_mul_constant(&frobenius_left, &right_midnight);
 
       assert_satisfied(&Fp12FrobeniusMulCircuit::new(
@@ -620,10 +624,7 @@ fn floor_planner_v1_probe_reports_block_metrics() {
   let simple_pairing = crate::groth16_pairing_block_pairing_check_groth16_style_layout_metrics();
   let v1_pairing = crate::groth16_pairing_block_pairing_check_groth16_style_layout_metrics_v1();
 
-  println!(
-    "floor_planner_probe hard_part simple={} v1={}",
-    simple_hard.rows, v1_hard.rows
-  );
+  println!("floor_planner_probe hard_part simple={} v1={}", simple_hard.rows, v1_hard.rows);
   println!(
     "floor_planner_probe pairing_groth16_style simple={} v1={}",
     simple_pairing.rows, v1_pairing.rows

@@ -10,7 +10,10 @@ use super::{
   fixtures::typed::{
     proof as fixture_proof, public_inputs as fixture_public_inputs, verifying_key as fixture_vk,
   },
-  reference::{host_pairing_product, host_public_input_accumulator},
+  reference::{
+    host_alpha_beta_pairing_target, host_pairing_product, host_pairing_product_without_alpha_beta,
+    host_public_input_accumulator,
+  },
 };
 
 fn assert_satisfied<C: midnight_proofs::plonk::Circuit<NativeField>>(k: u32, circuit: &C) {
@@ -44,6 +47,15 @@ fn groth16_pairing_product_encoding_matches_arkworks_verifier_relation() {
   let product = host_pairing_product(&fixture_vk(), &fixture_proof(), &fixture_public_inputs());
 
   assert_eq!(product, ArkFq12::ONE);
+}
+
+#[test]
+fn groth16_precomputed_alpha_beta_target_matches_reduced_verifier_relation() {
+  let vk = fixture_vk();
+  let reduced_product =
+    host_pairing_product_without_alpha_beta(&vk, &fixture_proof(), &fixture_public_inputs());
+
+  assert_eq!(reduced_product, host_alpha_beta_pairing_target(&vk));
 }
 
 // These full-circuit MockProver checks are kept as explicit slow integration

@@ -1,0 +1,43 @@
+\babel@toc {spanish}{}\relax 
+\contentsline {section}{\numberline {1}Prop\'osito, alcance y advertencias}{3}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Fuente de verdad}{3}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Tabla de alcance actual}{3}{subsection.1.2}%
+\contentsline {section}{\numberline {2}Arquitectura del workspace y flujo de datos}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Responsabilidades por crate}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Flujo de datos real actual}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Separaci\'on entre sem\'antica y backend}{5}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Fundamentos matem\'aticos}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Campo base y torre de extensi\'on}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Curvas, twist y representaciones}{5}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Funciones de l\'inea y embedding disperso}{6}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Miller loop}{6}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Final exponentiation}{6}{subsection.3.5}%
+\contentsline {section}{\numberline {4}Estado implementado del stack criptogr\'afico}{7}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Capa de campo y extensiones}{7}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Capa de curva}{7}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Pairing core}{7}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Slice Groth16 BN254}{8}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Outer circuit y backend directo}{8}{subsection.4.5}%
+\contentsline {section}{\numberline {5}Verificador Groth16 BN254 actual}{8}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Ecuaci\'on de verificaci\'on usada}{8}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Acumulaci\'on de $vk_x$}{9}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Camino variable y camino preparado constante}{9}{subsection.5.3}%
+\contentsline {section}{\numberline {6}Historial de optimizaciones: retenidas, intentadas y descartadas}{9}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Tabla consolidada}{9}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Cadena retenida de \texttt {exp\_by\_neg\_x(...)}}{10}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Tabla de mediciones clave}{11}{subsection.6.3}%
+\contentsline {section}{\numberline {7}Bloqueo actual y camino para destrabar el proyecto}{11}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Diagn\'ostico operativo actual}{11}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Lo ya resuelto}{11}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Lo parcialmente resuelto}{12}{subsection.7.3}%
+\contentsline {subsection}{\numberline {7.4}Lo no resuelto}{12}{subsection.7.4}%
+\contentsline {section}{\numberline {8}Plan de acci\'on priorizado para destrabe}{12}{section.8}%
+\contentsline {section}{\numberline {9}Reproducibilidad}{13}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Fixtures de referencia}{13}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}Comandos clave de CLI}{13}{subsection.9.2}%
+\contentsline {subsection}{\numberline {9.3}Regla de higiene de artefactos}{14}{subsection.9.3}%
+\contentsline {section}{\numberline {10}Derivas documentales detectadas}{14}{section.10}%
+\contentsline {subsection}{\numberline {10.1}Archivo restaurado}{14}{subsection.10.1}%
+\contentsline {subsection}{\numberline {10.2}Documento can\'onico de optimizaciones}{14}{subsection.10.2}%
+\contentsline {subsection}{\numberline {10.3}Compatibilidad para planes renombrados}{14}{subsection.10.3}%
+\contentsline {section}{\numberline {11}Conclusi\'on}{15}{section.11}%

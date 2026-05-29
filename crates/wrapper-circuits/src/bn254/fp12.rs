@@ -1133,7 +1133,8 @@ impl Circuit<NativeField> for Fp12CompressedCyclotomicSquareBlockCircuit {
     let chip = Bn254FieldChip::new(&config);
     let input = AssignedFp12::assign(&chip, &mut layouter, self.value.0, self.value.1)?;
     let expected_witness = fp12_value_witness(Value::known(self.expected));
-    let expected = AssignedFp12::assign(&chip, &mut layouter, expected_witness.0, expected_witness.1)?;
+    let expected =
+      AssignedFp12::assign(&chip, &mut layouter, expected_witness.0, expected_witness.1)?;
     let actual =
       input.compressed_cyclotomic_square_n_times(&chip, &mut layouter, self.square_count)?;
     actual.assert_equal(&chip, &mut layouter, &expected)?;
