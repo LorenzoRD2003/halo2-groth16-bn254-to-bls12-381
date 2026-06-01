@@ -289,6 +289,26 @@ impl<F: WithSmallOrderMulGroup<3>> EvaluationDomain<F> {
         }
     }
 
+    /// Writes the extended coset evaluations of a coefficient-form polynomial
+    /// into a caller-provided scratch buffer.
+    ///
+    /// This avoids reallocating large temporary vectors when the caller wants
+    /// to repeatedly materialize similarly-sized polynomials in the same
+    /// domain.
+    pub fn coeff_to_extended_into(
+        &self,
+        poly: &Polynomial<F, Coeff>,
+        out: &mut Vec<F>,
+    ) {
+        assert_eq!(poly.values.len(), 1 << self.k);
+
+        out.clear();
+        out.extend_from_slice(&poly.values);
+        self.distribute_powers_zeta(out, true);
+        out.resize(self.extended_len(), F::ZERO);
+        best_fft(out, self.extended_omega, self.extended_k);
+    }
+
     /// Returns one wrapped chunk of the extended-domain coset evaluations of a
     /// coefficient-form polynomial.
     pub fn coeff_to_extended_chunk(

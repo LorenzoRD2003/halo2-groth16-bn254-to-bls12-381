@@ -52,6 +52,29 @@ pub use verifier::*;
 
 use crate::poly::commitment::PolynomialCommitmentScheme;
 
+fn collect_fixed_columns_from_expression<F: group::ff::Field>(
+    expression: &Expression<F>,
+    fixed_columns: &mut std::collections::BTreeSet<usize>,
+) {
+    match expression {
+        Expression::Fixed(query) => {
+            fixed_columns.insert(query.column_index);
+        }
+        Expression::Negated(inner) | Expression::Scaled(inner, _) => {
+            collect_fixed_columns_from_expression(inner, fixed_columns);
+        }
+        Expression::Sum(left, right) | Expression::Product(left, right) => {
+            collect_fixed_columns_from_expression(left, fixed_columns);
+            collect_fixed_columns_from_expression(right, fixed_columns);
+        }
+        Expression::Constant(_)
+        | Expression::Selector(_)
+        | Expression::Advice(_)
+        | Expression::Instance(_)
+        | Expression::Challenge(_) => {}
+    }
+}
+
 /// This is a verifying key which allows for the verification of proofs for a
 /// particular circuit.
 #[derive(Clone, Debug)]
@@ -338,7 +361,6 @@ pub struct ProvingKey<F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
     pub(crate) l_active_row: Polynomial<F, ExtendedLagrangeCoeff>,
     pub(crate) fixed_values: Vec<Polynomial<F, LagrangeCoeff>>,
     pub(crate) fixed_polys: Vec<Polynomial<F, Coeff>>,
-    pub(crate) fixed_cosets: Vec<Polynomial<F, ExtendedLagrangeCoeff>>,
     pub(crate) permutation: permutation::ProvingKey<F>,
     pub(crate) ev: Evaluator<F>,
 }
@@ -363,7 +385,6 @@ pub struct FinalizingKey<F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
     pub(crate) l_last: Polynomial<F, ExtendedLagrangeCoeff>,
     pub(crate) l_active_row: Polynomial<F, ExtendedLagrangeCoeff>,
     pub(crate) fixed_polys: Vec<Polynomial<F, Coeff>>,
-    pub(crate) fixed_cosets: Vec<Polynomial<F, ExtendedLagrangeCoeff>>,
     pub(crate) permutation: permutation::FinalizingKey<F>,
     pub(crate) ev: Evaluator<F>,
 }
@@ -375,7 +396,11 @@ pub struct HPolyKey<'a, F: PrimeField, CS: PolynomialCommitmentScheme<F>> {
     pub(crate) l0: Polynomial<F, ExtendedLagrangeCoeff>,
     pub(crate) l_last: Polynomial<F, ExtendedLagrangeCoeff>,
     pub(crate) l_active_row: Polynomial<F, ExtendedLagrangeCoeff>,
-    pub(crate) fixed_cosets: Vec<Option<Polynomial<F, ExtendedLagrangeCoeff>>>,
+    pub(crate) fixed_coeffs: Vec<Option<Polynomial<F, Coeff>>>,
+    pub(crate) custom_gate_fixed_columns: std::collections::BTreeSet<usize>,
+    pub(crate) permutation_fixed_columns: std::collections::BTreeSet<usize>,
+    pub(crate) lookup_fixed_columns: std::collections::BTreeSet<usize>,
+    pub(crate) trash_fixed_columns: std::collections::BTreeSet<usize>,
     pub(crate) permutation: permutation::HPolyKey<'a, F>,
     pub(crate) ev: Evaluator<F>,
 }
@@ -427,7 +452,6 @@ impl<F: PrimeField, CS: PolynomialCommitmentScheme<F>> From<&ProvingKey<F, CS>>
             l_last: value.l_last.clone(),
             l_active_row: value.l_active_row.clone(),
             fixed_polys: value.fixed_polys.clone(),
-            fixed_cosets: value.fixed_cosets.clone(),
             permutation: permutation::FinalizingKey {
                 permutations: value.permutation.permutations.clone(),
                 polys: value.permutation.polys.clone(),
@@ -446,7 +470,11 @@ impl<'a, F: PrimeField, CS: PolynomialCommitmentScheme<F>> From<&'a ProvingKey<F
             l0: value.l0.clone(),
             l_last: value.l_last.clone(),
             l_active_row: value.l_active_row.clone(),
-            fixed_cosets: value.fixed_cosets.iter().cloned().map(Some).collect(),
+            fixed_coeffs: value.fixed_polys.iter().cloned().map(Some).collect(),
+            custom_gate_fixed_columns: (0..value.fixed_polys.len()).collect(),
+            permutation_fixed_columns: (0..value.fixed_polys.len()).collect(),
+            lookup_fixed_columns: (0..value.fixed_polys.len()).collect(),
+            trash_fixed_columns: (0..value.fixed_polys.len()).collect(),
             permutation: permutation::HPolyKey {
                 permutations: &value.permutation.permutations,
             },
@@ -464,7 +492,11 @@ impl<'a, F: PrimeField, CS: PolynomialCommitmentScheme<F>> From<&'a FinalizingKe
             l0: value.l0.clone(),
             l_last: value.l_last.clone(),
             l_active_row: value.l_active_row.clone(),
-            fixed_cosets: value.fixed_cosets.iter().cloned().map(Some).collect(),
+            fixed_coeffs: value.fixed_polys.iter().cloned().map(Some).collect(),
+            custom_gate_fixed_columns: (0..value.fixed_polys.len()).collect(),
+            permutation_fixed_columns: (0..value.fixed_polys.len()).collect(),
+            lookup_fixed_columns: (0..value.fixed_polys.len()).collect(),
+            trash_fixed_columns: (0..value.fixed_polys.len()).collect(),
             permutation: permutation::HPolyKey {
                 permutations: &value.permutation.permutations,
             },
@@ -555,10 +587,6 @@ where
             .iter()
             .map(|poly| self.vk.domain.lagrange_to_coeff(poly.clone()))
             .collect();
-        let fixed_cosets = fixed_polys
-            .iter()
-            .map(|poly| self.vk.domain.coeff_to_extended(poly.clone()))
-            .collect();
         let permutation = self
             .permutation
             .finalize(&self.vk.domain, &self.vk.cs.permutation);
@@ -571,7 +599,6 @@ where
             l_active_row,
             fixed_values: self.fixed_values,
             fixed_polys,
-            fixed_cosets,
             permutation,
             ev,
         }
@@ -586,10 +613,6 @@ where
             .iter()
             .map(|poly| self.vk.domain.lagrange_to_coeff(poly.clone()))
             .collect();
-        let fixed_cosets = fixed_polys
-            .iter()
-            .map(|poly| self.vk.domain.coeff_to_extended(poly.clone()))
-            .collect();
         let permutation = self
             .permutation
             .finalize_for_finalise(&self.vk.domain, &self.vk.cs.permutation);
@@ -601,7 +624,6 @@ where
             l_last,
             l_active_row,
             fixed_polys,
-            fixed_cosets,
             permutation,
             ev,
         }
@@ -610,34 +632,52 @@ where
     /// Promotes the lean setup artifact into only the state required to compute
     /// `h_poly`.
     pub fn finalize_for_h_poly(&self) -> HPolyKey<'_, F, CS> {
-        let mut used_fixed_columns = std::collections::BTreeSet::new();
+        let mut custom_gate_fixed_columns = std::collections::BTreeSet::new();
+        let mut lookup_fixed_columns = std::collections::BTreeSet::new();
+        let mut trash_fixed_columns = std::collections::BTreeSet::new();
+        let mut permutation_fixed_columns = std::collections::BTreeSet::new();
         let mut used_advice_columns = std::collections::BTreeSet::new();
         let mut used_instance_columns = std::collections::BTreeSet::new();
         let ev = Evaluator::new(self.vk.cs());
-        ev.custom_gates.collect_used_columns(
-            &mut used_fixed_columns,
-            &mut used_advice_columns,
-            &mut used_instance_columns,
-        );
-        for evaluator in &ev.lookups {
+        for evaluator in &ev.custom_gates {
             evaluator.collect_used_columns(
-                &mut used_fixed_columns,
+                &mut custom_gate_fixed_columns,
                 &mut used_advice_columns,
                 &mut used_instance_columns,
             );
         }
+        for evaluator in &ev.lookups {
+            evaluator.collect_used_columns(
+                &mut lookup_fixed_columns,
+                &mut used_advice_columns,
+                &mut used_instance_columns,
+            );
+        }
+        for lookup in &self.vk.cs.lookups {
+            for expression in lookup
+                .input_expressions()
+                .iter()
+                .chain(lookup.table_expressions().iter())
+            {
+                collect_fixed_columns_from_expression(expression, &mut lookup_fixed_columns);
+            }
+        }
         for evaluator in &ev.trashcans {
             evaluator.collect_used_columns(
-                &mut used_fixed_columns,
+                &mut trash_fixed_columns,
                 &mut used_advice_columns,
                 &mut used_instance_columns,
             );
         }
         for column in &self.vk.cs.permutation.columns {
             if let Any::Fixed = column.column_type() {
-                used_fixed_columns.insert(column.index());
+                permutation_fixed_columns.insert(column.index());
             }
         }
+        let mut used_fixed_columns = custom_gate_fixed_columns.clone();
+        used_fixed_columns.extend(lookup_fixed_columns.iter().copied());
+        used_fixed_columns.extend(trash_fixed_columns.iter().copied());
+        used_fixed_columns.extend(permutation_fixed_columns.iter().copied());
 
         let base_context = format!(
             "k={} domain_n={} used_fixed_columns={} used_advice_columns={} used_instance_columns={} permutation_columns={}",
@@ -667,30 +707,27 @@ where
         let sparse_fixed_started_at = Instant::now();
         direct_logging::log_event(
             "finalize_for_h_poly",
-            "sparse_fixed_cosets",
+            "sparse_fixed_coeffs",
             "start",
             &base_context,
         );
-        let fixed_cosets: Vec<_> = self
+        let fixed_coeffs: Vec<_> = self
             .fixed_values
             .iter()
             .enumerate()
             .map(|(column_index, value)| {
                 used_fixed_columns
                     .contains(&column_index)
-                    .then(|| {
-                        let coeffs = self.vk.domain.lagrange_to_coeff(value.clone());
-                        self.vk.domain.coeff_to_extended(coeffs)
-                    })
+                    .then(|| self.vk.domain.lagrange_to_coeff(value.clone()))
             })
             .collect();
-        let materialized_fixed_cosets = fixed_cosets.iter().filter(|coset| coset.is_some()).count();
+        let materialized_fixed_coeffs = fixed_coeffs.iter().filter(|value| value.is_some()).count();
         direct_logging::log_elapsed(
             "finalize_for_h_poly",
-            "sparse_fixed_cosets",
+            "sparse_fixed_coeffs",
             sparse_fixed_started_at,
             &format!(
-                "{base_context} materialized_fixed_cosets={materialized_fixed_cosets}"
+                "{base_context} materialized_fixed_coeffs={materialized_fixed_coeffs}"
             ),
         );
 
@@ -716,7 +753,11 @@ where
             l0,
             l_last,
             l_active_row,
-            fixed_cosets,
+            fixed_coeffs,
+            custom_gate_fixed_columns,
+            permutation_fixed_columns,
+            lookup_fixed_columns,
+            trash_fixed_columns,
             permutation,
             ev,
         }
@@ -805,10 +846,6 @@ where
             .iter()
             .map(|poly| vk.domain.lagrange_to_coeff(poly.clone()))
             .collect();
-        let fixed_cosets = fixed_polys
-            .iter()
-            .map(|poly| vk.domain.coeff_to_extended(poly.clone()))
-            .collect();
         let permutation =
             permutation::ProvingKey::read(reader, format, &vk.domain, &vk.cs.permutation)?;
         let ev = Evaluator::new(vk.cs());
@@ -819,7 +856,6 @@ where
             l_active_row,
             fixed_values,
             fixed_polys,
-            fixed_cosets,
             permutation,
             ev,
         })

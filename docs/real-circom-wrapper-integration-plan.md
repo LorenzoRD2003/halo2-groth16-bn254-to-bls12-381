@@ -18,6 +18,8 @@ The repository already has the core pieces of a real `.circom` integration:
 - the canonical `OuterWrapperCircuit`
 - a real direct Halo2/Midnight setup/prove/verify lane
 - committed `circom_multiplier2` and `semaphore` fixtures
+- a direct Semaphore operator playbook in
+  `docs/semaphore-direct-execution-playbook.md`
 
 This means the repo is already past the “can we ingest a real Circom proof
 tuple at all?” stage.
@@ -79,6 +81,8 @@ Secondary blockers:
 - artifact hygiene remains important when setup/trace/finalize formats change
 - heavier fixtures remain expensive enough that reproducible developer
   experimentation requires discipline
+- Semaphore in particular should be treated as a larger operational memory /
+  throughput case study rather than as a second tiny smoke fixture
 
 ## Recommended Completion Order
 

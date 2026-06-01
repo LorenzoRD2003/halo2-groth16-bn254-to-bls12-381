@@ -11,7 +11,8 @@ use crate::{
         circuit::Circuit,
         lookup, permutation,
         prover::{
-            compute_h_poly, compute_instances, compute_queries, parse_advices,
+            compute_h_poly, compute_instances, compute_permutation_constraints_only,
+            compute_queries, compute_trace as raw_compute_trace, parse_advices,
             write_evals_to_transcript,
         },
         traces::ProverTrace,
@@ -418,6 +419,12 @@ where
 
     let domain = pk.vk.get_domain();
 
+    group.bench_function("Permutation constraints only", |b| {
+        b.iter(|| {
+            let _ = compute_permutation_constraints_only(pk, &trace);
+        })
+    });
+
     let h_poly = {
         group.bench_function("Compute H poly", |b| {
             b.iter(|| {
@@ -605,6 +612,60 @@ where
     #[cfg(not(feature = "committed-instances"))]
     let nb_committed_instances: usize = 0;
 
+    let trace = raw_compute_trace(
+        params,
+        pk,
+        circuits,
+        #[cfg(feature = "committed-instances")]
+        nb_committed_instances,
+        instances,
+        rng,
+        transcript,
+    )?;
+    let pk = FinalizingKey::from(pk);
+
+    finalise_proof(
+        params,
+        &pk,
+        #[cfg(feature = "committed-instances")]
+        nb_committed_instances,
+        trace,
+        transcript,
+        group,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+/// Benchmarks only the permutation-constraint portion of `compute_h_poly(...)`
+/// after first preparing one real prover trace from the supplied circuit and
+/// proving key.
+pub fn benchmark_permutation_constraints_only<
+    F,
+    CS: PolynomialCommitmentScheme<F>,
+    T: Transcript,
+    ConcreteCircuit: Circuit<F>,
+>(
+    params: &CS::Parameters,
+    pk: &ProvingKey<F, CS>,
+    circuits: &[ConcreteCircuit],
+    #[cfg(feature = "committed-instances")] nb_committed_instances: usize,
+    instances: &[&[&[F]]],
+    rng: impl RngCore + CryptoRng,
+    transcript: &mut T,
+    group: &mut BenchmarkGroup<criterion::measurement::WallTime>,
+) -> Result<(), Error>
+where
+    CS::Commitment: Hashable<T::Hash>,
+    F: WithSmallOrderMulGroup<3>
+        + Sampleable<T::Hash>
+        + Hashable<T::Hash>
+        + Hash
+        + Ord
+        + FromUniformBytes<64>,
+{
+    #[cfg(not(feature = "committed-instances"))]
+    let nb_committed_instances: usize = 0;
+
     let trace = compute_trace(
         params,
         pk,
@@ -618,13 +679,11 @@ where
     )?;
     let pk = FinalizingKey::from(pk);
 
-    finalise_proof(
-        params,
-        &pk,
-        #[cfg(feature = "committed-instances")]
-        nb_committed_instances,
-        trace,
-        transcript,
-        group,
-    )
+    group.bench_function("Permutation constraints only", |b| {
+        b.iter(|| {
+            let _ = compute_permutation_constraints_only(&pk, &trace);
+        })
+    });
+
+    Ok(())
 }

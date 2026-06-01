@@ -47,6 +47,7 @@ Use the shortest route that matches the task:
 - Groth16 verifier slice: `crates/wrapper-circuits/src/groth16.rs` -> `crates/wrapper-backends/src/snarkjs.rs` -> `crates/wrapper-tests/fixtures/groth16/circom_multiplier2/README.md`
 - Wrapper planning / package flow: `crates/wrapper-backends/src/groth16.rs` -> `crates/wrapper-core/src/job.rs` -> `crates/wrapper-core/src/package.rs` -> `crates/wrapper-core/src/output.rs` -> `crates/wrapper-core/src/execution.rs`
 - Semaphore migration fixture: `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `crates/wrapper-tests/src/lib.rs` -> `crates/wrapper-cli/src/main.rs`
+- Semaphore direct execution playbook: `docs/semaphore-direct-execution-playbook.md`
 - ZK Email integration study: `docs/plans/0004-zk-email-integration-plan.md` -> `crates/wrapper-tests/fixtures/groth16/semaphore/README.md` -> `docs/plans/0003-plutus-aiken-integration-plan.md`
 - Real `.circom` integration plan: `docs/real-circom-wrapper-integration-plan.md`
 - Canonical R1CS backend status: `docs/r1cs-backend-status.md`
@@ -76,6 +77,7 @@ Top-level doc roles:
 - `docs/real-circom-wrapper-integration-plan.md`: implementation plan to finish the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current state of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision for the canonical outer circuit and the direct backend surface
+- `docs/semaphore-direct-execution-playbook.md`: operational direct-lane commands, host recommendation, public-input naming, and artifact layout for the committed Semaphore fixture
 
 Current direct execution note:
 
@@ -437,3 +439,24 @@ Future strategy:
 ## Disclaimer
 
 This repository now contains a circuit-backed BN254 primitive layer using `midnight-circuits` and `midnight-proofs`, organized under `wrapper-circuits/src/bn254/`, together with a first narrow Groth16 BN254 verifier slice in `wrapper-circuits/src/groth16.rs` and `wrapper-backends/src/snarkjs.rs`. The Fp6 and Fp12 layers support `add`, `sub`, `neg`, `mul`, and `square` over the arkworks-compatible BN254 tower; the Jacobian G2 layer supports non-identity `from_affine`, `neg`, `double`, and incomplete `add`; the Miller-path layer supports non-identity `double_with_line` and `mixed_add_with_line` with sparse `Fp12`-facing coefficients; and the verifier slice now supports real snarkjs proof/VK parsing, verifier-only IC accumulation, and one end-to-end pairing-product-check verification path. The repository still does not include subgroup checks, broad scalar multiplication, generalized verifier frameworks, proof generation, or a production wrapper verifier circuit. Current Criterion benchmarks are sanity-check hooks over small implemented circuits and should not be read as production cryptographic performance claims.
+## Semaphore Direct Lane
+
+The repository now also has a dedicated Semaphore direct-lane playbook:
+
+- `docs/semaphore-direct-execution-playbook.md`
+
+That note is the current source of truth for:
+
+- persistent artifact paths under `artifacts/direct-profile-semaphore/`
+- the currently recommended first host lane (`midnight-bls12381-host`)
+- the current starting `--h-poly-row-chunk-size 13` recommendation
+- the semantic public-input names:
+  - `merkle_root`
+  - `nullifier`
+  - `message_hash`
+  - `scope_hash`
+- the exact `setup`, `prove-trace`, `prove-finalize`, and `verify` commands
+
+Use that playbook instead of copying the smaller `circom_multiplier2` commands
+blindly: Semaphore is a larger fixture and should be treated as an operational
+memory/performance case study, not merely as another smoke test.

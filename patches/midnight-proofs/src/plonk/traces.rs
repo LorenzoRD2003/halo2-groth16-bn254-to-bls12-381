@@ -11,7 +11,7 @@ use crate::{
         commitment::PolynomialCommitmentScheme, Coeff, EvaluationDomain, ExtendedLagrangeCoeff,
         Polynomial,
     },
-    transcript::Transcript,
+    transcript::PersistableTranscript,
     utils::{helpers::{read_polynomial_vec, write_polynomial_slice}, SerdeFormat},
 };
 
@@ -55,6 +55,7 @@ pub struct VerifierTrace<F: PrimeField, PCS: PolynomialCommitmentScheme<F>> {
 #[derive(Debug)]
 pub struct PreparedFinalizationTrace<F: PrimeField> {
     transcript_prefix: Vec<u8>,
+    transcript_state_snapshot: Vec<u8>,
     pub(crate) advice_cosets: Vec<Vec<Option<Polynomial<F, ExtendedLagrangeCoeff>>>>,
     pub(crate) instance_cosets: Vec<Vec<Option<Polynomial<F, ExtendedLagrangeCoeff>>>>,
     pub(crate) vanishing: vanishing::prover::Committed<F>,
@@ -71,8 +72,8 @@ pub struct PreparedFinalizationTrace<F: PrimeField> {
 
 impl<F: PrimeField> PreparedFinalizationTrace<F> {
     /// Reconstructs a transcript from the persisted prefix bytes.
-    pub fn init_transcript<T: Transcript>(&self) -> T {
-        T::init_from_bytes(&self.transcript_prefix)
+    pub fn init_transcript<T: PersistableTranscript>(&self) -> io::Result<T> {
+        T::restore_from_state_and_bytes(&self.transcript_state_snapshot, &self.transcript_prefix)
     }
 }
 
@@ -91,22 +92,28 @@ type OptionalPolynomialGroups<F, B> = Vec<Vec<Option<Polynomial<F, B>>>>;
 #[derive(Debug)]
 pub struct PersistedProverTrace<F: PrimeField> {
     transcript_prefix: Vec<u8>,
+    transcript_state_snapshot: Vec<u8>,
     trace: ProverTrace<F>,
 }
 
 impl<F: PrimeField> PersistedProverTrace<F> {
     /// Builds a persisted prover trace artifact from transcript bytes and a
     /// prover trace.
-    pub fn new(transcript_prefix: Vec<u8>, trace: ProverTrace<F>) -> Self {
+    pub fn new(
+        transcript_prefix: Vec<u8>,
+        transcript_state_snapshot: Vec<u8>,
+        trace: ProverTrace<F>,
+    ) -> Self {
         Self {
             transcript_prefix,
+            transcript_state_snapshot,
             trace,
         }
     }
 
     /// Reconstructs a transcript from the persisted prefix bytes.
-    pub fn init_transcript<T: Transcript>(&self) -> T {
-        T::init_from_bytes(&self.transcript_prefix)
+    pub fn init_transcript<T: PersistableTranscript>(&self) -> io::Result<T> {
+        T::restore_from_state_and_bytes(&self.transcript_state_snapshot, &self.transcript_prefix)
     }
 
     /// Consumes the persisted artifact and returns the underlying prover trace.
@@ -131,6 +138,8 @@ impl<F: PrimeField + SerdeObject> PersistedProverTrace<F> {
         let (used_advice_columns, used_instance_columns) = collect_used_columns(vk.cs());
         writer.write_all(&(self.transcript_prefix.len() as u32).to_be_bytes())?;
         writer.write_all(&self.transcript_prefix)?;
+        writer.write_all(&(self.transcript_state_snapshot.len() as u32).to_be_bytes())?;
+        writer.write_all(&self.transcript_state_snapshot)?;
 
         write_nested_optional_extended_from_coeffs(
             &self.trace.advice_polys,
@@ -196,6 +205,29 @@ impl<F: PrimeField + SerdeObject> PersistedProverTrace<F> {
         let prefix_len = u32::from_be_bytes(prefix_len_bytes) as usize;
         let mut transcript_prefix = vec![0u8; prefix_len];
         reader.read_exact(&mut transcript_prefix)?;
+        reader.read_exact(&mut prefix_len_bytes)?;
+        let snapshot_len = u32::from_be_bytes(prefix_len_bytes) as usize;
+        if snapshot_len > (64 * 1024 * 1024) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "persisted prover trace appears to use an older format without transcript state snapshot (observed snapshot length {snapshot_len}); rerun prove-trace with the current binary"
+                ),
+            ));
+        }
+        let mut transcript_state_snapshot = vec![0u8; snapshot_len];
+        reader
+            .read_exact(&mut transcript_state_snapshot)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::UnexpectedEof {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "persisted prover trace is truncated or predates transcript snapshot support; rerun prove-trace with the current binary",
+                    )
+                } else {
+                    error
+                }
+            })?;
 
         let advice_cosets = read_nested_optional_polynomials(reader)?;
         let instance_cosets = read_nested_optional_polynomials(reader)?;
@@ -266,6 +298,7 @@ impl<F: PrimeField + SerdeObject> PersistedProverTrace<F> {
 
         Ok(PreparedFinalizationTrace {
           transcript_prefix,
+          transcript_state_snapshot,
           advice_cosets,
           instance_cosets,
           vanishing,
@@ -373,11 +406,13 @@ fn collect_used_columns<F: PrimeField + WithSmallOrderMulGroup<3>>(
     let mut used_fixed_columns = std::collections::BTreeSet::new();
     let mut used_advice_columns = std::collections::BTreeSet::new();
     let mut used_instance_columns = std::collections::BTreeSet::new();
-    ev.custom_gates.collect_used_columns(
-        &mut used_fixed_columns,
-        &mut used_advice_columns,
-        &mut used_instance_columns,
-    );
+    for evaluator in &ev.custom_gates {
+        evaluator.collect_used_columns(
+            &mut used_fixed_columns,
+            &mut used_advice_columns,
+            &mut used_instance_columns,
+        );
+    }
     for evaluator in &ev.lookups {
         evaluator.collect_used_columns(
             &mut used_fixed_columns,

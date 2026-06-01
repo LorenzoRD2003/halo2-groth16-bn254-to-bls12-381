@@ -6,6 +6,8 @@ use std::marker::PhantomData;
 use criterion::{BenchmarkId, Criterion};
 use group::ff::Field;
 use midnight_curves::{Bls12, Fq as Scalar};
+#[cfg(feature = "bench-internal")]
+use midnight_proofs::plonk::bench::prover::benchmark_permutation_constraints_only;
 use midnight_proofs::{
     circuit::{Cell, Layouter, SimpleFloorPlanner, Value},
     plonk::*,
@@ -339,6 +341,32 @@ fn criterion_benchmark(c: &mut Criterion) {
         );
     }
     prover_group.finish();
+
+    #[cfg(feature = "bench-internal")]
+    {
+        let k = 16_u32;
+        let mut permutation_phase_group = c.benchmark_group(format!("plonk-permutation-phase/k{k}"));
+        permutation_phase_group.sample_size(10);
+        let (params, pk) = keygen(k);
+        let circuit: MyCircuit<Scalar> = MyCircuit {
+            a: Value::known(Scalar::random(OsRng)),
+            k,
+        };
+        let mut transcript = CircuitTranscript::init();
+        benchmark_permutation_constraints_only::<Scalar, KZGCommitmentScheme<Bls12>, _, _>(
+            &params,
+            &pk,
+            std::slice::from_ref(&circuit),
+            #[cfg(feature = "committed-instances")]
+            0,
+            &[&[]],
+            OsRng,
+            &mut transcript,
+            &mut permutation_phase_group,
+        )
+        .expect("permutation-only benchmark should not fail");
+        permutation_phase_group.finish();
+    }
 
     let mut verifier_group = c.benchmark_group("plonk-verifier");
     for k in k_range {

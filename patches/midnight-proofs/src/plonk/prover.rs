@@ -31,7 +31,7 @@ use crate::{
         batch_invert_rational, commitment::PolynomialCommitmentScheme, Coeff,
         ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, PolynomialRepresentation, ProverQuery,
     },
-    transcript::{Hashable, Sampleable, Transcript},
+    transcript::{Hashable, PersistableTranscript, Sampleable, Transcript},
     utils::{arithmetic::eval_polynomial, rational::Rational},
 };
 
@@ -620,7 +620,7 @@ where
 pub fn create_proof_trace_from_base<
     F,
     CS: PolynomialCommitmentScheme<F>,
-    T: Transcript + Clone,
+    T: PersistableTranscript + Clone,
     ConcreteCircuit: Circuit<F>,
 >(
     params: &CS::Parameters,
@@ -652,7 +652,11 @@ where
         rng,
         transcript,
     )?;
-    Ok(PersistedProverTrace::new(transcript.clone().finalize(), trace))
+    Ok(PersistedProverTrace::new(
+        transcript.clone().finalize(),
+        transcript.snapshot_state(),
+        trace,
+    ))
 }
 
 /// Finalizes a proof from a persisted first-stage prover trace.
@@ -704,7 +708,7 @@ where
         "finalize",
         "build_h_poly_key",
         "start",
-        &format!("proof_index=0"),
+        "proof_index=0",
     );
     let h_pk = pk.finalize_for_h_poly();
     direct_logging::log_elapsed(
@@ -1470,19 +1474,14 @@ pub(super) fn compute_h_poly<F: WithSmallOrderMulGroup<3>, CS: PolynomialCommitm
         y,
         ..
     } = &trace;
-    let (used_advice_columns, used_instance_columns) = collect_used_columns(&pk.vk.cs, &pk.ev);
-
-    // Calculate only the advice and instance cosets actually used by the evaluator/permutation.
+    // Calculate the advice and instance cosets.
     let advice_cosets: Vec<Vec<Option<Polynomial<F, ExtendedLagrangeCoeff>>>> = advice_polys
         .iter()
         .map(|advice_polys| {
             advice_polys
                 .iter()
-                .enumerate()
-                .map(|(column_index, poly)| {
-                    used_advice_columns.contains(&column_index).then(|| {
-                        pk.vk.get_domain().coeff_to_extended(poly.clone())
-                    })
+                .map(|poly| {
+                    Some(pk.vk.get_domain().coeff_to_extended(poly.clone()))
                 })
                 .collect()
         })
@@ -1492,11 +1491,8 @@ pub(super) fn compute_h_poly<F: WithSmallOrderMulGroup<3>, CS: PolynomialCommitm
         .map(|instance_polys| {
             instance_polys
                 .iter()
-                .enumerate()
-                .map(|(column_index, poly)| {
-                    used_instance_columns.contains(&column_index).then(|| {
-                        pk.vk.get_domain().coeff_to_extended(poly.clone())
-                    })
+                .map(|poly| {
+                    Some(pk.vk.get_domain().coeff_to_extended(poly.clone()))
                 })
                 .collect()
         })
@@ -1519,47 +1515,87 @@ pub(super) fn compute_h_poly<F: WithSmallOrderMulGroup<3>, CS: PolynomialCommitm
     )
 }
 
-fn collect_used_columns<F: PrimeField>(
-    cs: &ConstraintSystem<F>,
-    ev: &super::Evaluator<F>,
-) -> (BTreeSet<usize>, BTreeSet<usize>) {
-    let mut used_fixed_columns = BTreeSet::new();
+#[cfg(feature = "bench-internal")]
+pub(crate) fn compute_permutation_constraints_only<
+    F: WithSmallOrderMulGroup<3>,
+    CS: PolynomialCommitmentScheme<F>,
+>(
+    pk: &FinalizingKey<F, CS>,
+    trace: &ProverTrace<F>,
+) -> Polynomial<F, ExtendedLagrangeCoeff> {
+    let ProverTrace { advice_polys, instance_polys, permutations, beta, gamma, y, .. } = trace;
+
+    let mut permutation_fixed_columns = BTreeSet::new();
     let mut used_advice_columns = BTreeSet::new();
     let mut used_instance_columns = BTreeSet::new();
-    ev.custom_gates.collect_used_columns(
-        &mut used_fixed_columns,
-        &mut used_advice_columns,
-        &mut used_instance_columns,
-    );
-    for evaluator in &ev.lookups {
-        evaluator.collect_used_columns(
-            &mut used_fixed_columns,
-            &mut used_advice_columns,
-            &mut used_instance_columns,
-        );
-    }
-    for evaluator in &ev.trashcans {
-        evaluator.collect_used_columns(
-            &mut used_fixed_columns,
-            &mut used_advice_columns,
-            &mut used_instance_columns,
-        );
-    }
-    for column in &cs.permutation.columns {
+    for column in &pk.vk.cs.permutation.columns {
         match column.column_type() {
             Any::Advice(_) => {
                 used_advice_columns.insert(column.index());
             }
             Any::Fixed => {
-                used_fixed_columns.insert(column.index());
+                permutation_fixed_columns.insert(column.index());
             }
             Any::Instance => {
                 used_instance_columns.insert(column.index());
             }
         }
     }
-    let _ = used_fixed_columns;
-    (used_advice_columns, used_instance_columns)
+
+    let advice_cosets: Vec<Vec<Option<Polynomial<F, ExtendedLagrangeCoeff>>>> = advice_polys
+        .iter()
+        .map(|advice_polys| {
+            advice_polys
+                .iter()
+                .enumerate()
+                .map(|(column_index, poly)| {
+                    used_advice_columns
+                        .contains(&column_index)
+                        .then(|| pk.vk.get_domain().coeff_to_extended(poly.clone()))
+                })
+                .collect()
+        })
+        .collect();
+    let instance_cosets: Vec<Vec<Option<Polynomial<F, ExtendedLagrangeCoeff>>>> = instance_polys
+        .iter()
+        .map(|instance_polys| {
+            instance_polys
+                .iter()
+                .enumerate()
+                .map(|(column_index, poly)| {
+                    used_instance_columns
+                        .contains(&column_index)
+                        .then(|| pk.vk.get_domain().coeff_to_extended(poly.clone()))
+                })
+                .collect()
+        })
+        .collect();
+
+    let fixed_coeffs = pk.fixed_polys.iter().cloned().map(Some).collect::<Vec<_>>();
+    pk.ev.evaluate_permutation_constraints_only::<ExtendedLagrangeCoeff>(
+        &pk.vk.domain,
+        &pk.vk.cs,
+        advice_cosets
+            .first()
+            .expect("bench permutation path expects one advice proof")
+            .as_slice(),
+        instance_cosets
+            .first()
+            .expect("bench permutation path expects one instance proof")
+            .as_slice(),
+        &fixed_coeffs,
+        &permutation_fixed_columns,
+        *y,
+        *beta,
+        *gamma,
+        permutations
+            .first()
+            .expect("bench permutation path expects one permutation proof"),
+        &pk.l0,
+        &pk.l_last,
+        &pk.l_active_row,
+        &pk.permutation.permutations,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1586,7 +1622,11 @@ fn compute_h_poly_from_prepared_parts<
         &pk.vk.cs,
         &advice_cosets.iter().map(|a| a.as_slice()).collect::<Vec<_>>(),
         &instance_cosets.iter().map(|i| i.as_slice()).collect::<Vec<_>>(),
-        &pk.fixed_cosets,
+        &pk.fixed_coeffs,
+        &pk.custom_gate_fixed_columns,
+        &pk.permutation_fixed_columns,
+        &pk.lookup_fixed_columns,
+        &pk.trash_fixed_columns,
         challenges,
         y,
         beta,
@@ -1878,13 +1918,16 @@ impl<F: Field> Assignment<F> for WitnessCollection<'_, F> {
 #[cfg(feature = "dev-curves")]
 fn test_create_proof() {
     use midnight_curves::bn256::{Bn256, Fr};
+    use rand_chacha::ChaCha20Rng;
     use rand_core::OsRng;
+    use rand_core::SeedableRng;
 
     use crate::{
         circuit::SimpleFloorPlanner,
-        plonk::{keygen_pk, keygen_vk_with_k},
+        plonk::{keygen_pk, keygen_pk_base, keygen_vk_with_k, prepare},
         poly::kzg::{params::ParamsKZG, KZGCommitmentScheme},
-        transcript::CircuitTranscript,
+        transcript::{CircuitTranscript, ReplayableCircuitTranscript},
+        utils::SerdeFormat,
     };
 
     #[derive(Clone, Copy)]
@@ -1942,4 +1985,200 @@ fn test_create_proof() {
         &mut transcript,
     )
     .expect("proof generation should not fail");
+
+    let base_pk = keygen_pk_base(vk.clone(), &MyCircuit).expect("keygen_pk_base should not fail");
+
+    let mut monolithic_transcript = ReplayableCircuitTranscript::<_>::init();
+    create_proof_from_base::<Fr, KZGCommitmentScheme<Bn256>, _, _>(
+        &params,
+        base_pk.clone(),
+        &[MyCircuit],
+        #[cfg(feature = "committed-instances")]
+        0,
+        &[&[]],
+        ChaCha20Rng::from_seed([7u8; 32]),
+        &mut monolithic_transcript,
+    )
+    .expect("monolithic base proof generation should not fail");
+    let monolithic_proof = monolithic_transcript.finalize();
+
+    let mut split_transcript = ReplayableCircuitTranscript::<_>::init();
+    let trace = create_proof_trace_from_base::<Fr, KZGCommitmentScheme<Bn256>, _, _>(
+        &params,
+        &base_pk,
+        &[MyCircuit],
+        #[cfg(feature = "committed-instances")]
+        0,
+        &[&[]],
+        ChaCha20Rng::from_seed([7u8; 32]),
+        &mut split_transcript,
+    )
+    .expect("split trace generation should not fail");
+    let mut persisted_trace = Vec::new();
+    trace
+        .write::<_, KZGCommitmentScheme<Bn256>>(&mut persisted_trace, base_pk.get_vk())
+        .expect("persisting split trace should not fail");
+    let mut trace_reader = persisted_trace.as_slice();
+    let prepared_trace = PersistedProverTrace::<Fr>::read_prepared(&mut trace_reader)
+        .expect("prepared trace should deserialize");
+    let mut resumed_transcript = prepared_trace
+        .init_transcript::<ReplayableCircuitTranscript<_>>()
+        .expect("transcript restoration should succeed");
+    finalise_proof_from_base_trace::<Fr, KZGCommitmentScheme<Bn256>, _, _>(
+        &params,
+        base_pk,
+        #[cfg(feature = "committed-instances")]
+        0,
+        prepared_trace,
+        &mut trace_reader,
+        &mut resumed_transcript,
+    )
+    .expect("split finalization should not fail");
+    let split_proof = resumed_transcript.finalize();
+
+    let empty_committed_instances: &[<KZGCommitmentScheme<Bn256> as PolynomialCommitmentScheme<
+        Fr,
+    >>::Commitment] = &[];
+    let empty_instances: &[&[Fr]] = &[];
+    let mut monolithic_verifier_transcript = CircuitTranscript::<_>::init_from_bytes(&monolithic_proof);
+    let monolithic_guard = prepare::<Fr, KZGCommitmentScheme<Bn256>, _>(
+        &vk,
+        &[empty_committed_instances],
+        &[empty_instances],
+        &mut monolithic_verifier_transcript,
+    )
+    .expect("monolithic proof should prepare successfully");
+    assert!(monolithic_guard.verify(&params.verifier_params()).is_ok());
+
+    let mut verifier_transcript = CircuitTranscript::<_>::init_from_bytes(&split_proof);
+    let guard = prepare::<Fr, KZGCommitmentScheme<Bn256>, _>(
+        &vk,
+        &[empty_committed_instances],
+        &[empty_instances],
+        &mut verifier_transcript,
+    )
+    .expect("split proof should prepare successfully");
+    assert!(guard.verify(&params.verifier_params()).is_ok());
+}
+
+#[test]
+fn split_base_proof_roundtrip_matches_monolithic_for_bls12() {
+    use blake2b_simd::State as Blake2bState;
+    use midnight_curves::{Bls12, Fq as Bls12Scalar};
+    use rand_chacha::ChaCha20Rng;
+    use rand_core::{OsRng, SeedableRng};
+
+    use crate::{
+        circuit::SimpleFloorPlanner,
+        plonk::{keygen_pk_base, keygen_vk_with_k, prepare},
+        poly::{
+            commitment::{Guard, PolynomialCommitmentScheme},
+            kzg::{KZGCommitmentScheme, params::ParamsKZG},
+        },
+        transcript::{CircuitTranscript, ReplayableCircuitTranscript},
+    };
+
+    #[derive(Clone, Copy)]
+    struct MyCircuit;
+
+    impl<F: Field> Circuit<F> for MyCircuit {
+        type Config = ();
+        type FloorPlanner = SimpleFloorPlanner;
+        #[cfg(feature = "circuit-params")]
+        type Params = ();
+
+        fn without_witnesses(&self) -> Self {
+            *self
+        }
+
+        fn configure(_meta: &mut ConstraintSystem<F>) -> Self::Config {}
+
+        fn synthesize(
+            &self,
+            _config: Self::Config,
+            _layouter: impl crate::circuit::Layouter<F>,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    const K: u32 = 4;
+    let params: ParamsKZG<Bls12> = ParamsKZG::unsafe_setup(K, OsRng);
+    let vk = keygen_vk_with_k(&params, &MyCircuit, K).expect("keygen_vk should not fail");
+    let base_pk = keygen_pk_base(vk.clone(), &MyCircuit).expect("keygen_pk_base should not fail");
+
+    let mut monolithic_transcript = ReplayableCircuitTranscript::<Blake2bState>::init();
+    create_proof_from_base::<Bls12Scalar, KZGCommitmentScheme<Bls12>, _, _>(
+        &params,
+        base_pk.clone(),
+        &[MyCircuit],
+        #[cfg(feature = "committed-instances")]
+        0,
+        &[&[]],
+        ChaCha20Rng::from_seed([9u8; 32]),
+        &mut monolithic_transcript,
+    )
+    .expect("monolithic base proof generation should not fail");
+    let monolithic_proof = monolithic_transcript.finalize();
+
+    let mut split_transcript = ReplayableCircuitTranscript::<Blake2bState>::init();
+    let trace = create_proof_trace_from_base::<Bls12Scalar, KZGCommitmentScheme<Bls12>, _, _>(
+        &params,
+        &base_pk,
+        &[MyCircuit],
+        #[cfg(feature = "committed-instances")]
+        0,
+        &[&[]],
+        ChaCha20Rng::from_seed([9u8; 32]),
+        &mut split_transcript,
+    )
+    .expect("split trace generation should not fail");
+    let mut persisted_trace = Vec::new();
+    trace
+        .write::<_, KZGCommitmentScheme<Bls12>>(&mut persisted_trace, base_pk.get_vk())
+        .expect("persisting split trace should not fail");
+    let mut trace_reader = persisted_trace.as_slice();
+    let prepared_trace = PersistedProverTrace::<Bls12Scalar>::read_prepared(&mut trace_reader)
+        .expect("prepared trace should deserialize");
+    let mut resumed_transcript = prepared_trace
+        .init_transcript::<ReplayableCircuitTranscript<Blake2bState>>()
+        .expect("transcript restoration should succeed");
+    finalise_proof_from_base_trace::<Bls12Scalar, KZGCommitmentScheme<Bls12>, _, _>(
+        &params,
+        base_pk,
+        #[cfg(feature = "committed-instances")]
+        0,
+        prepared_trace,
+        &mut trace_reader,
+        &mut resumed_transcript,
+    )
+    .expect("split finalization should not fail");
+    let split_proof = resumed_transcript.finalize();
+    assert_eq!(&split_proof[..48], &monolithic_proof[..48]);
+
+    let empty_committed_instances: &[<KZGCommitmentScheme<Bls12> as PolynomialCommitmentScheme<
+        Bls12Scalar,
+    >>::Commitment] = &[];
+    let empty_instances: &[&[Bls12Scalar]] = &[];
+    let mut monolithic_verifier_transcript =
+        CircuitTranscript::<Blake2bState>::init_from_bytes(&monolithic_proof);
+    let monolithic_guard = prepare::<Bls12Scalar, KZGCommitmentScheme<Bls12>, _>(
+        &vk,
+        &[empty_committed_instances],
+        &[empty_instances],
+        &mut monolithic_verifier_transcript,
+    )
+    .expect("monolithic proof should prepare successfully");
+    assert!(monolithic_guard.verify(&params.verifier_params()).is_ok());
+
+    let mut verifier_transcript =
+        CircuitTranscript::<Blake2bState>::init_from_bytes(&split_proof);
+    let guard = prepare::<Bls12Scalar, KZGCommitmentScheme<Bls12>, _>(
+        &vk,
+        &[empty_committed_instances],
+        &[empty_instances],
+        &mut verifier_transcript,
+    )
+    .expect("split proof should prepare successfully");
+    assert!(guard.verify(&params.verifier_params()).is_ok());
 }

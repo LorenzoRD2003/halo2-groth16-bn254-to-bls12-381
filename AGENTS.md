@@ -130,6 +130,13 @@ If you need the current Semaphore migration fixture context:
 3. `crates/wrapper-backends/src/groth16.rs`
 4. `crates/wrapper-cli/src/main.rs`
 
+If you need the current direct-lane Semaphore runbook:
+
+1. `docs/semaphore-direct-execution-playbook.md`
+2. `crates/wrapper-tests/fixtures/groth16/semaphore/README.md`
+3. `crates/wrapper-tests/src/lib.rs`
+4. `crates/wrapper-cli/src/main.rs`
+
 If you need the ZK Email integration study context:
 
 1. `docs/plans/0004-zk-email-integration-plan.md`
@@ -199,8 +206,17 @@ If you need deferred speed follow-up context after the current `h_poly` memory
 blocker is solved:
 
 1. `docs/h-poly-followup-speed-plan.md`
-2. `docs/decisions/0003-direct-outer-setup-cost-reduction.md`
-3. `docs/decisions/0004-local-midnight-proofs-patch.md`
+2. `docs/finalize-successful-run-metrics.md`
+3. `docs/decisions/0003-direct-outer-setup-cost-reduction.md`
+4. `docs/decisions/0004-local-midnight-proofs-patch.md`
+
+If you need the current successful direct `prove-finalize` baseline with real
+timings and peak memory:
+
+1. `docs/finalize-successful-run-metrics.md`
+2. `docs/h-poly-followup-speed-plan.md`
+3. `docs/plans/0006-finalize-checkpoint-profiling-plan.md`
+4. `patches/midnight-proofs/src/plonk/evaluation.rs`
 
 If you need ultra-fine finalize profiling context for the current memory
 blocker:
@@ -266,11 +282,13 @@ Use each top-level doc for one job:
 - `docs/plans/0006-finalize-checkpoint-profiling-plan.md`: implementation plan for ultra-fine `prove-finalize` checkpoint logging, iteration heartbeats, memory snapshots, elapsed-time profiling, and real-time log inspection
 - `docs/plans/0007-pairing-kernel-opportunity-audit-plan.md`: prioritized audit and experiment plan for new pairing kernels that must reduce real base-arithmetic cost rather than merely repackage existing formulas
 - `docs/h-poly-followup-speed-plan.md`: deferred speed-oriented follow-ups for the retained chunked `h_poly` path once the current memory blocker is solved
+- `docs/finalize-successful-run-metrics.md`: successful `prove-finalize` baseline report with real wall-clock, peak-memory, and hotspot rankings for the current chunked direct lane
 - `docs/plans/0002-cyclotomic-unitary-kernel-design.md`: proposed compressed-torus-region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` sites in the hard part
 - `docs/plans/0004-zk-email-integration-plan.md`: phased plan for the first larger Circom-origin integration track using ZK Email as the reference case
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current status of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision and direct backend surface for the canonical Halo2/Midnight outer circuit
+- `docs/semaphore-direct-execution-playbook.md`: operational direct-lane commands, host recommendation, chunk-size starting point, semantic public-input naming, and artifact layout for the committed Semaphore fixture
 
 When adding a new major doc, update this list and at least one context route so
 future agents know when to read it.
@@ -345,6 +363,7 @@ future agents know when to read it.
 - The current narrow optimization-baseline surface is `profile-layout`, which emits TSV layout metrics for Groth16, pairing-term scaling, public-input scaling, and existing pairing-core blocks.
 - Treat `profile-layout` as layout/constraint profiling, not runtime benchmarking.
 - The current planning/execution surfaces for wrapper experiments are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, `execute-wrapper-stub`, `execute-wrapper-direct`, `execute-wrapper-direct-setup`, `execute-wrapper-direct-prove`, `execute-wrapper-direct-prove-trace`, `execute-wrapper-direct-prove-finalize`, and `execute-wrapper-direct-verify`.
+- For the committed Semaphore fixture, the current operational runbook lives in `docs/semaphore-direct-execution-playbook.md`; it recommends starting from `midnight-bls12381-host`, persisting artifacts under `artifacts/direct-profile-semaphore/`, and carrying the semantic public-input names through the direct CLI via repeated `--public-input-name` flags.
 - Direct execution commands now enforce a `24 GiB` process memory limit.
 - The direct setup artifact now persists verification materials plus a proving-key sidecar.
 - Artifact hygiene rule for future agents:
@@ -364,6 +383,7 @@ future agents know when to read it.
 - Current active debugging focus: reduce memory pressure around `compute_h_poly(...)` and identify the last successful finalize subphase from the emitted finalize checkpoints.
 - `execute-wrapper-direct-prove-finalize` now exposes `--h-poly-row-chunk-size`; it is optional and should normally be omitted unless you are tuning memory after an OOM.
 - That flag accepts a base-2 exponent rather than a raw row count; for example, `16` means `65536` rows.
+- Current Semaphore guidance: start from `--h-poly-row-chunk-size 13` only as an operational baseline inherited from `circom_multiplier2`; do not treat it as a Semaphore-specific optimum until a real Semaphore run confirms it.
 - One successful measured lean setup run on `circom_multiplier2` produced `circuit_k = 21`, `public_input_count = 1`, and `setup_elapsed_ms = 1554572` (about `25m 54s`).
 
 `wrapper-tests`

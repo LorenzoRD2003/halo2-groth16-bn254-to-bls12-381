@@ -4,6 +4,7 @@
 #![allow(clippy::trivially_copy_pass_by_ref)]
 
 use std::{
+  collections::BTreeMap,
   fs,
   io::{BufReader, BufWriter, Write as _},
   path::{Path, PathBuf},
@@ -61,6 +62,11 @@ struct Cli {
 }
 
 const DIRECT_EXECUTION_MEMORY_LIMIT_BYTES: u64 = 24 * 1024 * 1024 * 1024;
+
+fn direct_execution_memory_limit_gib() -> u64 {
+  DIRECT_EXECUTION_MEMORY_LIMIT_BYTES / (1024 * 1024 * 1024)
+}
+
 #[derive(Debug, Subcommand)]
 enum Commands {
   /// Report what the repository currently implements and what is still missing.
@@ -253,6 +259,9 @@ enum Commands {
     #[arg(long)]
     vk: PathBuf,
     /// Optional semantic names for the ordered public-input vector.
+    /// Repeat `--public-input-name ...` to preserve labels such as the
+    /// Semaphore order: `merkle_root`, `nullifier`, `message_hash`,
+    /// `scope_hash`.
     #[arg(long = "public-input-name")]
     public_input_names: Vec<String>,
     /// Direct outer backend / host lane to use.
@@ -299,10 +308,17 @@ enum Commands {
     public: PathBuf,
     #[arg(long)]
     vk: PathBuf,
+    /// Optional semantic names for the ordered public-input vector.
+    /// Repeat `--public-input-name ...` to preserve labels such as the
+    /// Semaphore order: `merkle_root`, `nullifier`, `message_hash`,
+    /// `scope_hash`.
     #[arg(long = "public-input-name")]
     public_input_names: Vec<String>,
     #[arg(long, value_enum, default_value_t = DirectOuterBackendArg::MidnightBn254Host)]
     backend: DirectOuterBackendArg,
+    /// Logging mode for the live direct-execution log file.
+    #[arg(long, value_enum, default_value_t = DirectLogModeArg::Detailed)]
+    log_mode: DirectLogModeArg,
     /// Path to the reusable setup JSON artifact bundle produced by `execute-wrapper-direct-setup`.
     #[arg(long)]
     setup: PathBuf,
@@ -320,10 +336,17 @@ enum Commands {
     public: PathBuf,
     #[arg(long)]
     vk: PathBuf,
+    /// Optional semantic names for the ordered public-input vector.
+    /// Repeat `--public-input-name ...` to preserve labels such as the
+    /// Semaphore order: `merkle_root`, `nullifier`, `message_hash`,
+    /// `scope_hash`.
     #[arg(long = "public-input-name")]
     public_input_names: Vec<String>,
     #[arg(long, value_enum, default_value_t = DirectOuterBackendArg::MidnightBn254Host)]
     backend: DirectOuterBackendArg,
+    /// Logging mode for the live direct-execution log file.
+    #[arg(long, value_enum, default_value_t = DirectLogModeArg::Detailed)]
+    log_mode: DirectLogModeArg,
     /// Path to the reusable setup JSON artifact bundle produced by `execute-wrapper-direct-setup`.
     #[arg(long)]
     setup: PathBuf,
@@ -353,6 +376,9 @@ enum Commands {
     #[arg(long)]
     vk: PathBuf,
     /// Optional semantic names for the ordered public-input vector.
+    /// Repeat `--public-input-name ...` to preserve labels such as the
+    /// Semaphore order: `merkle_root`, `nullifier`, `message_hash`,
+    /// `scope_hash`.
     #[arg(long = "public-input-name")]
     public_input_names: Vec<String>,
     /// Direct outer backend / host lane to use.
@@ -522,21 +548,23 @@ fn main() -> Result<()> {
       vk,
       public_input_names,
       backend,
+      log_mode,
       setup,
       output,
     } => {
       configure_direct_execution_runtime();
       apply_direct_execution_memory_limit()?;
-      run_execute_wrapper_direct_prove_trace(
-        &id,
-        &proof,
-        &public,
-        &vk,
-        &public_input_names,
-        backend,
-        &setup,
-        &output,
-      )?;
+      run_execute_wrapper_direct_prove_trace(DirectProveTraceArgs {
+        identifier: &id,
+        proof_path: &proof,
+        public_path: &public,
+        vk_path: &vk,
+        public_input_names: &public_input_names,
+        backend_arg: backend,
+        log_mode,
+        setup_path: &setup,
+        output_path: &output,
+      })?;
     }
     Commands::ExecuteWrapperDirectProveFinalize {
       id,
@@ -545,6 +573,7 @@ fn main() -> Result<()> {
       vk,
       public_input_names,
       backend,
+      log_mode,
       setup,
       trace,
       h_poly_row_chunk_size,
@@ -559,6 +588,7 @@ fn main() -> Result<()> {
         vk_path: &vk,
         public_input_names: &public_input_names,
         backend_arg: backend,
+        log_mode,
         setup_path: &setup,
         trace_path: &trace,
         h_poly_row_chunk_size,
@@ -634,6 +664,19 @@ struct ExpByXSearchArgs<'a> {
 }
 
 #[derive(Clone, Copy)]
+struct DirectProveTraceArgs<'a> {
+  identifier: &'a str,
+  proof_path: &'a PathBuf,
+  public_path: &'a PathBuf,
+  vk_path: &'a PathBuf,
+  public_input_names: &'a [String],
+  backend_arg: DirectOuterBackendArg,
+  log_mode: DirectLogModeArg,
+  setup_path: &'a PathBuf,
+  output_path: &'a PathBuf,
+}
+
+#[derive(Clone, Copy)]
 struct DirectProveFinalizeArgs<'a> {
   identifier: &'a str,
   proof_path: &'a PathBuf,
@@ -641,6 +684,7 @@ struct DirectProveFinalizeArgs<'a> {
   vk_path: &'a PathBuf,
   public_input_names: &'a [String],
   backend_arg: DirectOuterBackendArg,
+  log_mode: DirectLogModeArg,
   setup_path: &'a PathBuf,
   trace_path: &'a PathBuf,
   h_poly_row_chunk_size: Option<u32>,
@@ -683,8 +727,36 @@ struct DirectWrapperProveExecutionResult {
   backend: String,
   outer_host: String,
   prove_elapsed_ms: u128,
+  finalize_metrics: Option<DirectProveFinalizeMetrics>,
   produced_bundle: wrapper_core::ProducedOuterProofArtifactBundle,
   notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct DirectWrapperProveExecutionResultJson {
+  produced_bundle: wrapper_core::ProducedOuterProofArtifactBundle,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct DirectProveFinalizeMetrics {
+  run_id: String,
+  log_path: String,
+  log_mode: String,
+  h_poly_row_chunk_size_log2: Option<u32>,
+  h_poly_row_chunk_size_rows: Option<u64>,
+  peak_rss_kb: Option<u64>,
+  peak_hwm_kb: Option<u64>,
+  peak_vmsize_kb: Option<u64>,
+  params_cache_read_ms: Option<u128>,
+  deserialize_base_pk_ms: Option<u128>,
+  deserialize_prepared_trace_ms: Option<u128>,
+  build_h_poly_key_ms: Option<u128>,
+  compute_h_poly_ms: Option<u128>,
+  build_opening_key_ms: Option<u128>,
+  construct_vanishing_commitments_ms: Option<u128>,
+  deserialize_opening_polys_ms: Option<u128>,
+  multi_open_ms: Option<u128>,
+  finalise_proof_from_base_trace_ms: Option<u128>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -718,6 +790,21 @@ impl DirectOuterBackendArg {
     match self {
       Self::MidnightBn254Host => "midnight-direct-halo2-outer-backend-bn254-host",
       Self::MidnightBls12381Host => "midnight-direct-halo2-outer-backend-bls12-host",
+    }
+  }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum DirectLogModeArg {
+  Detailed,
+  Efficient,
+}
+
+impl DirectLogModeArg {
+  fn as_env_value(self) -> &'static str {
+    match self {
+      Self::Detailed => "detailed",
+      Self::Efficient => "efficient",
     }
   }
 }
@@ -801,8 +888,9 @@ fn configure_direct_execution_log_env(
   command: &str,
   identifier: &str,
   backend_arg: DirectOuterBackendArg,
+  log_mode: DirectLogModeArg,
   log_path: &Path,
-) {
+) -> String {
   let run_id = format!("pid{}-{}-{}", std::process::id(), command, chrono_like_timestamp_millis());
   // Safety: this CLI is single-process command execution code and we set
   // process-local configuration before entering backend work so the backend and
@@ -814,8 +902,14 @@ fn configure_direct_execution_log_env(
     std::env::set_var("WRAPPER_DIRECT_LOG_IDENTIFIER", identifier);
     std::env::set_var("WRAPPER_DIRECT_LOG_BACKEND", backend_arg.backend_id_hint());
     std::env::set_var("WRAPPER_DIRECT_LOG_HOST", direct_outer_host_hint(backend_arg));
+    std::env::set_var("WRAPPER_DIRECT_LOG_MODE", log_mode.as_env_value());
   }
-  info!("writing direct execution log to {}", log_path.display());
+  info!(
+    "writing direct execution log to {} with {} log mode",
+    log_path.display(),
+    log_mode.as_env_value()
+  );
+  run_id
 }
 
 fn append_direct_execution_log(
@@ -841,11 +935,130 @@ fn append_direct_execution_log(
   Ok(())
 }
 
+fn append_direct_execution_memory_limit_log(
+  command: &str,
+  job_id: &str,
+  backend_id: &str,
+) -> Result<()> {
+  append_direct_execution_log(
+    command,
+    job_id,
+    backend_id,
+    &format!(
+      "configured direct execution RLIMIT_AS to {} GiB ({} bytes)",
+      direct_execution_memory_limit_gib(),
+      DIRECT_EXECUTION_MEMORY_LIMIT_BYTES
+    ),
+  )
+}
+
 fn chrono_like_timestamp() -> String {
   // Lightweight local timestamp for log lines without adding another dependency.
   use std::time::{SystemTime, UNIX_EPOCH};
   let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
   format!("[{}.{:03}]", now.as_secs(), now.subsec_millis())
+}
+
+fn parse_log_kv_fields(line: &str) -> BTreeMap<&str, &str> {
+  let mut fields = BTreeMap::new();
+  for token in line.split_whitespace() {
+    if let Some((key, value)) = token.split_once('=') {
+      fields.insert(key, value);
+    }
+  }
+  fields
+}
+
+fn parse_u128_field(fields: &BTreeMap<&str, &str>, key: &str) -> Option<u128> {
+  fields.get(key).and_then(|value| value.parse::<u128>().ok())
+}
+
+fn parse_u64_field(fields: &BTreeMap<&str, &str>, key: &str) -> Option<u64> {
+  fields.get(key).and_then(|value| value.parse::<u64>().ok())
+}
+
+fn collect_direct_prove_finalize_metrics(
+  run_id: &str,
+  log_path: &Path,
+  log_mode: DirectLogModeArg,
+  h_poly_row_chunk_size_log2: Option<u32>,
+) -> Option<DirectProveFinalizeMetrics> {
+  let log_contents = fs::read_to_string(log_path).ok()?;
+
+  let mut metrics = DirectProveFinalizeMetrics {
+    run_id: run_id.to_owned(),
+    log_path: log_path.display().to_string(),
+    log_mode: log_mode.as_env_value().to_owned(),
+    h_poly_row_chunk_size_log2,
+    h_poly_row_chunk_size_rows: h_poly_row_chunk_size_log2.and_then(|log2| 1_u64.checked_shl(log2)),
+    peak_rss_kb: None,
+    peak_hwm_kb: None,
+    peak_vmsize_kb: None,
+    params_cache_read_ms: None,
+    deserialize_base_pk_ms: None,
+    deserialize_prepared_trace_ms: None,
+    build_h_poly_key_ms: None,
+    compute_h_poly_ms: None,
+    build_opening_key_ms: None,
+    construct_vanishing_commitments_ms: None,
+    deserialize_opening_polys_ms: None,
+    multi_open_ms: None,
+    finalise_proof_from_base_trace_ms: None,
+  };
+
+  for line in log_contents.lines().filter(|line| line.contains(run_id)) {
+    let fields = parse_log_kv_fields(line);
+    if let Some(rss_kb) = parse_u64_field(&fields, "rss_kb") {
+      metrics.peak_rss_kb = Some(metrics.peak_rss_kb.map_or(rss_kb, |current| current.max(rss_kb)));
+    }
+    if let Some(hwm_kb) = parse_u64_field(&fields, "hwm_kb") {
+      metrics.peak_hwm_kb = Some(metrics.peak_hwm_kb.map_or(hwm_kb, |current| current.max(hwm_kb)));
+    }
+    if let Some(vmsize_kb) = parse_u64_field(&fields, "vmsize_kb") {
+      metrics.peak_vmsize_kb =
+        Some(metrics.peak_vmsize_kb.map_or(vmsize_kb, |current| current.max(vmsize_kb)));
+    }
+
+    if fields.get("event") != Some(&"end") {
+      continue;
+    }
+
+    let Some(phase) = fields.get("phase").copied() else {
+      continue;
+    };
+    let Some(step) = fields.get("step").copied() else {
+      continue;
+    };
+    let Some(elapsed_ms) = parse_u128_field(&fields, "elapsed_ms") else {
+      continue;
+    };
+
+    match (phase, step) {
+      ("params_cache", "read") => metrics.params_cache_read_ms = Some(elapsed_ms),
+      ("backend_finalize", "deserialize_base_pk") => {
+        metrics.deserialize_base_pk_ms = Some(elapsed_ms);
+      }
+      ("backend_finalize", "deserialize_prepared_trace") => {
+        metrics.deserialize_prepared_trace_ms = Some(elapsed_ms);
+      }
+      ("finalize", "build_h_poly_key") => metrics.build_h_poly_key_ms = Some(elapsed_ms),
+      ("finalize", "compute_h_poly") => metrics.compute_h_poly_ms = Some(elapsed_ms),
+      ("finalize", "build_opening_key") => metrics.build_opening_key_ms = Some(elapsed_ms),
+      ("finalize", "construct_vanishing_commitments") => {
+        metrics.construct_vanishing_commitments_ms = Some(elapsed_ms);
+      }
+      ("finalize", "deserialize_opening_polys") => {
+        metrics.deserialize_opening_polys_ms = Some(elapsed_ms);
+      }
+      ("finalize", "multi_open") => metrics.multi_open_ms = Some(elapsed_ms),
+      ("backend_finalize", "finalise_proof_from_base_trace") => {
+        metrics.finalise_proof_from_base_trace_ms = Some(elapsed_ms);
+      }
+      _ => {}
+    }
+  }
+
+  Some(metrics)
 }
 
 fn apply_direct_execution_memory_limit() -> Result<()> {
@@ -1770,6 +1983,11 @@ fn run_execute_wrapper_direct_verify(
     .with_context(|| format!("failed to read proof bundle file at {}", bundle_path.display()))?;
   let produced_bundle: wrapper_core::ProducedOuterProofArtifactBundle =
     serde_json::from_slice(&bundle_json)
+      .or_else(|bundle_error| {
+        serde_json::from_slice::<DirectWrapperProveExecutionResultJson>(&bundle_json)
+          .map(|result| result.produced_bundle)
+          .map_err(|_| bundle_error)
+      })
       .with_context(|| format!("failed to parse proof bundle at {}", bundle_path.display()))?;
   let artifacts = OuterCircuitInputArtifacts::new(
     Some(proof_json.as_slice()),
@@ -1792,26 +2010,29 @@ fn run_execute_wrapper_direct_verify(
   emit_json(&result, output_path, "direct wrapper verification result")
 }
 
-fn run_execute_wrapper_direct_prove_trace(
-  identifier: &str,
-  proof_path: &PathBuf,
-  public_path: &PathBuf,
-  vk_path: &PathBuf,
-  public_input_names: &[String],
-  backend_arg: DirectOuterBackendArg,
-  setup_path: &Path,
-  output_path: &Path,
-) -> Result<()> {
+fn run_execute_wrapper_direct_prove_trace(args: DirectProveTraceArgs<'_>) -> Result<()> {
+  let DirectProveTraceArgs {
+    identifier,
+    proof_path,
+    public_path,
+    vk_path,
+    public_input_names,
+    backend_arg,
+    log_mode,
+    setup_path,
+    output_path,
+  } = args;
   info!("running direct wrapper prove trace {}", identifier);
   let log_path = direct_execution_log_path(
     "execute-wrapper-direct-prove-trace",
     identifier,
     backend_arg.backend_id_hint(),
   );
-  configure_direct_execution_log_env(
+  let _run_id = configure_direct_execution_log_env(
     "execute-wrapper-direct-prove-trace",
     identifier,
     backend_arg,
+    log_mode,
     &log_path,
   );
   let package = build_wrapper_execution_package_from_paths(
@@ -1868,6 +2089,7 @@ fn run_execute_wrapper_direct_prove_finalize(args: DirectProveFinalizeArgs<'_>) 
     vk_path,
     public_input_names,
     backend_arg,
+    log_mode,
     setup_path,
     trace_path,
     h_poly_row_chunk_size,
@@ -1879,10 +2101,11 @@ fn run_execute_wrapper_direct_prove_finalize(args: DirectProveFinalizeArgs<'_>) 
     identifier,
     backend_arg.backend_id_hint(),
   );
-  configure_direct_execution_log_env(
+  let run_id = configure_direct_execution_log_env(
     "execute-wrapper-direct-prove-finalize",
     identifier,
     backend_arg,
+    log_mode,
     &log_path,
   );
   if let Some(row_chunk_log2) = h_poly_row_chunk_size {
@@ -1920,7 +2143,7 @@ fn run_execute_wrapper_direct_prove_finalize(args: DirectProveFinalizeArgs<'_>) 
     Some(proof_json.as_slice()),
     Some(verification_key_json.as_slice()),
   );
-  let result = match backend_arg {
+  let mut result = match backend_arg {
     DirectOuterBackendArg::MidnightBn254Host => {
       execute_wrapper_direct_prove_finalize_with_bn254_backend(
         &MidnightDirectOuterBackendBn254Host,
@@ -1942,6 +2165,8 @@ fn run_execute_wrapper_direct_prove_finalize(args: DirectProveFinalizeArgs<'_>) 
       )?
     }
   };
+  result.finalize_metrics =
+    collect_direct_prove_finalize_metrics(&run_id, &log_path, log_mode, h_poly_row_chunk_size);
   emit_json(&result, Some(output_path), "direct wrapper produced proof bundle")
 }
 
@@ -1991,6 +2216,11 @@ fn execute_wrapper_direct_setup_with_bn254_backend(
   artifacts: OuterCircuitInputArtifacts<'_>,
   output_path: &Path,
 ) -> Result<DirectWrapperSetupExecutionResult> {
+  let _ = append_direct_execution_memory_limit_log(
+    "execute-wrapper-direct-setup",
+    &package.job.identifier,
+    backend.backend_id(),
+  );
   let started_at = Instant::now();
   let circuit = backend
     .build_outer_circuit(package, artifacts)
@@ -2032,6 +2262,11 @@ fn execute_wrapper_direct_setup_with_bls12_backend(
   artifacts: OuterCircuitInputArtifacts<'_>,
   output_path: &Path,
 ) -> Result<DirectWrapperSetupExecutionResult> {
+  let _ = append_direct_execution_memory_limit_log(
+    "execute-wrapper-direct-setup",
+    &package.job.identifier,
+    backend.backend_id(),
+  );
   let started_at = Instant::now();
   let circuit = backend
     .build_outer_circuit(package, artifacts)
@@ -2074,6 +2309,11 @@ fn execute_wrapper_direct_prove_with_bn254_backend(
   setup_path: &Path,
   setup_bundle: &ProducedOuterSetupArtifactBundle,
 ) -> Result<DirectWrapperProveExecutionResult> {
+  let _ = append_direct_execution_memory_limit_log(
+    "execute-wrapper-direct-prove",
+    &package.job.identifier,
+    backend.backend_id(),
+  );
   let started_at = Instant::now();
   let circuit = backend
     .build_outer_circuit(package, artifacts)
@@ -2097,6 +2337,7 @@ fn execute_wrapper_direct_prove_with_bn254_backend(
     backend: backend.backend_id().to_owned(),
     outer_host: backend.metadata().outer_host.id().to_owned(),
     prove_elapsed_ms: started_at.elapsed().as_millis(),
+    finalize_metrics: None,
     produced_bundle,
     notes: vec![
       format!("executed direct outer prove path with backend {}", backend.backend_id()),
@@ -2112,6 +2353,11 @@ fn execute_wrapper_direct_prove_with_bls12_backend(
   setup_path: &Path,
   setup_bundle: &ProducedOuterSetupArtifactBundle,
 ) -> Result<DirectWrapperProveExecutionResult> {
+  let _ = append_direct_execution_memory_limit_log(
+    "execute-wrapper-direct-prove",
+    &package.job.identifier,
+    backend.backend_id(),
+  );
   let started_at = Instant::now();
   let circuit = backend
     .build_outer_circuit(package, artifacts)
@@ -2135,6 +2381,7 @@ fn execute_wrapper_direct_prove_with_bls12_backend(
     backend: backend.backend_id().to_owned(),
     outer_host: backend.metadata().outer_host.id().to_owned(),
     prove_elapsed_ms: started_at.elapsed().as_millis(),
+    finalize_metrics: None,
     produced_bundle,
     notes: vec![
       format!("executed direct outer prove path with backend {}", backend.backend_id()),
@@ -2166,6 +2413,11 @@ fn execute_wrapper_direct_verify_with_backend<B: OuterProofBackend>(
   artifacts: OuterCircuitInputArtifacts<'_>,
   produced_bundle: &wrapper_core::ProducedOuterProofArtifactBundle,
 ) -> Result<DirectWrapperVerifyExecutionResult> {
+  let _ = append_direct_execution_memory_limit_log(
+    "execute-wrapper-direct-verify",
+    &package.job.identifier,
+    backend.backend_id(),
+  );
   let started_at = Instant::now();
   let verification_ok = backend
     .verify(package, produced_bundle, artifacts)
@@ -2193,6 +2445,11 @@ fn execute_wrapper_direct_prove_trace_with_bn254_backend(
   setup_bundle: &ProducedOuterSetupArtifactBundle,
   output_path: &Path,
 ) -> Result<DirectWrapperProveTraceExecutionResult> {
+  let _ = append_direct_execution_memory_limit_log(
+    "execute-wrapper-direct-prove-trace",
+    &package.job.identifier,
+    backend.backend_id(),
+  );
   let _ = append_direct_execution_log(
     "execute-wrapper-direct-prove-trace",
     &package.job.identifier,
@@ -2260,6 +2517,11 @@ fn execute_wrapper_direct_prove_trace_with_bls12_backend(
   setup_bundle: &ProducedOuterSetupArtifactBundle,
   output_path: &Path,
 ) -> Result<DirectWrapperProveTraceExecutionResult> {
+  let _ = append_direct_execution_memory_limit_log(
+    "execute-wrapper-direct-prove-trace",
+    &package.job.identifier,
+    backend.backend_id(),
+  );
   let _ = append_direct_execution_log(
     "execute-wrapper-direct-prove-trace",
     &package.job.identifier,
@@ -2327,6 +2589,11 @@ fn execute_wrapper_direct_prove_finalize_with_bn254_backend(
   setup_bundle: &ProducedOuterSetupArtifactBundle,
   trace_path: &Path,
 ) -> Result<DirectWrapperProveExecutionResult> {
+  let _ = append_direct_execution_memory_limit_log(
+    "execute-wrapper-direct-prove-finalize",
+    &package.job.identifier,
+    backend.backend_id(),
+  );
   let _ = append_direct_execution_log(
     "execute-wrapper-direct-prove-finalize",
     &package.job.identifier,
@@ -2372,6 +2639,7 @@ fn execute_wrapper_direct_prove_finalize_with_bn254_backend(
     backend: backend.backend_id().to_owned(),
     outer_host: backend.metadata().outer_host.id().to_owned(),
     prove_elapsed_ms: started_at.elapsed().as_millis(),
+    finalize_metrics: None,
     produced_bundle,
     notes: vec![
       format!(
@@ -2391,6 +2659,11 @@ fn execute_wrapper_direct_prove_finalize_with_bls12_backend(
   setup_bundle: &ProducedOuterSetupArtifactBundle,
   trace_path: &Path,
 ) -> Result<DirectWrapperProveExecutionResult> {
+  let _ = append_direct_execution_memory_limit_log(
+    "execute-wrapper-direct-prove-finalize",
+    &package.job.identifier,
+    backend.backend_id(),
+  );
   let _ = append_direct_execution_log(
     "execute-wrapper-direct-prove-finalize",
     &package.job.identifier,
@@ -2438,6 +2711,7 @@ fn execute_wrapper_direct_prove_finalize_with_bls12_backend(
     backend: backend.backend_id().to_owned(),
     outer_host: backend.metadata().outer_host.id().to_owned(),
     prove_elapsed_ms: started_at.elapsed().as_millis(),
+    finalize_metrics: None,
     produced_bundle,
     notes: vec![
       format!(

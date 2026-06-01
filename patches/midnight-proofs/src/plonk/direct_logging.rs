@@ -1,6 +1,7 @@
 use std::{
     fs::OpenOptions,
     io::{BufRead, BufReader, Write as _},
+    sync::OnceLock,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -10,6 +11,21 @@ const DIRECT_LOG_COMMAND_ENV: &str = "WRAPPER_DIRECT_LOG_COMMAND";
 const DIRECT_LOG_IDENTIFIER_ENV: &str = "WRAPPER_DIRECT_LOG_IDENTIFIER";
 const DIRECT_LOG_BACKEND_ENV: &str = "WRAPPER_DIRECT_LOG_BACKEND";
 const DIRECT_LOG_HOST_ENV: &str = "WRAPPER_DIRECT_LOG_HOST";
+const DIRECT_LOG_MODE_ENV: &str = "WRAPPER_DIRECT_LOG_MODE";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DirectLogMode {
+    Detailed,
+    Efficient,
+}
+
+fn direct_log_mode() -> DirectLogMode {
+    static LOG_MODE: OnceLock<DirectLogMode> = OnceLock::new();
+    *LOG_MODE.get_or_init(|| match std::env::var(DIRECT_LOG_MODE_ENV).ok().as_deref() {
+        Some("efficient") => DirectLogMode::Efficient,
+        _ => DirectLogMode::Detailed,
+    })
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 struct MemorySnapshot {
@@ -81,6 +97,9 @@ fn append_optional_context_field(line: &mut String, key: &str, env_key: &str) {
 }
 
 pub(crate) fn log_event(phase: &str, step: &str, event: &str, extra: &str) {
+    if event == "iter" && direct_log_mode() == DirectLogMode::Efficient {
+        return;
+    }
     let snapshot = MemorySnapshot::capture();
     let mut line = format!(
         "ts_ms={} level=INFO run_id={} pid={} phase={} step={} event={}",

@@ -8,16 +8,18 @@ use midnight_proofs::{
   },
   poly::{
     commitment::{Guard, PolynomialCommitmentScheme},
-    kzg::KZGCommitmentScheme,
+    kzg::{KZGCommitmentScheme, params::ParamsKZG},
   },
-  transcript::{CircuitTranscript, Transcript},
+  transcript::{CircuitTranscript, ReplayableCircuitTranscript, Transcript},
   utils::SerdeFormat,
 };
 use rand_core::OsRng;
 use std::{
+  fmt::Write as _,
   fs::OpenOptions,
   io,
   io::{BufRead, BufReader, Write as _},
+  path::{Path, PathBuf},
   time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use wrapper_circuits::{
@@ -93,25 +95,25 @@ fn append_backend_event(phase: &str, step: &str, event: &str, extra: &str) {
     event
   );
   if !command.is_empty() {
-    line.push_str(&format!(" command={command}"));
+    let _ = write!(line, " command={command}");
   }
   if !identifier.is_empty() {
-    line.push_str(&format!(" identifier={identifier}"));
+    let _ = write!(line, " identifier={identifier}");
   }
   if !backend.is_empty() {
-    line.push_str(&format!(" backend={backend}"));
+    let _ = write!(line, " backend={backend}");
   }
   if !host.is_empty() {
-    line.push_str(&format!(" host={host}"));
+    let _ = write!(line, " host={host}");
   }
   if let Some(rss_kb) = rss_kb {
-    line.push_str(&format!(" rss_kb={rss_kb}"));
+    let _ = write!(line, " rss_kb={rss_kb}");
   }
   if let Some(hwm_kb) = hwm_kb {
-    line.push_str(&format!(" hwm_kb={hwm_kb}"));
+    let _ = write!(line, " hwm_kb={hwm_kb}");
   }
   if let Some(vmsize_kb) = vmsize_kb {
-    line.push_str(&format!(" vmsize_kb={vmsize_kb}"));
+    let _ = write!(line, " vmsize_kb={vmsize_kb}");
   }
   if !extra.is_empty() {
     line.push(' ');
@@ -129,6 +131,236 @@ fn append_backend_elapsed(phase: &str, step: &str, started_at: Instant, extra: &
   append_backend_event(phase, step, "end", &merged_extra);
 }
 
+fn direct_params_cache_dir() -> PathBuf {
+  if let Ok(path) = std::env::var("XDG_CACHE_HOME") {
+    PathBuf::from(path).join("halo2-wrapper").join("direct-params")
+  } else if let Ok(home) = std::env::var("HOME") {
+    PathBuf::from(home).join(".cache").join("halo2-wrapper").join("direct-params")
+  } else {
+    PathBuf::from(".").join(".cache").join("halo2-wrapper").join("direct-params")
+  }
+}
+
+fn direct_params_cache_path(cache_key: &str, k: u32) -> PathBuf {
+  direct_params_cache_dir().join(format!("{cache_key}-k{k}.params"))
+}
+
+fn write_bn256_params_cache(
+  path: &Path,
+  params: &ParamsKZG<Bn256>,
+) -> Result<(), OuterProofBackendError> {
+  if let Some(parent) = path.parent() {
+    std::fs::create_dir_all(parent).map_err(|error| {
+      OuterProofBackendError::OuterCircuitInputInvalid {
+        reason: format!("failed to create params cache directory {}: {error}", parent.display()),
+      }
+    })?;
+  }
+  let temp_path = path.with_extension("params.tmp");
+  let mut file = std::fs::File::create(&temp_path).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!("failed to create params cache file {}: {error}", temp_path.display()),
+    }
+  })?;
+  params.write_custom(&mut file, SerdeFormat::Processed).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!("failed to serialize params cache {}: {error}", temp_path.display()),
+    }
+  })?;
+  std::fs::rename(&temp_path, path).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!(
+        "failed to promote params cache file {} -> {}: {error}",
+        temp_path.display(),
+        path.display()
+      ),
+    }
+  })?;
+  Ok(())
+}
+
+fn read_bn256_cached_params(path: &Path) -> Result<ParamsKZG<Bn256>, OuterProofBackendError> {
+  let mut file = std::fs::File::open(path).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!("failed to open params cache file {}: {error}", path.display()),
+    }
+  })?;
+  ParamsKZG::<Bn256>::read_custom(&mut file, SerdeFormat::Processed).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!("failed to deserialize params cache file {}: {error}", path.display()),
+    }
+  })
+}
+
+fn get_or_create_cached_bn256_params(
+  k: u32,
+  cache_key: &str,
+) -> Result<ParamsKZG<Bn256>, OuterProofBackendError> {
+  let cache_path = direct_params_cache_path(cache_key, k);
+  if cache_path.exists() {
+    append_backend_event(
+      "params_cache",
+      "read",
+      "start",
+      &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+    );
+    let started_at = Instant::now();
+    let params = read_bn256_cached_params(&cache_path)?;
+    append_backend_elapsed(
+      "params_cache",
+      "read",
+      started_at,
+      &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+    );
+    return Ok(params);
+  }
+
+  append_backend_event(
+    "params_cache",
+    "miss",
+    "point",
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+  let gen_started_at = Instant::now();
+  append_backend_event(
+    "params_cache",
+    "generate",
+    "start",
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+  let params = KZGCommitmentScheme::<Bn256>::gen_params(k);
+  append_backend_elapsed(
+    "params_cache",
+    "generate",
+    gen_started_at,
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+
+  let write_started_at = Instant::now();
+  append_backend_event(
+    "params_cache",
+    "write",
+    "start",
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+  write_bn256_params_cache(&cache_path, &params)?;
+  append_backend_elapsed(
+    "params_cache",
+    "write",
+    write_started_at,
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+  Ok(params)
+}
+
+fn write_bls12_params_cache(
+  path: &Path,
+  params: &ParamsKZG<Bls12>,
+) -> Result<(), OuterProofBackendError> {
+  if let Some(parent) = path.parent() {
+    std::fs::create_dir_all(parent).map_err(|error| {
+      OuterProofBackendError::OuterCircuitInputInvalid {
+        reason: format!("failed to create params cache directory {}: {error}", parent.display()),
+      }
+    })?;
+  }
+  let temp_path = path.with_extension("params.tmp");
+  let mut file = std::fs::File::create(&temp_path).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!("failed to create params cache file {}: {error}", temp_path.display()),
+    }
+  })?;
+  params.write_custom(&mut file, SerdeFormat::Processed).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!("failed to serialize params cache {}: {error}", temp_path.display()),
+    }
+  })?;
+  std::fs::rename(&temp_path, path).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!(
+        "failed to promote params cache file {} -> {}: {error}",
+        temp_path.display(),
+        path.display()
+      ),
+    }
+  })?;
+  Ok(())
+}
+
+fn read_bls12_cached_params(path: &Path) -> Result<ParamsKZG<Bls12>, OuterProofBackendError> {
+  let mut file = std::fs::File::open(path).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!("failed to open params cache file {}: {error}", path.display()),
+    }
+  })?;
+  ParamsKZG::<Bls12>::read_custom(&mut file, SerdeFormat::Processed).map_err(|error| {
+    OuterProofBackendError::OuterCircuitInputInvalid {
+      reason: format!("failed to deserialize params cache file {}: {error}", path.display()),
+    }
+  })
+}
+
+fn get_or_create_cached_bls12_params(
+  k: u32,
+  cache_key: &str,
+) -> Result<ParamsKZG<Bls12>, OuterProofBackendError> {
+  let cache_path = direct_params_cache_path(cache_key, k);
+  if cache_path.exists() {
+    append_backend_event(
+      "params_cache",
+      "read",
+      "start",
+      &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+    );
+    let started_at = Instant::now();
+    let params = read_bls12_cached_params(&cache_path)?;
+    append_backend_elapsed(
+      "params_cache",
+      "read",
+      started_at,
+      &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+    );
+    return Ok(params);
+  }
+
+  append_backend_event(
+    "params_cache",
+    "miss",
+    "point",
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+  let gen_started_at = Instant::now();
+  append_backend_event(
+    "params_cache",
+    "generate",
+    "start",
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+  let params = KZGCommitmentScheme::<Bls12>::gen_params(k);
+  append_backend_elapsed(
+    "params_cache",
+    "generate",
+    gen_started_at,
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+
+  let write_started_at = Instant::now();
+  append_backend_event(
+    "params_cache",
+    "write",
+    "start",
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+  write_bls12_params_cache(&cache_path, &params)?;
+  append_backend_elapsed(
+    "params_cache",
+    "write",
+    write_started_at,
+    &format!("cache_key={cache_key} circuit_k={k} path={}", cache_path.display()),
+  );
+  Ok(params)
+}
+
 impl MidnightDirectOuterBackend {
   /// Produces reusable setup artifacts and streams the proving key sidecar to one caller-owned writer.
   pub fn write_setup_bundle<W: io::Write>(
@@ -140,7 +372,8 @@ impl MidnightDirectOuterBackend {
   ) -> Result<ProducedOuterSetupArtifactBundle, OuterProofBackendError> {
     let hosted = circuit.hosted();
     let k = k_from_circuit(&hosted);
-    let params = KZGCommitmentScheme::<Bn256>::gen_params(k);
+    let params =
+      get_or_create_cached_bn256_params(k, "midnight-direct-halo2-outer-backend-bn254-host")?;
     let vk = keygen_vk_with_k::<OuterHostField, KZGCommitmentScheme<Bn256>, _>(&params, &hosted, k)
       .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("midnight keygen_vk failed: {error}"),
@@ -187,7 +420,8 @@ impl MidnightDirectOuterBackend {
   ) -> Result<ProducedOuterVerificationKeyJson, OuterProofBackendError> {
     let hosted = circuit.hosted();
     let k = k_from_circuit(&hosted);
-    let params = KZGCommitmentScheme::<Bn256>::gen_params(k);
+    let params =
+      get_or_create_cached_bn256_params(k, "midnight-direct-halo2-outer-backend-bn254-host")?;
     let vk = keygen_vk_with_k::<OuterHostField, KZGCommitmentScheme<Bn256>, _>(&params, &hosted, k)
       .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("midnight keygen_vk failed: {error}"),
@@ -237,7 +471,8 @@ impl MidnightDirectOuterBackend {
       });
     }
 
-    let params = KZGCommitmentScheme::<Bn256>::gen_params(k);
+    let params =
+      get_or_create_cached_bn256_params(k, "midnight-direct-halo2-outer-backend-bn254-host")?;
     let base_pk = BaseProvingKey::<OuterHostField, KZGCommitmentScheme<Bn256>>::read::<
       _,
       HostedOuterWrapperCircuit,
@@ -248,7 +483,7 @@ impl MidnightDirectOuterBackend {
 
     let instance_columns = outer_instance_columns(circuit);
     let instances = [&instance_columns[..]];
-    let mut transcript = CircuitTranscript::<Blake2bState>::init();
+    let mut transcript = ReplayableCircuitTranscript::<Blake2bState>::init();
 
     create_proof_from_base::<OuterHostField, KZGCommitmentScheme<Bn256>, _, _>(
       &params,
@@ -285,7 +520,8 @@ impl MidnightDirectOuterBackend {
     let hosted = circuit.hosted();
     let k = k_from_circuit(&hosted);
     append_backend_log(&format!("prove-trace: using circuit_k={k}"));
-    let params = KZGCommitmentScheme::<Bn256>::gen_params(k);
+    let params =
+      get_or_create_cached_bn256_params(k, "midnight-direct-halo2-outer-backend-bn254-host")?;
     append_backend_log("prove-trace: deserializing BaseProvingKey");
     let base_pk = BaseProvingKey::<OuterHostField, KZGCommitmentScheme<Bn256>>::read::<
       _,
@@ -297,7 +533,7 @@ impl MidnightDirectOuterBackend {
 
     let instance_columns = outer_instance_columns(circuit);
     let instances = [&instance_columns[..]];
-    let mut transcript = CircuitTranscript::<Blake2bState>::init();
+    let mut transcript = ReplayableCircuitTranscript::<Blake2bState>::init();
     append_backend_log("prove-trace: entering create_proof_trace_from_base");
     let trace = create_proof_trace_from_base::<OuterHostField, KZGCommitmentScheme<Bn256>, _, _>(
       &params,
@@ -340,7 +576,8 @@ impl MidnightDirectOuterBackend {
     let hosted = circuit.hosted();
     let k = k_from_circuit(&hosted);
     append_backend_event("backend_finalize", "context", "point", &format!("circuit_k={k}"));
-    let params = KZGCommitmentScheme::<Bn256>::gen_params(k);
+    let params =
+      get_or_create_cached_bn256_params(k, "midnight-direct-halo2-outer-backend-bn254-host")?;
     let deserialize_base_pk_started_at = Instant::now();
     append_backend_event(
       "backend_finalize",
@@ -382,7 +619,11 @@ impl MidnightDirectOuterBackend {
 
     let init_transcript_started_at = Instant::now();
     append_backend_event("backend_finalize", "init_transcript", "start", &format!("circuit_k={k}"));
-    let mut transcript = prepared_trace.init_transcript::<CircuitTranscript<Blake2bState>>();
+    let mut transcript = prepared_trace
+      .init_transcript::<ReplayableCircuitTranscript<Blake2bState>>()
+      .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
+        reason: format!("failed to restore transcript from persisted prover trace: {error}"),
+      })?;
     append_backend_elapsed(
       "backend_finalize",
       "init_transcript",
@@ -466,7 +707,8 @@ impl MidnightDirectOuterBackend {
   ) -> Result<ProducedOuterProofArtifactBundle, OuterProofBackendError> {
     let hosted = circuit.hosted();
     let k = k_from_circuit(&hosted);
-    let params = KZGCommitmentScheme::<Bn256>::gen_params(k);
+    let params =
+      get_or_create_cached_bn256_params(k, "midnight-direct-halo2-outer-backend-bn254-host")?;
     let vk = keygen_vk_with_k::<OuterHostField, KZGCommitmentScheme<Bn256>, _>(&params, &hosted, k)
       .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("midnight keygen_vk failed during proving: {error}"),
@@ -478,7 +720,7 @@ impl MidnightDirectOuterBackend {
 
     let instance_columns = outer_instance_columns(circuit);
     let instances = [&instance_columns[..]];
-    let mut transcript = CircuitTranscript::<Blake2bState>::init();
+    let mut transcript = ReplayableCircuitTranscript::<Blake2bState>::init();
 
     create_proof::<OuterHostField, KZGCommitmentScheme<Bn256>, _, _>(
       &params,
@@ -572,7 +814,8 @@ impl MidnightDirectOuterBackendBls12Host {
   ) -> Result<ProducedOuterSetupArtifactBundle, OuterProofBackendError> {
     let hosted = circuit.hosted_bls12();
     let k = k_from_circuit(&hosted);
-    let params = KZGCommitmentScheme::<Bls12>::gen_params(k);
+    let params =
+      get_or_create_cached_bls12_params(k, "midnight-direct-halo2-outer-backend-bls12-host")?;
     let vk = keygen_vk_with_k::<Bls12HostField, KZGCommitmentScheme<Bls12>, _>(&params, &hosted, k)
       .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("midnight BLS12 keygen_vk failed: {error}"),
@@ -619,7 +862,8 @@ impl MidnightDirectOuterBackendBls12Host {
   ) -> Result<ProducedOuterVerificationKeyJson, OuterProofBackendError> {
     let hosted = circuit.hosted_bls12();
     let k = k_from_circuit(&hosted);
-    let params = KZGCommitmentScheme::<Bls12>::gen_params(k);
+    let params =
+      get_or_create_cached_bls12_params(k, "midnight-direct-halo2-outer-backend-bls12-host")?;
     let vk = keygen_vk_with_k::<Bls12HostField, KZGCommitmentScheme<Bls12>, _>(&params, &hosted, k)
       .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("midnight BLS12 keygen_vk failed: {error}"),
@@ -669,7 +913,8 @@ impl MidnightDirectOuterBackendBls12Host {
       });
     }
 
-    let params = KZGCommitmentScheme::<Bls12>::gen_params(k);
+    let params =
+      get_or_create_cached_bls12_params(k, "midnight-direct-halo2-outer-backend-bls12-host")?;
     let base_pk = BaseProvingKey::<Bls12HostField, KZGCommitmentScheme<Bls12>>::read::<
       _,
       HostedOuterWrapperCircuitBls12,
@@ -681,7 +926,7 @@ impl MidnightDirectOuterBackendBls12Host {
     let instance_columns = outer_instance_columns_for_host::<Bls12HostField>(circuit);
     let instance_column_refs = [instance_columns[0].as_slice(), instance_columns[1].as_slice()];
     let instances = [&instance_column_refs[..]];
-    let mut transcript = CircuitTranscript::<Blake2bState>::init();
+    let mut transcript = ReplayableCircuitTranscript::<Blake2bState>::init();
 
     create_proof_from_base::<Bls12HostField, KZGCommitmentScheme<Bls12>, _, _>(
       &params,
@@ -718,7 +963,8 @@ impl MidnightDirectOuterBackendBls12Host {
     let hosted = circuit.hosted_bls12();
     let k = k_from_circuit(&hosted);
     append_backend_log(&format!("prove-trace: using circuit_k={k}"));
-    let params = KZGCommitmentScheme::<Bls12>::gen_params(k);
+    let params =
+      get_or_create_cached_bls12_params(k, "midnight-direct-halo2-outer-backend-bls12-host")?;
     append_backend_log("prove-trace: deserializing BaseProvingKey");
     let base_pk = BaseProvingKey::<Bls12HostField, KZGCommitmentScheme<Bls12>>::read::<
       _,
@@ -731,7 +977,7 @@ impl MidnightDirectOuterBackendBls12Host {
     let instance_columns = outer_instance_columns_for_host::<Bls12HostField>(circuit);
     let instance_column_refs = [instance_columns[0].as_slice(), instance_columns[1].as_slice()];
     let instances = [&instance_column_refs[..]];
-    let mut transcript = CircuitTranscript::<Blake2bState>::init();
+    let mut transcript = ReplayableCircuitTranscript::<Blake2bState>::init();
     append_backend_log("prove-trace: entering create_proof_trace_from_base");
     let trace = create_proof_trace_from_base::<Bls12HostField, KZGCommitmentScheme<Bls12>, _, _>(
       &params,
@@ -774,7 +1020,8 @@ impl MidnightDirectOuterBackendBls12Host {
     let hosted = circuit.hosted_bls12();
     let k = k_from_circuit(&hosted);
     append_backend_event("backend_finalize", "context", "point", &format!("circuit_k={k}"));
-    let params = KZGCommitmentScheme::<Bls12>::gen_params(k);
+    let params =
+      get_or_create_cached_bls12_params(k, "midnight-direct-halo2-outer-backend-bls12-host")?;
     let deserialize_base_pk_started_at = Instant::now();
     append_backend_event(
       "backend_finalize",
@@ -816,7 +1063,11 @@ impl MidnightDirectOuterBackendBls12Host {
 
     let init_transcript_started_at = Instant::now();
     append_backend_event("backend_finalize", "init_transcript", "start", &format!("circuit_k={k}"));
-    let mut transcript = prepared_trace.init_transcript::<CircuitTranscript<Blake2bState>>();
+    let mut transcript = prepared_trace
+      .init_transcript::<ReplayableCircuitTranscript<Blake2bState>>()
+      .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
+        reason: format!("failed to restore transcript from persisted prover trace: {error}"),
+      })?;
     append_backend_elapsed(
       "backend_finalize",
       "init_transcript",
@@ -900,7 +1151,8 @@ impl MidnightDirectOuterBackendBls12Host {
   ) -> Result<ProducedOuterProofArtifactBundle, OuterProofBackendError> {
     let hosted = circuit.hosted_bls12();
     let k = k_from_circuit(&hosted);
-    let params = KZGCommitmentScheme::<Bls12>::gen_params(k);
+    let params =
+      get_or_create_cached_bls12_params(k, "midnight-direct-halo2-outer-backend-bls12-host")?;
     let vk = keygen_vk_with_k::<Bls12HostField, KZGCommitmentScheme<Bls12>, _>(&params, &hosted, k)
       .map_err(|error| OuterProofBackendError::OuterCircuitInputInvalid {
         reason: format!("midnight BLS12 keygen_vk failed during proving: {error}"),

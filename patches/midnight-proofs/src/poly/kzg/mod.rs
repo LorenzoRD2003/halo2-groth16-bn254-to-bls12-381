@@ -47,6 +47,29 @@ use crate::{
     },
 };
 
+fn weighted_sum_polynomials<F, I>(
+    polys: &[&Polynomial<F, Coeff>],
+    scalars: I,
+) -> Polynomial<F, Coeff>
+where
+    F: ff::PrimeField,
+    I: IntoIterator<Item = F>,
+{
+    let mut acc = Vec::<F>::new();
+    for (poly, scalar) in polys.iter().zip(scalars) {
+        if poly.len() > acc.len() {
+            acc.resize(poly.len(), F::ZERO);
+        }
+        for (acc_coeff, coeff) in acc.iter_mut().zip(poly.values.iter()) {
+            *acc_coeff += *coeff * scalar;
+        }
+    }
+    Polynomial {
+        values: acc,
+        _marker: PhantomData,
+    }
+}
+
 #[derive(Clone, Debug)]
 /// KZG verifier
 pub struct KZGCommitmentScheme<E: Engine> {
@@ -113,13 +136,18 @@ where
 
         let (poly_map, point_sets) = construct_intermediate_sets(prover_query)?;
 
-        let mut q_polys = vec![vec![]; point_sets.len()];
+        let mut grouped_polys = vec![vec![]; point_sets.len()];
 
         for com_data in poly_map.iter() {
-            q_polys[com_data.set_index].push(com_data.commitment.poly.clone());
+            grouped_polys[com_data.set_index].push(com_data.commitment.poly);
         }
 
-        let q_polys = q_polys
+        #[cfg(feature = "truncated-challenges")]
+        let _x1_powers = truncated_powers(x1)
+            .take(grouped_polys.iter().map(|polys| polys.len()).max().unwrap_or(0))
+            .collect::<Vec<_>>();
+
+        let q_polys = grouped_polys
             .iter()
             .map(|polys| {
                 #[cfg(feature = "truncated-challenges")]
@@ -128,26 +156,27 @@ where
                 #[cfg(not(feature = "truncated-challenges"))]
                 let x1 = powers(x1);
 
-                inner_product(polys, x1)
+                weighted_sum_polynomials(polys, x1)
             })
             .collect::<Vec<_>>();
 
-        let f_poly = {
-            let f_polys = point_sets
-                .iter()
-                .zip(q_polys.clone())
-                .map(|(points, q_poly)| {
-                    let mut poly = points.iter().fold(q_poly.clone().values, |poly, point| {
-                        kate_division(&poly, *point)
-                    });
-                    poly.resize(1 << params.max_k() as usize, E::Fr::ZERO);
-                    Polynomial {
-                        values: poly,
-                        _marker: PhantomData,
-                    }
-                })
-                .collect::<Vec<_>>();
-            inner_product(&f_polys, powers(x2))
+        let target_len = 1 << params.max_k() as usize;
+        let mut f_poly_values = vec![E::Fr::ZERO; target_len];
+        let mut x2_power = E::Fr::ONE;
+        for (points, q_poly) in point_sets.iter().zip(q_polys.iter()) {
+            let mut poly = q_poly.values.clone();
+            for point in points {
+                poly = kate_division(&poly, *point);
+            }
+            poly.resize(target_len, E::Fr::ZERO);
+            for (acc, coeff) in f_poly_values.iter_mut().zip(poly.into_iter()) {
+                *acc += coeff * x2_power;
+            }
+            x2_power *= x2;
+        }
+        let f_poly = Polynomial {
+            values: f_poly_values,
+            _marker: PhantomData,
         };
 
         let f_com = Self::commit(params, &f_poly);
@@ -166,15 +195,25 @@ where
         let x4: E::Fr = transcript.squeeze_challenge();
 
         let final_poly = {
-            let mut polys = q_polys;
-            polys.push(f_poly);
             #[cfg(feature = "truncated-challenges")]
-            let powers = truncated_powers(x4);
+            let powers_x4 = truncated_powers(x4);
 
             #[cfg(not(feature = "truncated-challenges"))]
-            let powers = powers(x4);
+            let powers_x4 = powers(x4);
 
-            inner_product(&polys, powers)
+            let mut final_values = vec![E::Fr::ZERO; target_len];
+            for (poly, scalar) in q_polys.iter().chain(std::iter::once(&f_poly)).zip(powers_x4) {
+                if poly.len() > final_values.len() {
+                    final_values.resize(poly.len(), E::Fr::ZERO);
+                }
+                for (acc, coeff) in final_values.iter_mut().zip(poly.values.iter()) {
+                    *acc += *coeff * scalar;
+                }
+            }
+            Polynomial {
+                values: final_values,
+                _marker: PhantomData::<Coeff>,
+            }
         };
         let v = eval_polynomial(&final_poly, x3);
 
@@ -480,4 +519,5 @@ mod tests {
 
         transcript.finalize()
     }
+
 }

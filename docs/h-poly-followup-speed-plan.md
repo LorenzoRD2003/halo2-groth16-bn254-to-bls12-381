@@ -6,6 +6,10 @@ This note tracks speed-oriented follow-up work for the retained chunked
 It is intentionally scoped to "what should we optimize next once the pipeline
 finishes reliably" rather than the current OOM fire-fighting work.
 
+The first successful chunked finalize baseline is now recorded in:
+
+- `docs/finalize-successful-run-metrics.md`
+
 ## Current Observation
 
 The current chunked permutation path inside `evaluate_h(...)` reduces peak
@@ -22,6 +26,29 @@ That issue led to the current hybrid design:
 
 This is a good memory tradeoff, but it still leaves several speed
 opportunities.
+
+Current operational note from later successful runs:
+
+- on the current machine and `circom_multiplier2` fixture, raising
+  `--h-poly-row-chunk-size` from `13` to `14` did not prove worthwhile
+- `13` is the current recommended measurement setting because it keeps memory
+  safer without giving up a clear wall-clock win
+- future chunk-size experiments should therefore start from `13`, not from the
+  assumption that "larger must be faster"
+
+Current BLS12-hosted memory note from the first direct `prove-finalize`
+attempt on `circom_multiplier2`:
+
+- the run did not first fail inside `h_poly`; it reached `multi_open`
+- however, the largest visible memory jumps happened earlier in:
+  - `deserialize_prepared_trace`
+  - `custom_fixed_cosets`
+- the largest `h_poly`-local pressure point remained `custom_fixed_cosets`,
+  which pushed the run to roughly `22.4 GiB` HWM before later work crossed the
+  final limit
+- the current mitigation therefore targets peak memory, not throughput:
+  split `custom_gates` into smaller gate-local evaluator batches so fixed
+  columns are materialized and dropped batch-by-batch instead of all at once
 
 ## Prioritized Follow-ups
 
@@ -59,6 +86,16 @@ opportunities.
    coset domain.
    This is more invasive than the current hybrid approach, so it is explicitly
    deferred until correctness and memory stability are established.
+
+6. Keep custom-gate fixed materialization batch-local.
+   The current retained memory-oriented change is:
+   - build one custom-gate evaluator batch per gate
+   - materialize only that batch's fixed columns
+   - evaluate the batch
+   - drop the batch-local fixed materialization before continuing
+   This should reduce peak memory during `custom_fixed_cosets` at the cost of
+   some extra passes over `values`. Measure it first as a memory tradeoff, not
+   assume it is a throughput win.
 
 ## How To Use This Note
 

@@ -20,7 +20,7 @@ pub use keygen::Assembly;
 use midnight_curves::serde::SerdeObject;
 
 use crate::{
-    plonk::permutation::keygen::compute_polys_and_cosets,
+    plonk::permutation::keygen::{compute_polys, compute_polys_and_cosets},
     poly::{commitment::PolynomialCommitmentScheme, EvaluationDomain, ProverQuery},
     transcript::{Hashable, Transcript},
     utils::{
@@ -206,9 +206,7 @@ impl<F: WithSmallOrderMulGroup<3>> BaseProvingKey<F> {
         domain: &EvaluationDomain<F>,
         p: &Argument,
     ) -> FinalizingKey<F> {
-        let (polys, cosets) = compute_polys_and_cosets::<F>(domain, p, &self.permutations);
-        let _ = p;
-        let _ = cosets;
+        let polys = compute_polys::<F>(domain, p, &self.permutations);
         FinalizingKey {
             permutations: self.permutations,
             polys,
@@ -236,8 +234,7 @@ impl<F: WithSmallOrderMulGroup<3>> BaseProvingKey<F> {
         domain: &EvaluationDomain<F>,
         p: &Argument,
     ) -> OpeningKey<F> {
-        let (polys, _) = compute_polys_and_cosets::<F>(domain, p, &self.permutations);
-        let _ = p;
+        let polys = compute_polys::<F>(domain, p, &self.permutations);
         OpeningKey { polys }
     }
 }

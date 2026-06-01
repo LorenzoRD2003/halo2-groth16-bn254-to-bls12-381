@@ -7,7 +7,8 @@ use group::GroupEncoding;
 use midnight_curves::bn256::{Fr, G1};
 
 use crate::transcript::{
-    Hashable, Sampleable, TranscriptHash, BLAKE2B_PREFIX_CHALLENGE, BLAKE2B_PREFIX_COMMON,
+    Hashable, Sampleable, TranscriptHash,
+    BLAKE2B_PREFIX_CHALLENGE, BLAKE2B_PREFIX_COMMON,
 };
 
 impl TranscriptHash for Blake2bState {
@@ -146,5 +147,36 @@ impl Sampleable<Blake2bState> for midnight_curves::Fq {
         let mut bytes = [0u8; 64];
         bytes[..hash_output.len()].copy_from_slice(&hash_output);
         midnight_curves::Fq::from_uniform_bytes(&bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use blake2b_simd::State as Blake2bState;
+    use midnight_curves::Fq;
+
+    use crate::transcript::{PersistableTranscript, ReplayableCircuitTranscript, Transcript};
+
+    #[test]
+    fn circuit_transcript_snapshot_restores_state_and_append_position() {
+        let mut original = ReplayableCircuitTranscript::<Blake2bState>::init();
+        original.write(&1_u32).expect("write should succeed");
+        let first_challenge: Fq = original.squeeze_challenge();
+        original.write(&first_challenge).expect("write should succeed");
+
+        let mut resumed =
+            ReplayableCircuitTranscript::<Blake2bState>::restore_from_state_and_bytes(
+                &original.snapshot_state(),
+                &original.clone().finalize(),
+            )
+            .expect("restoring snapshot should succeed");
+
+        original.write(&2_u32).expect("write should succeed");
+        resumed.write(&2_u32).expect("write should succeed");
+
+        let next_original: Fq = original.squeeze_challenge();
+        let next_resumed: Fq = resumed.squeeze_challenge();
+        assert_eq!(next_resumed, next_original);
+        assert_eq!(resumed.finalize(), original.finalize());
     }
 }

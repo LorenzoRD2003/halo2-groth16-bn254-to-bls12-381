@@ -97,6 +97,12 @@ The patch also introduces:
     derive sigma cosets lazily per permutation chunk
   - also no longer requires cloning one second full `BaseProvingKey` before
     finalization experiments
+- `Evaluator::custom_gates`
+  - now keeps one `GraphEvaluator` per real custom gate instead of one
+    monolithic evaluator over every gate polynomial in the circuit
+  - this lets `evaluate_h(...)` materialize and drop fixed columns gate by
+    gate during `custom_fixed_cosets`, reducing the worst peak-memory batch in
+    BLS12-hosted finalize runs
 
 Current state of the patch:
 
@@ -218,6 +224,182 @@ The patch also now supports a practical experimentation split:
 
 - compute and persist the first-stage prover trace before `compute_h_poly(...)`
 - finalize from that persisted trace later
+
+## Transcript Continuation Bug and Fix
+
+While validating the split `create_proof_trace_from_base(...)` /
+`finalise_proof_from_base_trace(...)` lane against direct verification, the
+repository hit a proof-transcript divergence that affected both the BN254-hosted
+and BLS12-hosted direct backends.
+
+The root cause was in transcript restoration for split finalization:
+
+- `PersistedProverTrace` persisted only the already-emitted proof bytes
+- `PreparedFinalizationTrace::init_transcript(...)` reconstructed the transcript
+  with `T::init_from_bytes(prefix)`
+- that recreated only the transcript buffer, not the Fiat-Shamir hash state
+- and it also positioned the cursor at the start of the proof bytes instead of
+  the append boundary
+
+This meant the split lane diverged immediately when finalization resumed:
+
+- the first post-trace `transcript.write(...)` appended with the wrong internal
+  challenge state
+- and before the fix it also overwrote the proof prefix at offset `0`
+- the verifier then failed very early with
+  `Transcript error: Invalid ... point encoding in proof`
+
+The local patch now fixes that by:
+
+- introducing `ReplayableCircuitTranscript`
+- persisting a replay log of transcript `common(...)` absorptions and challenge
+  squeezes alongside the already-emitted proof bytes
+- restoring the transcript by replaying those operations into a fresh
+  Blake2b state
+- and reopening the proof buffer at the end so split finalization appends
+  instead of overwriting
+
+One important detail from the regression work:
+
+- the split proof is not expected to be byte-for-byte identical to the
+  monolithic proof after the continuation point
+- `vanishing.construct(...)` blinds quotient limbs with fresh randomness during
+  the final stage, so later proof bytes can legitimately differ
+- the correct regression target is therefore:
+  - the preserved proof prefix from the pre-finalization stage
+  - plus successful verifier preparation / verification of the final split proof
+
+## Sparse Lookup Fixed-Column Regression
+
+After the transcript continuation bug was fixed, direct verification stopped
+failing on transcript parsing and started failing later with `OpeningError`.
+
+The smaller `tests/plonk_api.rs` regression isolated one concrete remaining
+cause inside `evaluate_h(...)`:
+
+- the sparse fixed-column selection for the lookup section was incomplete
+- materializing only the columns reported by the lookup evaluator could omit
+  fixed columns that the full lookup argument still needed during `h(X)`
+  construction
+- that produced a structurally valid proof with inconsistent opening claims,
+  which later surfaced as verifier-side `OpeningError`
+
+The retained correctness fix is:
+
+- keep sparse lookup fixed-column materialization
+- but complement the `GraphEvaluator`-derived lookup set by walking
+  `lookup.input_expressions()` and `lookup.table_expressions()` directly
+- include any fixed columns referenced there in `lookup_fixed_columns`
+
+This keeps the sparse path alive while restoring correctness:
+
+- it avoids the broader fallback of materializing every fixed column for lookup
+- and it restores agreement with the upstream `plonk_api` regression, which is
+  the current highest-signal small reproducer for the remaining opening issue
+
+## Permutation Chunking Regression
+
+While continuing to chase the remaining `OpeningError`, the smaller
+`tests/plonk_api.rs` regression exposed a semantic bug in the chunked
+permutation-constraint path inside `evaluate_h(...)`.
+
+The specific issue was:
+
+- the chunked permutation path recomputed the running `delta` factor from the
+  start of the row for every permutation set
+- upstream PLONK semantics require that `delta` continue across all columns of
+  the row, including columns that live in later permutation sets
+
+That means the correct per-row factor for set `i` is not just:
+
+- `beta * g_coset * omega^row`
+
+but rather:
+
+- `beta * g_coset * omega^row * DELTA^(i * chunk_len)`
+
+Resetting it per set changes the right-hand side of the permutation product
+constraint and produces a proof that is structurally valid but fails verifier
+opening checks later with `OpeningError`.
+
+The local patch now seeds each set with the correct `DELTA^(set_idx *
+chunk_len)` offset before applying the per-column progression.
+
+## Fixed Bug Inventory
+
+Confirmed bugs fixed during the direct-lane debugging work:
+
+1. Split transcript continuation lost Fiat-Shamir state
+
+- Symptom:
+  `Transcript error: Invalid ... point encoding in proof`
+- Root cause:
+  split finalization restored only proof bytes, not transcript state, and
+  resumed appending from offset `0`
+- Fix:
+  `ReplayableCircuitTranscript` plus persisted replay-log snapshot and
+  append-at-end restoration
+- Regression coverage:
+  - transcript snapshot/restore test
+  - split base-proof roundtrip test in `plonk::prover`
+
+2. `execute-wrapper-direct-verify` rejected `prove-finalize` JSON wrappers
+
+- Symptom:
+  `missing field proof_system` when passing the JSON emitted by
+  `execute-wrapper-direct-prove-finalize`
+- Root cause:
+  the CLI verify path expected a bare `ProducedOuterProofArtifactBundle` but
+  `prove-finalize` writes a larger execution-result wrapper containing
+  `produced_bundle`
+- Fix:
+  CLI verify now accepts either the bare bundle or the wrapped
+  `produced_bundle`
+- Regression coverage:
+  covered by CLI/workspace tests and real-command validation
+
+3. Old persisted traces failed with opaque EOF errors
+
+- Symptom:
+  `failed to fill whole buffer` while reading a trace produced before transcript
+  snapshot support
+- Root cause:
+  trace format grew a transcript-state section but the reader error did not
+  explain the incompatibility
+- Fix:
+  explicit invalid-data diagnostics instructing the operator to rerun
+  `prove-trace` with the current binary
+- Regression coverage:
+  exercised through direct command handling and trace reader checks
+
+4. Chunked permutation constraints reset the `DELTA` progression per set
+
+- Symptom:
+  proofs stayed structurally valid but later failed verifier opening checks
+  with `OpeningError`
+- Root cause:
+  the right-hand permutation product term restarted the `DELTA` factor at each
+  permutation set instead of continuing across all columns in the row
+- Fix:
+  seed each set with `DELTA^(set_idx * chunk_len)` before continuing the
+  per-column progression
+- Regression coverage:
+  upstream `plonk_api` reproducer
+
+5. Sparse lookup fixed-column collection omitted columns needed by the full
+   lookup argument
+
+- Symptom:
+  verifier-side `OpeningError` even after transcript parsing succeeded
+- Root cause:
+  the lookup sparse set derived only from `GraphEvaluator` missed some fixed
+  columns still required by `lookup.input_expressions()` /
+  `lookup.table_expressions()`
+- Fix:
+  augment `lookup_fixed_columns` with a direct recursive walk of those
+  expressions
+- Regression coverage:
+  upstream `plonk_api` reproducer
 
 This does not solve the hotspot by itself, but it is intended to avoid
 rerunning the entire first stage every time we want to experiment on the
