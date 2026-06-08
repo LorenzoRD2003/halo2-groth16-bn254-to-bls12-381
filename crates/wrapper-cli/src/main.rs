@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
+use libc as _;
 use rayon::ThreadPoolBuilder;
 use serde::Serialize;
 use tracing::info;
@@ -1061,25 +1062,29 @@ fn collect_direct_prove_finalize_metrics(
   Some(metrics)
 }
 
+#[cfg(target_os = "linux")]
 fn apply_direct_execution_memory_limit() -> Result<()> {
-  #[cfg(target_os = "linux")]
-  {
-    let limit = libc::rlimit {
-      rlim_cur: DIRECT_EXECUTION_MEMORY_LIMIT_BYTES,
-      rlim_max: DIRECT_EXECUTION_MEMORY_LIMIT_BYTES,
-    };
-    // Safety: `setrlimit` is called with a valid resource kind and a pointer
-    // to a properly initialized `rlimit` struct that lives for the duration of
-    // the call.
-    let result = unsafe { libc::setrlimit(libc::RLIMIT_AS, &raw const limit) };
-    if result != 0 {
-      return Err(anyhow::anyhow!(
-        "failed to apply 24 GiB process memory limit for direct execution commands: {}",
-        std::io::Error::last_os_error()
-      ));
-    }
+  let limit = libc::rlimit {
+    rlim_cur: DIRECT_EXECUTION_MEMORY_LIMIT_BYTES,
+    rlim_max: DIRECT_EXECUTION_MEMORY_LIMIT_BYTES,
+  };
+  // Safety: `setrlimit` is called with a valid resource kind and a pointer
+  // to a properly initialized `rlimit` struct that lives for the duration of
+  // the call.
+  let result = unsafe { libc::setrlimit(libc::RLIMIT_AS, &raw const limit) };
+  if result != 0 {
+    return Err(anyhow::anyhow!(
+      "failed to apply 24 GiB process memory limit for direct execution commands: {}",
+      std::io::Error::last_os_error()
+    ));
   }
 
+  Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(clippy::unnecessary_wraps)]
+fn apply_direct_execution_memory_limit() -> Result<()> {
   Ok(())
 }
 
