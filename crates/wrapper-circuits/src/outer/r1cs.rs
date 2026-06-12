@@ -158,7 +158,7 @@ impl From<WrapperError> for OuterCanonicalR1csLoweringError {
 pub fn build_outer_statement_exposure_r1cs(
   input: &OuterWrapperCircuitInput,
 ) -> Result<OuterStatementExposureR1cs, OuterCanonicalR1csLoweringError> {
-  input.validate()?;
+  input.validate_for_outer_host(super::OuterHostFlavor::MidnightBn254)?;
 
   let mut cells = Vec::with_capacity(input.outer_statement.public_inputs.len() * 2);
   let mut equality_edges = Vec::with_capacity(input.outer_statement.public_inputs.len());
@@ -189,7 +189,7 @@ pub fn build_outer_statement_exposure_r1cs(
 pub fn build_outer_groth16_ic_accumulator_slice(
   input: &OuterWrapperCircuitInput,
 ) -> Result<OuterGroth16IcAccumulatorSlice, OuterCanonicalR1csLoweringError> {
-  input.validate()?;
+  input.validate_for_outer_host(super::OuterHostFlavor::MidnightBn254)?;
 
   let mut cells = Vec::with_capacity(input.inner_public_inputs.len() * 2);
   let mut public_inputs = Vec::with_capacity(input.inner_public_inputs.len());
@@ -249,7 +249,7 @@ pub fn build_outer_groth16_ic_accumulator_slice(
 pub fn build_outer_verifier_result_assertion_slice(
   input: &OuterWrapperCircuitInput,
 ) -> Result<OuterVerifierResultAssertionSlice, OuterCanonicalR1csLoweringError> {
-  input.validate()?;
+  input.validate_for_outer_host(super::OuterHostFlavor::MidnightBn254)?;
 
   let result_cell = Halo2CellRef::Advice { column: 2, row: 0 };
   let metadata = Halo2R1csMetadata {
@@ -282,7 +282,7 @@ pub fn build_outer_verifier_result_assertion_slice(
 pub fn build_outer_groth16_pairing_product_check_slice(
   input: &OuterWrapperCircuitInput,
 ) -> Result<OuterGroth16PairingProductCheckSlice, OuterCanonicalR1csLoweringError> {
-  input.validate()?;
+  input.validate_for_outer_host(super::OuterHostFlavor::MidnightBn254)?;
 
   let product = host_pairing_product(
     &input.inner_verification_key,

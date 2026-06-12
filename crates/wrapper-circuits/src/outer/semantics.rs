@@ -8,9 +8,10 @@ use midnight_circuits::midnight_proofs::{
 };
 
 use crate::{
-  Bn254BoolChip, Bn254BoolConfig,
+  Bn254BoolChip, Bn254BoolConfig, assign_and_commit_verification_key_on_host,
   bn254::{Bn254FieldChip, Bn254FieldConfig},
   groth16::groth16_verify_on_host,
+  outer::OuterVerificationKeyCommitmentValue,
 };
 
 use super::{OuterHostField, OuterWrapperCircuitInput};
@@ -31,6 +32,10 @@ where
   FHost: PrimeField + Field,
   MultiEmulationParams: FieldEmulationParams<FHost, crate::ForeignField>,
 {
+  pub(crate) fn field_config(&self) -> &Bn254FieldConfig<FHost> {
+    &self.field
+  }
+
   /// Configures the BN254 verifier semantics against one chosen host-lane
   /// instance-column layout.
   #[must_use]
@@ -57,6 +62,16 @@ where
   ) -> Result<(), Error> {
     let field_chip = Bn254FieldChip::new(&self.field);
     let bool_chip = Bn254BoolChip::new(&self.bools);
+    if let OuterVerificationKeyCommitmentValue::Bn254(expected_commitment) =
+      input.outer_statement.vk_commitment.value
+    {
+      let vk_commitment = assign_and_commit_verification_key_on_host(
+        &field_chip,
+        layouter,
+        &input.inner_verification_key,
+      )?;
+      field_chip.assert_equal_to_fixed(layouter, &vk_commitment, expected_commitment)?;
+    }
     let result = groth16_verify_on_host(
       &field_chip,
       &bool_chip,

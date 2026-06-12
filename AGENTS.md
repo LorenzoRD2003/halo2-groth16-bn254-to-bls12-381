@@ -88,7 +88,7 @@ Week 5 verifier-memory notes:
 - the current execution model includes both the legacy stub result and the real direct CLI execution result payload
 - the current CLI surfaces for that lane are `inspect-groth16-bundle`, `plan-wrapper-job`, `export-wrapper-job`, `export-wrapper-package`, `execute-wrapper-stub`, and `execute-wrapper-direct`
 - the current placeholder outer backend is `PlannedHalo2OuterBackend`, which materializes the honest direct-output contract without generating a real proof
-- the selected concrete outer backend lane is `MidnightDirectOuterBackend`, and it treats the Halo2/Midnight outer circuit as canonical
+- the selected concrete outer backend lane is `MidnightDirectOuterBackendBn254Host`, and it treats the Halo2/Midnight outer circuit as canonical
 - the current outer backend lane can now adapt artifact bundles into the canonical outer circuit input, build a real outer circuit, plan setup/proof outputs, and validate produced proof/VK shapes
 - the repository now also exposes a direct canonical outer-circuit backend surface in `wrapper-backends/src/outer.rs` through `CanonicalOuterCircuitProofBackend`, `plan_direct_outer_circuit_setup(...)`, and `plan_direct_outer_circuit_proof(...)`
 - the repository now also contains a canonical R1CS line under `crates/wrapper-circuits/src/r1cs/`, including deterministic lowering, canonical identity hashing, a zkInterface-style export bridge, and a first Arkworks adapter
@@ -158,11 +158,13 @@ If you need the remaining path to a real `.circom` end-to-end wrapper flow:
 
 If you need outer wrapper circuit context:
 
-1. `crates/wrapper-circuits/src/outer/mod.rs`
-2. `crates/wrapper-circuits/src/outer/input.rs`
-3. `crates/wrapper-circuits/src/outer/statement.rs`
-4. `crates/wrapper-backends/src/outer.rs`
-5. `docs/outer-prover-strategy-plan.md`
+1. `docs/outer-wrapper-circuit-layered-walkthrough.md`
+2. `docs/plans/0008-outer-vk-public-binding-plan.md`
+3. `crates/wrapper-circuits/src/outer/mod.rs`
+4. `crates/wrapper-circuits/src/outer/input.rs`
+5. `crates/wrapper-circuits/src/outer/statement.rs`
+6. `crates/wrapper-backends/src/outer.rs`
+7. `docs/outer-prover-strategy-plan.md`
 
 If you need pairing-core / final-exponentiation context:
 
@@ -281,6 +283,7 @@ Use each top-level doc for one job:
 - `docs/decisions/0004-local-midnight-proofs-patch.md`: accepted rationale for carrying a local `midnight-proofs` patch to support richer direct setup/prove artifacts
 - `docs/plans/0006-finalize-checkpoint-profiling-plan.md`: implementation plan for ultra-fine `prove-finalize` checkpoint logging, iteration heartbeats, memory snapshots, elapsed-time profiling, and real-time log inspection
 - `docs/plans/0007-pairing-kernel-opportunity-audit-plan.md`: prioritized audit and experiment plan for new pairing kernels that must reduce real base-arithmetic cost rather than merely repackage existing formulas
+- `docs/plans/0008-outer-vk-public-binding-plan.md`: implementation plan for binding the outer proof publicly to a specific inner Groth16 verification key via a public commitment rather than a witness-only VK
 - `docs/h-poly-followup-speed-plan.md`: deferred speed-oriented follow-ups for the retained chunked `h_poly` path once the current memory blocker is solved
 - `docs/finalize-successful-run-metrics.md`: successful `prove-finalize` baseline report with real wall-clock, peak-memory, and hotspot rankings for the current chunked direct lane
 - `docs/plans/0002-cyclotomic-unitary-kernel-design.md`: proposed compressed-torus-region design for repeated `cyclotomic * unitary_inverse(cyclotomic)` sites in the hard part
@@ -288,6 +291,7 @@ Use each top-level doc for one job:
 - `docs/real-circom-wrapper-integration-plan.md`: phased implementation plan for finishing the real `.circom` -> outer-wrapper end-to-end path
 - `docs/r1cs-backend-status.md`: current status of the canonical R1CS line and why it is currently an alternate backend / later phase
 - `docs/outer-prover-strategy-plan.md`: current proving-strategy decision and direct backend surface for the canonical Halo2/Midnight outer circuit
+- `docs/outer-wrapper-circuit-layered-walkthrough.md`: layer-by-layer explanation of the canonical outer circuit, from normalized input and statement semantics through host-lane wiring, Groth16 verification, and pairing-core enforcement
 - `docs/semaphore-direct-execution-playbook.md`: operational direct-lane commands, host recommendation, chunk-size starting point, semantic public-input naming, and artifact layout for the committed Semaphore fixture
 
 When adding a new major doc, update this list and at least one context route so
@@ -306,6 +310,7 @@ future agents know when to read it.
 - `docs/profiling.md`: reproducible layout-profiling workflow for the current Groth16 slice
 - `docs/midnight-optimizations.md`: local Midnight-backed optimization guidance for repeated tower operations and fixed-constant arithmetic
 - `docs/outer-prover-strategy-plan.md`: strategy document for the remaining prover/backend decision on the outer Halo2/Midnight circuit
+- `docs/outer-wrapper-circuit-layered-walkthrough.md`: detailed circuit walkthrough of the canonical outer wrapper lane
 - `docs/decisions/0001-initial-workspace-structure.md`: ADR for the workspace split
 - `docs/decisions/0002-bn254-local-optimization-policy.md`: ADR for retained versus rejected BN254 local pairing-core optimizations
 

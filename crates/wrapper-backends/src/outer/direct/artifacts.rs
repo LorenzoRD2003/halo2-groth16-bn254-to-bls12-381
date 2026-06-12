@@ -3,7 +3,7 @@ use wrapper_core::{
   WrapperExecutionPackage,
 };
 
-use super::{MidnightDirectOuterBackend, MidnightDirectOuterBackendBls12Host};
+use super::{MidnightDirectOuterBackendBls12Host, MidnightDirectOuterBackendBn254Host};
 use crate::outer::{OuterProofBackend, OuterProofBackendError};
 
 macro_rules! impl_direct_backend_artifacts {
@@ -159,5 +159,5 @@ impl $backend {
   };
 }
 
-impl_direct_backend_artifacts!(MidnightDirectOuterBackend);
+impl_direct_backend_artifacts!(MidnightDirectOuterBackendBn254Host);
 impl_direct_backend_artifacts!(MidnightDirectOuterBackendBls12Host);

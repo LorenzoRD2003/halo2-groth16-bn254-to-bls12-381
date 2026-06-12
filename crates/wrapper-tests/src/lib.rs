@@ -7,7 +7,8 @@ use wrapper_backends::{
   SnarkjsGroth16Bn254ArtifactSetLoader, parse_snarkjs_groth16_bn254_bundle_with_names,
 };
 use wrapper_circuits::{
-  HostedOuterWrapperCircuitBls12, HostedOuterWrapperCircuitBn254, groth16_fixture_raw,
+  HostedOuterWrapperCircuitBls12, HostedOuterWrapperCircuitBn254, OuterHostFlavor,
+  groth16_fixture_raw,
 };
 use wrapper_core as _;
 
@@ -96,7 +97,8 @@ pub fn build_outer_bench_circuit_bn254(
   fixture: OuterBenchFixture,
 ) -> HostedOuterWrapperCircuitBn254 {
   let bundle = load_outer_bench_fixture_bundle(fixture);
-  let package = bundle.build_halo2_outer_execution_package();
+  let package =
+    bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
   let backend = MidnightDirectOuterBackendBn254Host;
   let circuit = backend
     .build_outer_circuit(
@@ -131,7 +133,8 @@ pub fn build_outer_bench_circuit_bls12(
   fixture: OuterBenchFixture,
 ) -> HostedOuterWrapperCircuitBls12 {
   let bundle = load_outer_bench_fixture_bundle(fixture);
-  let package = bundle.build_halo2_outer_execution_package();
+  let package = bundle
+    .build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBls12_381);
   let backend = MidnightDirectOuterBackendBls12Host;
   let circuit = backend
     .build_outer_circuit(
@@ -159,12 +162,13 @@ pub fn build_outer_bench_circuit_bls12(
 mod tests {
   use super::SEMAPHORE_PUBLIC_INPUT_NAMES;
   use wrapper_backends::{
-    ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle, MidnightDirectOuterBackend,
-    OuterCircuitInputArtifacts, OuterProofBackend, PlannedHalo2OuterBackend,
-    SnarkjsGroth16Bn254ArtifactSetLoader, parse_snarkjs_groth16_bn254_bundle_with_names,
+    ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle,
+    MidnightDirectOuterBackendBn254Host, OuterCircuitInputArtifacts, OuterProofBackend,
+    PlannedHalo2OuterBackend, SnarkjsGroth16Bn254ArtifactSetLoader,
+    parse_snarkjs_groth16_bn254_bundle_with_names,
   };
   use wrapper_circuits::{
-    CircuitBuildStatus, CircuitPlanningView, NativeField, groth16_fixture_raw,
+    CircuitBuildStatus, CircuitPlanningView, NativeField, OuterHostFlavor, groth16_fixture_raw,
     groth16_fixture_typed, host_verify,
   };
   use wrapper_core::{
@@ -297,15 +301,17 @@ mod tests {
   #[test]
   fn semaphore_execution_package_can_materialize_placeholder_outer_bundle() {
     let bundle = load_semaphore_fixture();
-    let package = bundle.build_halo2_outer_execution_package();
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
     let backend = PlannedHalo2OuterBackend;
     let planned_output =
       backend.prepare(&package).expect("planned outer backend should accept the Semaphore package");
     let outer_bundle = planned_output.bundle_template;
+    let expected_outer_public_input_count = package.statement.public_inputs.entries.len();
 
     assert_eq!(outer_bundle.proof_system.kind, ProofSystemKind::Halo2Outer);
     assert_eq!(outer_bundle.proof_artifact, "semaphore-depth-10-wrapper-proof.json");
-    assert_eq!(outer_bundle.public_inputs.len(), 4);
+    assert_eq!(outer_bundle.public_inputs.len(), expected_outer_public_input_count);
     assert_eq!(outer_bundle.public_inputs_artifact, "semaphore-depth-10-wrapper-public.json");
     assert_eq!(
       outer_bundle.verification_key_artifact,
@@ -319,14 +325,15 @@ mod tests {
       .expect("placeholder outer backend should materialize a VK skeleton");
     assert_eq!(verification_key.protocol, "halo2-plonkish");
     assert_eq!(verification_key.curve, "bn254");
-    assert_eq!(verification_key.public_input_count, 4);
+    assert_eq!(verification_key.public_input_count, expected_outer_public_input_count);
   }
 
   #[test]
   fn semaphore_execution_package_can_prepare_selected_midnight_outer_lane() {
     let bundle = load_semaphore_fixture();
-    let package = bundle.build_halo2_outer_execution_package();
-    let backend = MidnightDirectOuterBackend;
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBls12_381);
+    let backend = MidnightDirectOuterBackendBn254Host;
     let planned_output = backend
       .prepare(&package)
       .expect("selected midnight backend should accept the Semaphore package");
@@ -343,24 +350,36 @@ mod tests {
   }
 
   #[test]
-  fn semaphore_execution_package_exposes_mirrored_outer_statement_contract() {
+  fn semaphore_execution_package_exposes_explicit_outer_statement_contract() {
     let bundle = load_semaphore_fixture();
-    let package = bundle.build_halo2_outer_execution_package();
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
     let contract = package
       .validate_outer_statement_contract()
       .expect("Semaphore package should satisfy the frozen outer-statement contract");
 
-    assert_eq!(contract.semantics, OuterStatementSemantics::MirrorInnerVerifierPublicInputs);
-    assert_eq!(contract.expected_outer_public_input_count, 4);
+    assert_eq!(
+      contract.semantics,
+      OuterStatementSemantics::MirrorInnerVerifierPublicInputsAndVerificationKeyCommitment
+    );
+    assert_eq!(
+      contract.expected_outer_public_input_count,
+      package.statement.public_inputs.entries.len()
+    );
     assert_eq!(contract.expected_inner_public_input_count, 4);
+    assert_eq!(
+      contract.expected_vk_commitment_public_input_count,
+      package.statement.vk_commitment.public_inputs.entries.len()
+    );
     assert_eq!(contract.expected_verification_key_ic_count, 5);
   }
 
   #[test]
   fn canonical_fixture_package_can_adapt_into_direct_outer_input() {
     let bundle = load_groth16_fixture();
-    let package = bundle.build_halo2_outer_execution_package();
-    let backend = MidnightDirectOuterBackend;
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
+    let backend = MidnightDirectOuterBackendBn254Host;
     let adapted = backend
       .adapt_input(
         &package,
@@ -372,15 +391,19 @@ mod tests {
       .expect("midnight backend should adapt the canonical fixture package");
 
     assert_eq!(adapted.source_artifact_id, "circom-multiplier2");
-    assert_eq!(adapted.inner_verifier_public_inputs, adapted.outer_statement.public_inputs);
-    assert_eq!(adapted.outer_statement.field_names, vec!["public_input_0".to_owned()]);
+    assert_eq!(
+      adapted.inner_verifier_public_inputs,
+      adapted.outer_statement.mirrored_public_inputs
+    );
+    assert_eq!(adapted.outer_statement.mirrored_field_names, vec!["public_input_0".to_owned()]);
   }
 
   #[test]
   fn canonical_fixture_package_can_build_outer_circuit_through_backend() {
     let bundle = load_groth16_fixture();
-    let package = bundle.build_halo2_outer_execution_package();
-    let backend = MidnightDirectOuterBackend;
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
+    let backend = MidnightDirectOuterBackendBn254Host;
     let circuit = backend
       .build_outer_circuit(
         &package,
@@ -400,8 +423,9 @@ mod tests {
   #[test]
   fn semaphore_fixture_package_can_build_outer_circuit_through_backend() {
     let bundle = load_semaphore_fixture();
-    let package = bundle.build_halo2_outer_execution_package();
-    let backend = MidnightDirectOuterBackend;
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
+    let backend = MidnightDirectOuterBackendBn254Host;
     let circuit = backend
       .build_outer_circuit(
         &package,
@@ -425,8 +449,9 @@ mod tests {
       &SEMAPHORE_PUBLIC_INPUT_NAMES,
     )
     .expect("named Semaphore bundle should parse");
-    let package = bundle.build_halo2_outer_execution_package();
-    let backend = MidnightDirectOuterBackend;
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
+    let backend = MidnightDirectOuterBackendBn254Host;
     let adapted = backend
       .adapt_input(
         &package,
@@ -437,16 +462,20 @@ mod tests {
       )
       .expect("midnight backend should adapt the Semaphore package");
 
-    assert_eq!(adapted.outer_statement.field_names, SEMAPHORE_PUBLIC_INPUT_NAMES);
-    assert_eq!(adapted.outer_statement.public_inputs, adapted.inner_verifier_public_inputs);
+    assert_eq!(adapted.outer_statement.mirrored_field_names, SEMAPHORE_PUBLIC_INPUT_NAMES);
+    assert_eq!(
+      adapted.outer_statement.mirrored_public_inputs,
+      adapted.inner_verifier_public_inputs
+    );
   }
 
   #[test]
   #[ignore = "slow outer proving"]
   fn canonical_fixture_package_can_produce_real_outer_proof_bundle() {
     let bundle = load_groth16_fixture();
-    let package = bundle.build_halo2_outer_execution_package();
-    let backend = MidnightDirectOuterBackend;
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
+    let backend = MidnightDirectOuterBackendBn254Host;
     let produced = backend
       .prove(
         &package,
@@ -476,8 +505,9 @@ mod tests {
   #[ignore = "slow outer proving"]
   fn canonical_fixture_package_can_verify_real_outer_proof_bundle() {
     let bundle = load_groth16_fixture();
-    let package = bundle.build_halo2_outer_execution_package();
-    let backend = MidnightDirectOuterBackend;
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
+    let backend = MidnightDirectOuterBackendBn254Host;
     let produced = backend
       .prove(
         &package,
@@ -506,8 +536,9 @@ mod tests {
   #[ignore = "slow outer proving"]
   fn semaphore_fixture_runs_real_end_to_end_outer_flow() {
     let bundle = load_semaphore_fixture();
-    let package = bundle.build_halo2_outer_execution_package();
-    let backend = MidnightDirectOuterBackend;
+    let package =
+      bundle.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBn254);
+    let backend = MidnightDirectOuterBackendBn254Host;
     let artifacts = OuterCircuitInputArtifacts::new(
       Some(include_bytes!("../fixtures/groth16/semaphore/proof.json")),
       Some(include_bytes!("../fixtures/groth16/semaphore/verification_key.json")),
@@ -522,7 +553,7 @@ mod tests {
 
     assert_eq!(verification_key.protocol, "halo2-plonkish");
     assert_eq!(verification_key.curve, "bn254");
-    assert_eq!(verification_key.public_input_count, 4);
+    assert_eq!(verification_key.public_input_count, package.statement.public_inputs.entries.len());
     assert_eq!(produced.proof_artifact, "semaphore-depth-10-wrapper-proof.json");
     assert_eq!(produced.public_inputs_artifact, "semaphore-depth-10-wrapper-public.json");
     assert_eq!(
@@ -539,7 +570,10 @@ mod tests {
         .map(|entry| entry.value.clone())
         .collect::<Vec<_>>()
     );
-    assert_eq!(produced.verification_key.public_input_count, 4);
+    assert_eq!(
+      produced.verification_key.public_input_count,
+      package.statement.public_inputs.entries.len()
+    );
     assert!(
       backend
         .verify(&package, &produced, artifacts)

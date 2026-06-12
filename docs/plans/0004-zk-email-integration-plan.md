@@ -109,7 +109,7 @@ proof.json + public.json + verification_key.json
   -> Groth16Bn254ArtifactBundle
   -> WrapperJob
   -> WrapperExecutionPackage
-  -> MidnightDirectOuterBackend{Bn254Host|Bls12Host}
+  -> MidnightDirectOuterBackendBn254Host{Bn254Host|Bls12Host}
 ```
 
 This flow is implemented across:

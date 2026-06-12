@@ -33,7 +33,7 @@ pub use output::{
 };
 pub use package::{
   OuterStatementContract, OuterStatementContractError, OuterStatementSemantics,
-  WrapperExecutionPackage, WrapperStatement, WrapperWitnessInput,
+  VerificationKeyCommitment, WrapperExecutionPackage, WrapperStatement, WrapperWitnessInput,
 };
 pub use phase::{ProjectOverview, ProjectPhase, ProjectStatusReport};
 pub use statement::{NamedPublicInput, NamedPublicInputs};

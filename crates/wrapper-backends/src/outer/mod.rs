@@ -12,10 +12,7 @@ pub use compatibility::{
   PlannedHalo2OuterBackendBn254Host, current_reference_outer_backend,
   current_reference_outer_backend_metadata, current_reference_outer_host,
 };
-pub use direct::{
-  MidnightDirectOuterBackend, MidnightDirectOuterBackendBls12Host,
-  MidnightDirectOuterBackendBn254Host,
-};
+pub use direct::{MidnightDirectOuterBackendBls12Host, MidnightDirectOuterBackendBn254Host};
 pub use errors::OuterProofBackendError;
 pub use planned::PlannedHalo2OuterBackend;
 pub use traits::{CanonicalOuterCircuitProofBackend, OuterProofBackend};

@@ -19,7 +19,7 @@ use serde::Serialize;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 use wrapper_backends::{
-  ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle, MidnightDirectOuterBackend,
+  ArtifactSetLoader, BackendRegistry, Groth16Bn254ArtifactBundle,
   MidnightDirectOuterBackendBls12Host, MidnightDirectOuterBackendBn254Host,
   OuterCircuitInputArtifacts, OuterProofBackend, ProducedOuterSetupArtifactBundle,
   SnarkjsGroth16Bn254ArtifactSetLoader, parse_snarkjs_groth16_bn254_bundle_with_names,
@@ -43,7 +43,8 @@ use wrapper_circuits::{
   search_bn254_exp_by_x_candidates, search_bn254_exp_by_x_candidates_with_windows,
 };
 use wrapper_core::{
-  ProjectConfig, ProjectStatusReport, WrapperExecutionPackage, WrapperExecutionResult, WrapperJob,
+  ProjectConfig, ProjectStatusReport, VerificationKeyCommitment, WrapperExecutionPackage,
+  WrapperExecutionResult, WrapperJob, WrapperStatement,
 };
 
 const SEMAPHORE_PROFILE_PUBLIC_INPUT_NAMES: [&str; 4] =
@@ -1555,7 +1556,7 @@ fn outer_fixture_end_to_end_layout_row(
   let build_started_at = Instant::now();
   let circuit = match outer_host {
     OuterHostFlavor::MidnightBn254 => {
-      let backend = MidnightDirectOuterBackend;
+      let backend = MidnightDirectOuterBackendBn254Host;
       backend
         .build_outer_circuit(
           &package,
@@ -1738,6 +1739,9 @@ fn print_groth16_bundle_summary(
       println!("  - [{index}] {value:?}");
     }
   }
+
+  let package = bundle.build_halo2_outer_execution_package();
+  print_wrapper_statement_summary(&package.statement);
 }
 
 fn run_plan_wrapper_job(
@@ -1801,6 +1805,7 @@ fn run_export_wrapper_package(
   if let Some(path) = output_path {
     fs::write(path, format!("{manifest}\n"))
       .with_context(|| format!("failed to write wrapper package to {}", path.display()))?;
+    print_wrapper_execution_package_summary(&package);
     println!("Wrote wrapper package to {}", path.display());
   } else {
     println!("{manifest}");
@@ -2773,6 +2778,40 @@ fn print_wrapper_job_summary(job: &WrapperJob) {
   for note in &job.notes {
     println!("  - {note}");
   }
+}
+
+fn print_verification_key_commitment_summary(commitment: &VerificationKeyCommitment) {
+  println!("VK commitment semantic field:");
+  println!("  - {} = {}", commitment.field_name, commitment.value);
+  println!("VK commitment flattened public inputs: {}", commitment.public_inputs.entries.len());
+  for entry in &commitment.public_inputs.entries {
+    println!("  - {} = {}", entry.name, entry.value);
+  }
+}
+
+fn print_wrapper_statement_summary(statement: &WrapperStatement) {
+  println!(
+    "Outer statement mirrored public inputs: {}",
+    statement.mirrored_public_inputs.entries.len()
+  );
+  for entry in &statement.mirrored_public_inputs.entries {
+    println!("  - {} = {}", entry.name, entry.value);
+  }
+
+  print_verification_key_commitment_summary(&statement.vk_commitment);
+
+  println!(
+    "Outer statement flattened public-input order: {}",
+    statement.public_inputs.entries.len()
+  );
+  for (index, entry) in statement.public_inputs.entries.iter().enumerate() {
+    println!("  - [{index}] {} = {}", entry.name, entry.value);
+  }
+}
+
+fn print_wrapper_execution_package_summary(package: &WrapperExecutionPackage) {
+  println!("Wrapper package: {}", package.job.identifier);
+  print_wrapper_statement_summary(&package.statement);
 }
 
 fn run_validate_config(path: &PathBuf) -> Result<()> {

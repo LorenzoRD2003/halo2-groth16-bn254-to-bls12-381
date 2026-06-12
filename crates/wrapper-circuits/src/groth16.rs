@@ -24,7 +24,9 @@ use crate::bn254::{
   PreparedConstantG2Miller, pairing_check_with_prepared_terms_against_fixed_target_on_host,
 };
 
+pub mod commitment;
 pub mod fixtures;
+mod poseidon_fq_params;
 pub mod profiling;
 pub(crate) mod reference;
 

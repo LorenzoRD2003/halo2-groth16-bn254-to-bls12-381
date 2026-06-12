@@ -26,9 +26,13 @@ The current concrete prover lane remains:
 - direct Halo2/Midnight backend
 - `wrapper-backends/src/outer/direct/`
 - public backend surface:
-  - `MidnightDirectOuterBackend`
   - `MidnightDirectOuterBackendBn254Host`
   - `MidnightDirectOuterBackendBls12Host`
+
+Current lane policy:
+
+- `MidnightDirectOuterBackendBls12Host` is the official outer lane
+- `MidnightDirectOuterBackendBn254Host` remains a compatibility/testing lane
 
 The canonical circuit question is therefore considered settled for the current
 phase:
@@ -44,6 +48,16 @@ The direct outer lane now supports:
 - prove
 - verify
 - split prove trace / prove finalize
+
+Operationally, the lane to prefer for production-facing work is:
+
+- `MidnightDirectOuterBackendBls12Host`
+
+The BN254-hosted lane remains useful for:
+
+- comparative regressions
+- compatibility checks
+- historical baselines already captured in the repository
 
 In current CLI terms, the practical direct-lane commands are:
 
@@ -131,6 +145,6 @@ choosing a different backend family.
 It already has the strategy:
 
 - canonical Halo2/Midnight outer circuit
-- direct setup/prove/verify lane
+- direct setup/prove/verify lanes, with `BLS12-381` as the official one
 - richer setup artifact plus split prove stages
 - finalize memory reduction as the remaining practical blocker

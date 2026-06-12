@@ -20,12 +20,11 @@ pub use loader::{ArtifactLoader, ArtifactLoaderError, ArtifactSetLoader, LoaderS
 pub use outer::{
   CanonicalOuterCircuitProofArtifacts, CanonicalOuterCircuitProofBackend,
   CanonicalOuterCircuitSetupArtifacts, DirectOuterCircuitInput, DirectOuterProofPlan,
-  DirectOuterSetupPlan, DirectOuterStatementInput, MidnightDirectOuterBackend,
-  MidnightDirectOuterBackendBls12Host, MidnightDirectOuterBackendBn254Host,
-  OuterBackendCapabilities, OuterCircuitInputArtifacts, OuterProofBackend, OuterProofBackendError,
-  OuterProofBackendMetadata, OuterProofSerialization, OuterVerificationKeySerialization,
-  PlannedHalo2OuterBackend, PlannedHalo2OuterBackendBn254Host, ProducedOuterProvingKeyJson,
-  ProducedOuterSetupArtifactBundle, current_reference_outer_backend,
+  DirectOuterSetupPlan, DirectOuterStatementInput, MidnightDirectOuterBackendBls12Host,
+  MidnightDirectOuterBackendBn254Host, OuterBackendCapabilities, OuterCircuitInputArtifacts,
+  OuterProofBackend, OuterProofBackendError, OuterProofBackendMetadata, OuterProofSerialization,
+  OuterVerificationKeySerialization, PlannedHalo2OuterBackend, PlannedHalo2OuterBackendBn254Host,
+  ProducedOuterProvingKeyJson, ProducedOuterSetupArtifactBundle, current_reference_outer_backend,
   current_reference_outer_backend_metadata, current_reference_outer_host,
 };
 pub use registry::{BackendDescriptor, BackendRegistry};

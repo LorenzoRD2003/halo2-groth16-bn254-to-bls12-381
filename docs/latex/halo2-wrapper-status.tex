@@ -147,10 +147,18 @@ La lane principal implementada hoy, y la que conviene priorizar operativamente, 
 \(\downarrow\)\\
 \texttt{OuterWrapperCircuit}\\
 \(\downarrow\)\\
-\texttt{MidnightDirectOuterBackend}\\
+\texttt{MidnightDirectOuterBackendBls12Host}\\
 \(\downarrow\)\\
 \texttt{setup/prove/verify}
 \end{quote}
+
+La pol\'itica actual de lanes es:
+
+\begin{itemize}
+  \item \texttt{BLS12-381} es la lane oficial del outer;
+  \item \texttt{BN254} se mantiene como lane de compatibilidad, testing y comparaci\'on;
+  \item la sem\'antica del statement outer y el binding del VK son compartidos entre ambas lanes.
+\end{itemize}
 
 En forma m\'as concreta:
 
@@ -334,7 +342,16 @@ El circuito outer can\'onico es \texttt{OuterWrapperCircuit}. Su sem\'antica es:
 verificar la slice Groth16 BN254 soportada hoy y exponer el statement outer correspondiente.
 \end{quote}
 
-El backend directo concreto es \texttt{MidnightDirectOuterBackend}, con variantes de host lane.
+La superficie directa concreta hoy expone dos lanes reales:
+
+\begin{itemize}
+  \item \texttt{MidnightDirectOuterBackendBls12Host};
+  \item \texttt{MidnightDirectOuterBackendBn254Host}.
+\end{itemize}
+
+La primera es la lane oficial del outer.
+La segunda se retiene para compatibilidad, testing y regresiones comparativas.
+
 La implementaci\'on activa permite:
 
 \begin{itemize}

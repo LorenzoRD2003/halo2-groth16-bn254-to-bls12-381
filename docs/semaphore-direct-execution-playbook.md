@@ -37,6 +37,13 @@ Why this is the current recommendation:
 - Semaphore is materially larger than `circom_multiplier2`, so the safer and
   faster currently-hardened host lane is the better first bet
 
+Current lane policy:
+
+- `midnight-bls12381-host` is the official outer lane for this repository's
+  operator-facing flow
+- the BN254-hosted outer lane is retained for compatibility/testing work, not
+  as the preferred operational target
+
 ## Public Input Names
 
 The committed Semaphore fixture uses this ordered verifier public-input vector:

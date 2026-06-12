@@ -9,9 +9,9 @@ use crate::outer::{
   OuterCircuitInputArtifacts, OuterProofBackend, OuterProofBackendError,
 };
 
-use super::MidnightDirectOuterBackend;
+use super::MidnightDirectOuterBackendBn254Host;
 
-impl MidnightDirectOuterBackend {
+impl MidnightDirectOuterBackendBn254Host {
   /// Builds the setup plan for the selected direct outer backend lane.
   ///
   /// # Errors
@@ -143,7 +143,7 @@ impl MidnightDirectOuterBackend {
   }
 }
 
-impl CanonicalOuterCircuitProofBackend for MidnightDirectOuterBackend {
+impl CanonicalOuterCircuitProofBackend for MidnightDirectOuterBackendBn254Host {
   fn backend_id(&self) -> &'static str {
     OuterProofBackend::backend_id(self)
   }

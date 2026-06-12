@@ -75,6 +75,13 @@ pub use bn254::{
   search_bn254_exp_by_x_candidates, search_bn254_exp_by_x_candidates_with_windows,
 };
 use ff::{Field, FromUniformBytes};
+pub use groth16::commitment::{
+  OUTER_VK_COMMITMENT_FIELD_NAME, assign_and_commit_verification_key_on_bls12_host,
+  assign_and_commit_verification_key_on_host,
+  groth16_vk_commitment, groth16_vk_commitment_bls12,
+  groth16_vk_commitment_bls12_public_input_names, groth16_vk_commitment_bls12_public_inputs,
+  groth16_vk_commitment_public_input_names, groth16_vk_commitment_public_inputs,
+};
 #[cfg(feature = "test")]
 pub use groth16::fixtures::{raw as groth16_fixture_raw, typed as groth16_fixture_typed};
 pub use groth16::profiling::{
@@ -113,13 +120,14 @@ pub use outer::{
   OuterCanonicalR1csSliceStatus, OuterGroth16IcAccumulatorSlice,
   OuterGroth16PairingProductCheckSlice, OuterHostConfig, OuterHostField, OuterHostFlavor,
   OuterHostLane, OuterStatementExposureR1cs, OuterStatementInput, OuterStatementSemantics,
-  OuterVerifierResultAssertionSlice, OuterWrapperCircuit, OuterWrapperCircuitInput,
-  OuterWrapperFlavorProfile, OuterWrapperHostConfig, OuterWrapperHostConfigBls12,
-  OuterWrapperHostConfigBn254, build_outer_groth16_ic_accumulator_slice,
-  build_outer_groth16_pairing_product_check_slice, build_outer_statement_exposure_r1cs,
-  build_outer_verifier_result_assertion_slice, build_outer_wrapper_canonical_r1cs,
-  build_outer_wrapper_circuit, inspect_outer_wrapper_canonical_r1cs, lift_outer_input_to_host,
-  lift_outer_inputs_to_host,
+  OuterVerificationKeyCommitment, OuterVerificationKeyCommitmentValue,
+  OuterVerifierResultAssertionSlice, OuterWrapperCircuit,
+  OuterWrapperCircuitInput, OuterWrapperFlavorProfile, OuterWrapperHostConfig,
+  OuterWrapperHostConfigBls12, OuterWrapperHostConfigBn254,
+  build_outer_groth16_ic_accumulator_slice, build_outer_groth16_pairing_product_check_slice,
+  build_outer_statement_exposure_r1cs, build_outer_verifier_result_assertion_slice,
+  build_outer_wrapper_canonical_r1cs, build_outer_wrapper_circuit,
+  inspect_outer_wrapper_canonical_r1cs, lift_outer_input_to_host, lift_outer_inputs_to_host,
 };
 pub use planning::{
   CircuitPlanningView, PRIMITIVE_COUNT, PrimitiveCostEntry, PrimitiveCostLayer, PrimitiveCostTable,

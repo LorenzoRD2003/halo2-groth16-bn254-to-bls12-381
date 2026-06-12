@@ -119,7 +119,7 @@ pub fn outer_wrapper_fixture_layout_metrics() -> LayoutMetrics {
 #[must_use]
 pub fn outer_wrapper_fixture_layout_metrics_for_host(outer_host: OuterHostFlavor) -> LayoutMetrics {
   let circuit = OuterWrapperCircuit::from_input_for_host(
-    OuterWrapperCircuitInput::mirrored(
+    OuterWrapperCircuitInput::explicit(
       fixtures::typed::proof(),
       fixtures::typed::verifying_key(),
       fixtures::typed::public_inputs(),

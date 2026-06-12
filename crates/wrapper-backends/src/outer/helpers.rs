@@ -1,5 +1,7 @@
 use ff::{Field, PrimeField};
-use wrapper_circuits::{OuterHostField, OuterWrapperCircuit, lift_outer_inputs_to_host};
+use wrapper_circuits::{
+  Bls12HostField, ForeignField, OuterHostField, OuterWrapperCircuit, lift_outer_inputs_to_host,
+};
 use wrapper_core::{ExpectedWrapperArtifacts, ProofSystemKind, WrapperExecutionPackage};
 
 use super::{OuterProofBackendError, OuterProofBackendMetadata};
@@ -44,6 +46,72 @@ pub(super) fn parse_native_input_value(
   }
 
   OuterHostField::from_str_vartime(value).ok_or_else(|| {
+    OuterProofBackendError::InvalidPublicInputValue {
+      context,
+      field_name: field_name.to_owned(),
+      value: value.to_owned(),
+    }
+  })
+}
+
+pub(super) fn parse_foreign_input_value(
+  context: &'static str,
+  field_name: &str,
+  value: &str,
+) -> Result<ForeignField, OuterProofBackendError> {
+  if let Some(hex) = value.strip_prefix("0x") {
+    let mut accumulator = ForeignField::ZERO;
+    let radix = ForeignField::from(16_u64);
+
+    for ch in hex.chars() {
+      let digit =
+        ch.to_digit(16).ok_or_else(|| OuterProofBackendError::InvalidPublicInputValue {
+          context,
+          field_name: field_name.to_owned(),
+          value: value.to_owned(),
+        })?;
+      accumulator = accumulator * radix + ForeignField::from(u64::from(digit));
+    }
+
+    return Ok(accumulator);
+  }
+
+  ForeignField::from_str_vartime(value).ok_or_else(|| {
+    OuterProofBackendError::InvalidPublicInputValue {
+      context,
+      field_name: field_name.to_owned(),
+      value: value.to_owned(),
+    }
+  })
+}
+
+pub(super) fn parse_bls12_input_value(
+  context: &'static str,
+  field_name: &str,
+  value: &str,
+) -> Result<Bls12HostField, OuterProofBackendError> {
+  let normalized = value
+    .strip_prefix("Fq(")
+    .and_then(|inner| inner.strip_suffix(')'))
+    .unwrap_or(value);
+  if let Some(hex) = normalized.strip_prefix("0x") {
+    let mut accumulator = Bls12HostField::ZERO;
+    let radix = Bls12HostField::from(16_u64);
+
+    for ch in hex.chars() {
+      let digit =
+        ch.to_digit(16).ok_or_else(|| OuterProofBackendError::InvalidPublicInputValue {
+          context,
+          field_name: field_name.to_owned(),
+          value: value.to_owned(),
+        })?;
+      accumulator = accumulator * radix + Bls12HostField::from(u64::from(digit));
+    }
+
+    return Ok(accumulator);
+  }
+
+  Bls12HostField::from_str_vartime(normalized).ok_or_else(|| {
     OuterProofBackendError::InvalidPublicInputValue {
       context,
       field_name: field_name.to_owned(),

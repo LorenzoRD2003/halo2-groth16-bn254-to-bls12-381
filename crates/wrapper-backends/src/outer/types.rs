@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use wrapper_circuits::{
   Groth16Bn254Proof, Groth16Bn254VerifyingKey, InnerVerifierFlavor,
   OuterArtifactSerializationFlavor, OuterHostField, OuterHostFlavor, OuterStatementInput,
-  OuterStatementSemantics, OuterWrapperCircuitInput,
+  OuterStatementSemantics, OuterVerificationKeyCommitment, OuterVerificationKeyCommitmentValue,
+  OuterWrapperCircuitInput,
 };
 use wrapper_core::{ProducedOuterProofJson, ProducedOuterVerificationKeyJson};
 
@@ -193,10 +194,12 @@ impl<'a> OuterCircuitInputArtifacts<'a> {
 /// Outer public statement normalized to the exact field layout expected by the arkworks lane.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DirectOuterStatementInput {
-  /// Ordered semantic public-input names.
-  pub field_names: Vec<String>,
-  /// Ordered field values for the outer public statement.
-  pub public_inputs: Vec<OuterHostField>,
+  /// Ordered mirrored inner public-input names.
+  pub mirrored_field_names: Vec<String>,
+  /// Ordered mirrored inner public-input values.
+  pub mirrored_public_inputs: Vec<OuterHostField>,
+  /// Explicit public verification-key commitment.
+  pub vk_commitment: (String, OuterVerificationKeyCommitmentValue),
 }
 
 /// Exact witness/config input shape expected by the chosen arkworks outer backend lane.
@@ -223,9 +226,13 @@ impl DirectOuterCircuitInput {
       self.inner_verification_key.clone(),
       self.inner_verifier_public_inputs.clone(),
       OuterStatementInput::new(
-        OuterStatementSemantics::MirrorInnerPublicInputs,
-        self.outer_statement.field_names.clone(),
-        self.outer_statement.public_inputs.clone(),
+        OuterStatementSemantics::MirrorInnerPublicInputsAndVerificationKeyCommitment,
+        self.outer_statement.mirrored_field_names.clone(),
+        self.outer_statement.mirrored_public_inputs.clone(),
+        OuterVerificationKeyCommitment::new(
+          self.outer_statement.vk_commitment.0.clone(),
+          self.outer_statement.vk_commitment.1.clone(),
+        ),
       ),
     )
   }

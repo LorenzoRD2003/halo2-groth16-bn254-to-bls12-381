@@ -22,9 +22,6 @@ pub struct MidnightDirectOuterBackendBn254Host;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MidnightDirectOuterBackendBls12Host;
 
-/// Backward-compatible alias for the current direct BN254-hosted lane.
-pub use MidnightDirectOuterBackendBn254Host as MidnightDirectOuterBackend;
-
 const MIDNIGHT_DIRECT_BN254_BACKEND_METADATA: OuterProofBackendMetadata =
   OuterProofBackendMetadata {
     backend_id: "midnight-direct-halo2-outer-backend-bn254-host",

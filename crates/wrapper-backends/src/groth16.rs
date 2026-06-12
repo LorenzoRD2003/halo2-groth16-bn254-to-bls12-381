@@ -1,9 +1,15 @@
 //! Generic higher-level Groth16 BN254 artifact normalization helpers.
 
-use wrapper_circuits::{Groth16Bn254Proof, Groth16Bn254VerifyingKey, NativeField};
+use wrapper_circuits::{
+  Groth16Bn254Proof, Groth16Bn254VerifyingKey, NativeField, OUTER_VK_COMMITMENT_FIELD_NAME,
+  OuterHostFlavor, groth16_vk_commitment, groth16_vk_commitment_bls12,
+  groth16_vk_commitment_bls12_public_input_names, groth16_vk_commitment_bls12_public_inputs,
+  groth16_vk_commitment_public_input_names, groth16_vk_commitment_public_inputs,
+};
 use wrapper_core::{
   NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind,
-  WrapperExecutionPackage, WrapperJob, WrapperStatement, WrapperWitnessInput,
+  VerificationKeyCommitment, WrapperExecutionPackage, WrapperJob, WrapperStatement,
+  WrapperWitnessInput,
 };
 
 use crate::loader::{ArtifactSetLoader, LoaderSummary};
@@ -85,12 +91,47 @@ impl Groth16Bn254ArtifactBundle {
 
   /// Builds a serializable execution package for a future wrapper executor.
   #[must_use]
-  pub fn build_execution_package(&self, job: WrapperJob) -> WrapperExecutionPackage {
+  pub fn build_execution_package_for_outer_host(
+    &self,
+    job: WrapperJob,
+    outer_host: OuterHostFlavor,
+  ) -> WrapperExecutionPackage {
     let named_public_inputs = self.named_public_inputs_or_indexed();
+    let (vk_commitment_value, vk_commitment_public_inputs) = match outer_host {
+      OuterHostFlavor::MidnightBn254 => {
+        let value = groth16_vk_commitment(&self.verification_key);
+        let public_inputs = NamedPublicInputs::new(
+          groth16_vk_commitment_public_input_names(OUTER_VK_COMMITMENT_FIELD_NAME)
+            .into_iter()
+            .zip(groth16_vk_commitment_public_inputs(value))
+            .map(|(name, value)| NamedPublicInput::new(name, format!("{value:?}")))
+            .collect(),
+        );
+        (format!("{value:?}"), public_inputs)
+      }
+      OuterHostFlavor::MidnightBls12_381 => {
+        let value = groth16_vk_commitment_bls12(&self.verification_key);
+        let public_inputs = NamedPublicInputs::new(
+          groth16_vk_commitment_bls12_public_input_names(OUTER_VK_COMMITMENT_FIELD_NAME)
+            .into_iter()
+            .zip(groth16_vk_commitment_bls12_public_inputs(value))
+            .map(|(name, value)| NamedPublicInput::new(name, format!("{value:?}")))
+            .collect(),
+        );
+        (format!("{value:?}"), public_inputs)
+      }
+    };
 
     WrapperExecutionPackage::new(
       job.clone(),
-      WrapperStatement::new(named_public_inputs.clone()),
+      WrapperStatement::new(
+        named_public_inputs.clone(),
+        VerificationKeyCommitment::new(
+          OUTER_VK_COMMITMENT_FIELD_NAME,
+          vk_commitment_value,
+          vk_commitment_public_inputs,
+        ),
+      ),
       WrapperWitnessInput::new(
         self.identifier.clone(),
         job.source.clone(),
@@ -109,7 +150,16 @@ impl Groth16Bn254ArtifactBundle {
   /// Builds a serializable execution package for the current Halo2/Midnight outer target.
   #[must_use]
   pub fn build_halo2_outer_execution_package(&self) -> WrapperExecutionPackage {
-    self.build_execution_package(self.plan_halo2_outer_wrapper_job())
+    self.build_halo2_outer_execution_package_for_outer_host(OuterHostFlavor::MidnightBls12_381)
+  }
+
+  /// Builds a serializable execution package for one explicit outer host lane.
+  #[must_use]
+  pub fn build_halo2_outer_execution_package_for_outer_host(
+    &self,
+    outer_host: OuterHostFlavor,
+  ) -> WrapperExecutionPackage {
+    self.build_execution_package_for_outer_host(self.plan_halo2_outer_wrapper_job(), outer_host)
   }
 }
 
@@ -312,7 +362,7 @@ mod tests {
     let package = bundle.build_halo2_outer_execution_package();
 
     assert_eq!(package.job.target.kind, ProofSystemKind::Halo2Outer);
-    assert_eq!(package.statement.public_inputs.field_order(), SEMAPHORE_FIELD_ORDER);
+    assert_eq!(package.statement.mirrored_public_inputs.field_order(), SEMAPHORE_FIELD_ORDER);
     assert_eq!(package.witness.verifier_public_inputs.field_order(), SEMAPHORE_FIELD_ORDER);
     assert!(package.witness.requires_inner_proof);
     assert!(package.witness.requires_verification_key);

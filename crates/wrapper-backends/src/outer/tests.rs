@@ -4,11 +4,10 @@ use wrapper_core::{ProducedOuterProofJson, ProofSystemKind};
 use crate::parse_snarkjs_groth16_bn254_bundle;
 
 use super::{
-  MidnightDirectOuterBackend, MidnightDirectOuterBackendBls12Host,
-  MidnightDirectOuterBackendBn254Host, OuterCircuitInputArtifacts, OuterProofBackend,
-  OuterProofBackendError, PlannedHalo2OuterBackend, PlannedHalo2OuterBackendBn254Host,
-  current_reference_outer_backend, current_reference_outer_backend_metadata,
-  current_reference_outer_host,
+  MidnightDirectOuterBackendBls12Host, MidnightDirectOuterBackendBn254Host,
+  OuterCircuitInputArtifacts, OuterProofBackend, OuterProofBackendError, PlannedHalo2OuterBackend,
+  PlannedHalo2OuterBackendBn254Host, current_reference_outer_backend,
+  current_reference_outer_backend_metadata, current_reference_outer_host,
 };
 
 fn real_fixture_package() -> wrapper_core::WrapperExecutionPackage {
@@ -19,7 +18,20 @@ fn real_fixture_package() -> wrapper_core::WrapperExecutionPackage {
     groth16_fixture_raw::verification_key_json(),
   )
   .expect("fixture bundle should parse")
-  .build_halo2_outer_execution_package()
+  .build_halo2_outer_execution_package_for_outer_host(wrapper_circuits::OuterHostFlavor::MidnightBls12_381)
+}
+
+fn real_fixture_package_for_host(
+  outer_host: wrapper_circuits::OuterHostFlavor,
+) -> wrapper_core::WrapperExecutionPackage {
+  parse_snarkjs_groth16_bn254_bundle(
+    "circom-multiplier2",
+    groth16_fixture_raw::proof_json(),
+    groth16_fixture_raw::public_inputs_json(),
+    groth16_fixture_raw::verification_key_json(),
+  )
+  .expect("fixture bundle should parse")
+  .build_halo2_outer_execution_package_for_outer_host(outer_host)
 }
 
 #[test]
@@ -44,7 +56,7 @@ fn planned_backend_prepares_halo2_outer_placeholder_bundle() {
 
 #[test]
 fn direct_backend_exposes_selected_stack_metadata() {
-  let metadata = MidnightDirectOuterBackend.metadata();
+  let metadata = MidnightDirectOuterBackendBn254Host.metadata();
   let capabilities = metadata.capabilities();
   let proof_serialization = metadata.proof_serialization();
   let vk_serialization = metadata.verification_key_serialization();
@@ -87,7 +99,7 @@ fn current_bn254_lane_is_exposed_as_reference_backend_surface() {
   let _: PlannedHalo2OuterBackendBn254Host = PlannedHalo2OuterBackend;
 
   assert_eq!(current_reference_outer_host(), wrapper_circuits::OuterHostFlavor::MidnightBn254);
-  assert_eq!(backend.backend_id(), MidnightDirectOuterBackend.backend_id());
+  assert_eq!(backend.backend_id(), MidnightDirectOuterBackendBn254Host.backend_id());
   assert_eq!(metadata.outer_host, current_reference_outer_host());
   assert!(metadata.supports_setup);
   assert!(metadata.supports_prove);
@@ -133,7 +145,7 @@ fn bls12_direct_lane_is_exposed_as_additive_executable_sibling() {
 #[test]
 fn bls12_direct_lane_adapts_the_fixture_to_the_canonical_outer_circuit() {
   let backend = MidnightDirectOuterBackendBls12Host;
-  let package = real_fixture_package();
+  let package = real_fixture_package_for_host(wrapper_circuits::OuterHostFlavor::MidnightBls12_381);
   let circuit = backend
     .build_outer_circuit(
       &package,
@@ -146,6 +158,45 @@ fn bls12_direct_lane_adapts_the_fixture_to_the_canonical_outer_circuit() {
 
   assert_eq!(circuit.flavors.outer_host, wrapper_circuits::OuterHostFlavor::MidnightBls12_381);
   assert!(circuit.assert_ready_for_synthesis().is_ok());
+}
+
+#[test]
+fn vk_commitment_is_lane_specific_while_mirrored_public_inputs_remain_stable() {
+  let bn254_package =
+    real_fixture_package_for_host(wrapper_circuits::OuterHostFlavor::MidnightBn254);
+  let bls12_package =
+    real_fixture_package_for_host(wrapper_circuits::OuterHostFlavor::MidnightBls12_381);
+  let bn254_circuit = MidnightDirectOuterBackendBn254Host
+    .build_outer_circuit(
+      &bn254_package,
+      OuterCircuitInputArtifacts::new(
+        Some(groth16_fixture_raw::proof_json()),
+        Some(groth16_fixture_raw::verification_key_json()),
+      ),
+    )
+    .expect("bn254 backend should build the canonical fixture circuit");
+  let bls12_circuit = MidnightDirectOuterBackendBls12Host
+    .build_outer_circuit(
+      &bls12_package,
+      OuterCircuitInputArtifacts::new(
+        Some(groth16_fixture_raw::proof_json()),
+        Some(groth16_fixture_raw::verification_key_json()),
+      ),
+    )
+    .expect("bls12 backend should build the canonical fixture circuit");
+
+  assert_ne!(
+    bn254_circuit.input.outer_statement.vk_commitment,
+    bls12_circuit.input.outer_statement.vk_commitment
+  );
+  assert_ne!(
+    bn254_circuit.input.outer_statement.public_inputs,
+    bls12_circuit.input.outer_statement.public_inputs
+  );
+  assert_eq!(
+    bn254_circuit.input.outer_statement.mirrored_public_inputs,
+    bls12_circuit.input.outer_statement.mirrored_public_inputs
+  );
 }
 
 #[test]
@@ -174,8 +225,8 @@ fn reference_bn254_lane_prepare_output_matches_reference_capabilities() {
 
 #[test]
 fn direct_backend_builds_circuit_with_explicit_host_flavor_boundary() {
-  let backend = MidnightDirectOuterBackend;
-  let package = real_fixture_package();
+  let backend = MidnightDirectOuterBackendBn254Host;
+  let package = real_fixture_package_for_host(wrapper_circuits::OuterHostFlavor::MidnightBn254);
   let circuit = backend
     .build_outer_circuit(
       &package,
@@ -193,8 +244,8 @@ fn direct_backend_builds_circuit_with_explicit_host_flavor_boundary() {
 #[test]
 #[ignore = "slow outer proving"]
 fn direct_backend_can_plan_setup_and_produce_real_vk_artifact() {
-  let backend = MidnightDirectOuterBackend;
-  let package = real_fixture_package();
+  let backend = MidnightDirectOuterBackendBn254Host;
+  let package = real_fixture_package_for_host(wrapper_circuits::OuterHostFlavor::MidnightBn254);
   let plan =
     backend.plan_setup(&package).expect("setup planning should succeed for a valid package");
   let vk = backend
@@ -219,8 +270,8 @@ fn direct_backend_can_plan_setup_and_produce_real_vk_artifact() {
 #[test]
 #[ignore = "slow outer proving"]
 fn direct_backend_can_produce_real_proof_bundle() {
-  let backend = MidnightDirectOuterBackend;
-  let package = real_fixture_package();
+  let backend = MidnightDirectOuterBackendBn254Host;
+  let package = real_fixture_package_for_host(wrapper_circuits::OuterHostFlavor::MidnightBn254);
   let bundle = backend
     .prove(
       &package,
@@ -252,8 +303,8 @@ fn direct_backend_can_produce_real_proof_bundle() {
 #[test]
 #[ignore = "slow outer proving"]
 fn direct_backend_can_verify_real_proof_bundle() {
-  let backend = MidnightDirectOuterBackend;
-  let package = real_fixture_package();
+  let backend = MidnightDirectOuterBackendBn254Host;
+  let package = real_fixture_package_for_host(wrapper_circuits::OuterHostFlavor::MidnightBn254);
   let bundle = backend
     .prove(
       &package,
@@ -280,8 +331,8 @@ fn direct_backend_can_verify_real_proof_bundle() {
 
 #[test]
 fn direct_backend_rejects_proof_with_wrong_curve() {
-  let backend = MidnightDirectOuterBackend;
-  let package = real_fixture_package();
+  let backend = MidnightDirectOuterBackendBn254Host;
+  let package = real_fixture_package_for_host(wrapper_circuits::OuterHostFlavor::MidnightBn254);
   let proof = ProducedOuterProofJson {
     protocol: "halo2-plonkish".to_owned(),
     curve: "bls12-381".to_owned(),

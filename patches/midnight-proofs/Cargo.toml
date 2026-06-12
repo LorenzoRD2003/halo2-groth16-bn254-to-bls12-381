@@ -24,23 +24,13 @@ description = """
 Fast PLONK-based zero-knowledge proving system
 """
 readme = "README.md"
-keywords = [
-    "halo",
-    "proofs",
-    "zkp",
-    "zkSNARKs",
-]
+keywords = ["halo", "proofs", "zkp", "zkSNARKs"]
 categories = ["cryptography"]
 license = "MIT OR Apache-2.0"
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = [
-    "--cfg",
-    "docsrs",
-    "--html-in-header",
-    "katex-header.html",
-]
+rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "katex-header.html"]
 
 [features]
 bench-internal = ["criterion"]

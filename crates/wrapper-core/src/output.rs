@@ -517,15 +517,25 @@ mod tests {
     ExpectedVerificationKeyArtifactShape, ExpectedWrapperArtifacts, NamedPublicInput,
     NamedPublicInputs, PlannedOuterProofArtifactBundle, ProducedOuterProofArtifactBundle,
     ProducedOuterProofJson, ProducedOuterVerificationKeyJson, ProofSystemDescriptor,
-    ProofSystemKind, WrapperStatement,
+    ProofSystemKind, VerificationKeyCommitment, WrapperStatement,
   };
 
   #[test]
   fn expected_wrapper_artifacts_keep_statement_shape() {
-    let statement = WrapperStatement::new(NamedPublicInputs::new(vec![
-      NamedPublicInput::new("x", "1"),
-      NamedPublicInput::new("y", "2"),
-    ]));
+    let statement = WrapperStatement::new(
+      NamedPublicInputs::new(vec![
+        NamedPublicInput::new("x", "1"),
+        NamedPublicInput::new("y", "2"),
+      ]),
+      VerificationKeyCommitment::new(
+        "vk_commitment",
+        "7",
+        NamedPublicInputs::new(vec![
+          NamedPublicInput::new("vk_commitment_limb_0", "7"),
+          NamedPublicInput::new("vk_commitment_limb_1", "0"),
+        ]),
+      ),
+    );
     let artifacts = ExpectedWrapperArtifacts::new(
       ProofSystemDescriptor {
         kind: ProofSystemKind::Halo2Outer,
@@ -592,13 +602,16 @@ mod tests {
       vec![],
     );
 
-    assert_eq!(artifacts.statement.public_inputs.field_order(), vec!["x", "y"]);
+    assert_eq!(
+      artifacts.statement.public_inputs.field_order(),
+      vec!["x", "y", "vk_commitment_limb_0", "vk_commitment_limb_1"]
+    );
     assert_eq!(artifacts.public_inputs_shape.container, "array");
     assert_eq!(artifacts.canonical_circuit_identity, None);
     assert_eq!(artifacts.verification_key_shape.protocol, "halo2-plonkish");
     assert_eq!(artifacts.proof_shape.proof_key, "proof");
     assert_eq!(artifacts.verification_key_shape.verification_key_key, "verification_key");
-    assert_eq!(artifacts.bundle_template.public_inputs, vec!["1", "2"]);
+    assert_eq!(artifacts.bundle_template.public_inputs, vec!["1", "2", "7", "0"]);
     assert_eq!(artifacts.bundle_template.canonical_circuit_identity, None);
     assert!(artifacts.bundle_template.proof.is_none());
     assert_eq!(
@@ -608,7 +621,7 @@ mod tests {
         .as_ref()
         .expect("bundle template should materialize a VK skeleton")
         .public_input_count,
-      2
+      4
     );
     assert_eq!(artifacts.bundle_template.proof_system.kind, ProofSystemKind::Halo2Outer);
   }

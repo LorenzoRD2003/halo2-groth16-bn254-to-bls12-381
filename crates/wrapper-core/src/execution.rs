@@ -168,9 +168,20 @@ impl WrapperExecutionPackage {
 mod tests {
   use crate::{
     NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind,
-    WrapperExecutionPackage, WrapperExecutionStatus, WrapperJob, WrapperStatement,
-    WrapperWitnessInput,
+    VerificationKeyCommitment, WrapperExecutionPackage, WrapperExecutionStatus, WrapperJob,
+    WrapperStatement, WrapperWitnessInput,
   };
+
+  fn sample_vk_commitment() -> VerificationKeyCommitment {
+    VerificationKeyCommitment::new(
+      "vk_commitment",
+      "7",
+      NamedPublicInputs::new(vec![
+        NamedPublicInput::new("vk_commitment_limb_0", "7"),
+        NamedPublicInput::new("vk_commitment_limb_1", "0"),
+      ]),
+    )
+  }
 
   fn sample_package() -> WrapperExecutionPackage {
     let named = NamedPublicInputs::new(vec![
@@ -187,7 +198,7 @@ mod tests {
         Some(named.clone()),
         vec![],
       ),
-      WrapperStatement::new(named.clone()),
+      WrapperStatement::new(named.clone(), sample_vk_commitment()),
       WrapperWitnessInput::new(
         "artifact-1",
         ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },

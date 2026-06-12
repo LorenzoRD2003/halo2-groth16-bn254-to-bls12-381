@@ -32,7 +32,10 @@ pub use r1cs::{
   inspect_outer_wrapper_canonical_r1cs,
 };
 pub use semantics::Bn254InnerVerifierConfig;
-pub use statement::{OuterStatementInput, OuterStatementSemantics};
+pub use statement::{
+  OuterStatementInput, OuterStatementSemantics, OuterVerificationKeyCommitment,
+  OuterVerificationKeyCommitmentValue,
+};
 
 /// Build status for the outer circuit shell.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -121,7 +124,7 @@ impl OuterWrapperCircuit {
       });
     }
 
-    self.input.validate()
+    self.input.validate_for_outer_host(self.flavors.outer_host)
   }
 
   /// Returns a host-lane-specific proving wrapper around this semantic circuit.

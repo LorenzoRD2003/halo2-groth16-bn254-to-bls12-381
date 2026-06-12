@@ -5,18 +5,57 @@ use thiserror::Error;
 
 use crate::{NamedPublicInputs, ProofSystemDescriptor, WrapperJob};
 
+/// Public commitment to the inner verification key.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VerificationKeyCommitment {
+  /// Semantic field name for the commitment.
+  pub field_name: String,
+  /// Canonical commitment value encoded as text.
+  pub value: String,
+  /// Flattened public-input projection used by the current outer lane.
+  pub public_inputs: NamedPublicInputs,
+}
+
+impl VerificationKeyCommitment {
+  /// Builds one explicit verification-key commitment component.
+  #[must_use]
+  pub fn new(
+    field_name: impl Into<String>,
+    value: impl Into<String>,
+    public_inputs: NamedPublicInputs,
+  ) -> Self {
+    Self { field_name: field_name.into(), value: value.into(), public_inputs }
+  }
+
+  /// Returns the flattened public-input arity of the commitment projection.
+  #[must_use]
+  pub fn public_input_count(&self) -> usize {
+    self.public_inputs.entries.len()
+  }
+}
+
 /// Public statement exposed by the planned outer wrapper.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WrapperStatement {
-  /// Ordered public statement fields.
+  /// Ordered mirrored inner public inputs.
+  pub mirrored_public_inputs: NamedPublicInputs,
+  /// Explicit public verification-key commitment.
+  pub vk_commitment: VerificationKeyCommitment,
+  /// Ordered flat public statement fields exposed by the current outer lane.
   pub public_inputs: NamedPublicInputs,
 }
 
 impl WrapperStatement {
-  /// Builds a wrapper statement from named public inputs.
+  /// Builds a wrapper statement from explicit semantic components.
   #[must_use]
-  pub fn new(public_inputs: NamedPublicInputs) -> Self {
-    Self { public_inputs }
+  pub fn new(
+    mirrored_public_inputs: NamedPublicInputs,
+    vk_commitment: VerificationKeyCommitment,
+  ) -> Self {
+    let mut flattened = mirrored_public_inputs.entries.clone();
+    flattened.extend(vk_commitment.public_inputs.entries.clone());
+
+    Self { mirrored_public_inputs, vk_commitment, public_inputs: NamedPublicInputs::new(flattened) }
   }
 
   /// Returns the number of ordered public inputs in the statement.
@@ -79,8 +118,8 @@ impl WrapperWitnessInput {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OuterStatementSemantics {
-  /// The outer statement mirrors the ordered inner verifier public inputs exactly.
-  MirrorInnerVerifierPublicInputs,
+  /// The outer statement mirrors inner public inputs and binds one VK commitment.
+  MirrorInnerVerifierPublicInputsAndVerificationKeyCommitment,
 }
 
 /// Canonical outer-statement contract derived from a wrapper execution package.
@@ -92,6 +131,8 @@ pub struct OuterStatementContract {
   pub expected_outer_public_input_count: usize,
   /// Expected inner verifier public-input arity.
   pub expected_inner_public_input_count: usize,
+  /// Expected flattened public-input arity for the VK commitment projection.
+  pub expected_vk_commitment_public_input_count: usize,
   /// Expected verification-key IC arity.
   pub expected_verification_key_ic_count: usize,
 }
@@ -99,11 +140,16 @@ pub struct OuterStatementContract {
 impl OuterStatementContract {
   /// Builds the canonical current-stage contract.
   #[must_use]
-  pub fn mirrored_public_inputs(public_input_count: usize) -> Self {
+  pub fn mirrored_public_inputs_with_vk_commitment(
+    public_input_count: usize,
+    vk_commitment_public_input_count: usize,
+  ) -> Self {
     Self {
-      semantics: OuterStatementSemantics::MirrorInnerVerifierPublicInputs,
-      expected_outer_public_input_count: public_input_count,
+      semantics:
+        OuterStatementSemantics::MirrorInnerVerifierPublicInputsAndVerificationKeyCommitment,
+      expected_outer_public_input_count: public_input_count + vk_commitment_public_input_count,
       expected_inner_public_input_count: public_input_count,
+      expected_vk_commitment_public_input_count: vk_commitment_public_input_count,
       expected_verification_key_ic_count: public_input_count + 1,
     }
   }
@@ -128,9 +174,27 @@ pub enum OuterStatementContractError {
     /// Actual inner public-input arity found in the witness metadata.
     actual: usize,
   },
+  /// The explicit mirrored statement shape drifted from the expected inner arity.
+  #[error("mirrored public-input arity mismatch: expected {expected}, got {actual}")]
+  MirroredPublicInputArityMismatch {
+    /// Expected mirrored public-input arity.
+    expected: usize,
+    /// Actual mirrored public-input arity.
+    actual: usize,
+  },
   /// The wrapper statement field order does not mirror the inner verifier field order.
   #[error("outer statement field order does not mirror inner verifier public-input field order")]
   FieldOrderMismatch,
+  /// The explicit VK commitment projection is missing or has the wrong shape.
+  #[error(
+    "verification-key commitment public-input arity mismatch: expected {expected}, got {actual}"
+  )]
+  VerificationKeyCommitmentArityMismatch {
+    /// Expected flattened commitment arity.
+    expected: usize,
+    /// Actual flattened commitment arity.
+    actual: usize,
+  },
   /// The inner verification-key IC arity does not satisfy the Groth16 `n_public + 1` rule.
   #[error("inner verification-key IC arity mismatch: expected {expected}, got {actual}")]
   VerificationKeyIcArityMismatch {
@@ -162,7 +226,10 @@ impl WrapperExecutionPackage {
   /// Returns the canonical outer-statement contract for the package.
   #[must_use]
   pub fn outer_statement_contract(&self) -> OuterStatementContract {
-    OuterStatementContract::mirrored_public_inputs(self.job.public_input_count)
+    OuterStatementContract::mirrored_public_inputs_with_vk_commitment(
+      self.job.public_input_count,
+      self.statement.vk_commitment.public_input_count(),
+    )
   }
 
   /// Validates that the package respects the canonical outer-statement contract.
@@ -191,7 +258,25 @@ impl WrapperExecutionPackage {
       });
     }
 
-    if self.statement.public_inputs.field_order()
+    if self.statement.mirrored_public_inputs.entries.len()
+      != contract.expected_inner_public_input_count
+    {
+      return Err(OuterStatementContractError::MirroredPublicInputArityMismatch {
+        expected: contract.expected_inner_public_input_count,
+        actual: self.statement.mirrored_public_inputs.entries.len(),
+      });
+    }
+
+    if self.statement.vk_commitment.public_input_count()
+      != contract.expected_vk_commitment_public_input_count
+    {
+      return Err(OuterStatementContractError::VerificationKeyCommitmentArityMismatch {
+        expected: contract.expected_vk_commitment_public_input_count,
+        actual: self.statement.vk_commitment.public_input_count(),
+      });
+    }
+
+    if self.statement.mirrored_public_inputs.field_order()
       != self.witness.verifier_public_inputs.field_order()
     {
       return Err(OuterStatementContractError::FieldOrderMismatch);
@@ -212,9 +297,20 @@ impl WrapperExecutionPackage {
 mod tests {
   use crate::{
     NamedPublicInput, NamedPublicInputs, ProofSystemDescriptor, ProofSystemKind,
-    WrapperExecutionPackage, WrapperJob, WrapperStatement, WrapperWitnessInput,
-    package::OuterStatementContractError,
+    VerificationKeyCommitment, WrapperExecutionPackage, WrapperJob, WrapperStatement,
+    WrapperWitnessInput, package::OuterStatementContractError,
   };
+
+  fn sample_vk_commitment() -> VerificationKeyCommitment {
+    VerificationKeyCommitment::new(
+      "vk_commitment",
+      "7",
+      NamedPublicInputs::new(vec![
+        NamedPublicInput::new("vk_commitment_limb_0", "7"),
+        NamedPublicInput::new("vk_commitment_limb_1", "0"),
+      ]),
+    )
+  }
 
   #[test]
   fn wrapper_execution_package_preserves_statement_and_witness_order() {
@@ -232,7 +328,7 @@ mod tests {
     );
     let package = WrapperExecutionPackage::new(
       job,
-      WrapperStatement::new(named.clone()),
+      WrapperStatement::new(named.clone(), sample_vk_commitment()),
       WrapperWitnessInput::new(
         "artifact-1",
         ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
@@ -244,7 +340,10 @@ mod tests {
       ),
     );
 
-    assert_eq!(package.statement.public_inputs.field_order(), vec!["a", "b"]);
+    assert_eq!(
+      package.statement.public_inputs.field_order(),
+      vec!["a", "b", "vk_commitment_limb_0", "vk_commitment_limb_1"]
+    );
     assert_eq!(package.witness.verifier_public_inputs.field_order(), vec!["a", "b"]);
   }
 
@@ -263,7 +362,7 @@ mod tests {
         Some(named.clone()),
         vec![],
       ),
-      WrapperStatement::new(named.clone()),
+      WrapperStatement::new(named.clone(), sample_vk_commitment()),
       WrapperWitnessInput::new(
         "artifact-1",
         ProofSystemDescriptor { kind: ProofSystemKind::Groth16Bn254, source: "loader".to_owned() },
@@ -283,20 +382,23 @@ mod tests {
       .validate_outer_statement_contract()
       .expect("package should satisfy the canonical mirrored statement contract");
 
-    assert_eq!(contract.expected_outer_public_input_count, 2);
+    assert_eq!(contract.expected_outer_public_input_count, 4);
     assert_eq!(contract.expected_inner_public_input_count, 2);
+    assert_eq!(contract.expected_vk_commitment_public_input_count, 2);
     assert_eq!(contract.expected_verification_key_ic_count, 3);
   }
 
   #[test]
   fn outer_statement_contract_rejects_outer_statement_arity_mismatch() {
     let mut package = sample_package();
-    package.statement =
-      WrapperStatement::new(NamedPublicInputs::new(vec![NamedPublicInput::new("a", "1")]));
+    package.statement = WrapperStatement::new(
+      NamedPublicInputs::new(vec![NamedPublicInput::new("a", "1")]),
+      sample_vk_commitment(),
+    );
 
     assert_eq!(
       package.validate_outer_statement_contract(),
-      Err(OuterStatementContractError::OuterStatementArityMismatch { expected: 2, actual: 1 })
+      Err(OuterStatementContractError::OuterStatementArityMismatch { expected: 4, actual: 3 })
     );
   }
 
@@ -313,6 +415,41 @@ mod tests {
         actual: 1,
       })
     );
+  }
+
+  #[test]
+  fn outer_statement_contract_rejects_field_order_drift() {
+    let mut package = sample_package();
+    package.statement = WrapperStatement::new(
+      NamedPublicInputs::new(vec![
+        NamedPublicInput::new("b", "1"),
+        NamedPublicInput::new("a", "2"),
+      ]),
+      sample_vk_commitment(),
+    );
+
+    assert_eq!(
+      package.validate_outer_statement_contract(),
+      Err(OuterStatementContractError::FieldOrderMismatch)
+    );
+  }
+
+  #[test]
+  fn outer_statement_contract_tracks_verification_key_commitment_arity() {
+    let mut package = sample_package();
+    package.statement = WrapperStatement::new(
+      package.statement.mirrored_public_inputs.clone(),
+      VerificationKeyCommitment::new(
+        "vk_commitment",
+        "7",
+        NamedPublicInputs::new(vec![NamedPublicInput::new("vk_commitment_limb_0", "7")]),
+      ),
+    );
+
+    let contract = package
+      .validate_outer_statement_contract()
+      .expect("statement should remain self-consistent after a different commitment projection");
+    assert_eq!(contract.expected_vk_commitment_public_input_count, 1);
   }
 
   #[test]

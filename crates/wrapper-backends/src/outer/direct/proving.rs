@@ -30,7 +30,7 @@ use wrapper_core::{
   ProducedOuterProofArtifactBundle, ProducedOuterVerificationKeyJson, WrapperExecutionPackage,
 };
 
-use super::{MidnightDirectOuterBackend, MidnightDirectOuterBackendBls12Host};
+use super::{MidnightDirectOuterBackendBls12Host, MidnightDirectOuterBackendBn254Host};
 use crate::outer::{
   OuterProofBackend, OuterProofBackendError, ProducedOuterProvingKeyJson,
   ProducedOuterSetupArtifactBundle,
@@ -361,7 +361,7 @@ fn get_or_create_cached_bls12_params(
   Ok(params)
 }
 
-impl MidnightDirectOuterBackend {
+impl MidnightDirectOuterBackendBn254Host {
   /// Produces reusable setup artifacts and streams the proving key sidecar to one caller-owned writer.
   pub fn write_setup_bundle<W: io::Write>(
     self,

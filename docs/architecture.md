@@ -2,335 +2,487 @@
 
 ## When To Read This Document
 
-Read this document when you need crate ownership, data flow, or boundary
-clarity. If you only need a fast repo snapshot, start with `README.md`; if you
-need binding task constraints or the fastest code-reading order, start with
-`AGENTS.md`.
+Read this document when you need crate ownership, data flow, proof-boundary
+semantics, or clarity about which layer owns which concern.
+
+If you only need a fast repository snapshot, start with `README.md`.
+If you need binding task constraints or the fastest code-reading order, start
+with `AGENTS.md`.
 
 Fast path through this document:
 
 1. `Purpose`
-2. `Intended Data Flow`
-3. `Why Circuits and Backends Are Separate`
-4. the specific BN254 section that matches your task
-5. `Current Architectural Contracts`
+2. `Current System Shape`
+3. `End-to-End Data Flow`
+4. `Outer Statement and VK Binding`
+5. `Crate Ownership`
+6. the specific subsystem section that matches your task
 
 ## Purpose
 
-This repository is structured for staged development of a Halo2-based wrapper around Groth16 BN254 proofs. The current repository state now includes a circuit-backed BN254 primitive layer plus the first narrow verifier slice: Week 1 delivered Fp and minimal G1 support, Week 2 / Week 3 added the first Fp2/Fp6/Fp12 and narrow G2 slices, Week 4 reached the pairing core through the real Miller loop, final exponentiation, and a narrow pairing-product check, and Week 5 now layers real snarkjs proof/VK parsing, IC linear combination, and one end-to-end Groth16 BN254 verification path on top. It still does not implement subgroup checks, broad scalar-multiplication APIs, broad verifier-facing pairing APIs, generalized verifier orchestration, or a production wrapper circuit.
+This repository is structured for staged development of a Halo2/Midnight outer
+proof system that wraps Groth16 BN254 proofs.
 
-## Intended Data Flow
+The current codebase is no longer just a primitive experiment. It now contains:
 
-The expected long-term flow is:
+- a circuit-backed BN254 primitive layer
+- a narrow but real Groth16 BN254 verifier slice
+- artifact parsing and planning above `snarkjs`-shaped inputs
+- a canonical outer wrapper circuit
+- real direct `setup -> prove -> verify` lanes for hosted outer proofs
+- a public outer-statement model that binds verification to a specific inner
+  verification key
 
-1. Backend adapters load or normalize external artifacts such as proof metadata, verification key material, or ecosystem-specific formats.
-2. `wrapper-core` expresses stable domain concepts for those artifacts, wrapper configuration, capability declarations, and execution boundaries.
-3. `wrapper-circuits` consumes domain-level configuration and normalized metadata to construct Halo2-facing circuit descriptions.
-4. The CLI or future orchestration layers coordinate configuration loading, validation, inspection, and eventually proof-related workflows.
+The repository is still intentionally narrow.
 
-The current implementation includes enough BN254 arithmetic and verifier wiring to validate the first real Groth16 BN254 wrapper-verifier slice, while still stopping well short of a broad or production-ready wrapper verifier.
+It does **not** currently aim to provide:
 
-The current repository state also includes a generic planning lane above raw
-artifact parsing:
+- a broad general-purpose pairing API
+- a broad general-purpose Groth16 verifier framework
+- generalized wrapper statement DSLs
+- production-optimized non-native arithmetic everywhere
+- a fully generalized outer-backend ecosystem
 
-`snarkjs artifacts -> Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage -> WrapperExecutionResult`
+## Current System Shape
 
-That lane now coexists with a real direct execution lane in
-`wrapper-backends/src/outer.rs` that can run `setup -> prove -> verify` over
-the canonical `OuterWrapperCircuit`.
+At a high level, the current system has four important layers:
+
+1. external artifact ingestion
+2. domain modeling and planning
+3. canonical outer-circuit semantics
+4. backend-specific setup/prove/verify materialization
+
+The current happy-path flow is:
+
+`snarkjs artifacts -> Groth16Bn254ArtifactBundle -> WrapperJob -> WrapperExecutionPackage -> OuterWrapperCircuit -> direct outer backend -> produced outer artifacts`
+
+The repository also contains a canonical R1CS line, but it is still an
+alternate or future backend path rather than the delivery-critical one.
+
+## End-to-End Data Flow
+
+### External Inputs
+
+The repository currently expects inner proof artifacts in the standard
+`snarkjs`-style triple:
+
+- `proof.json`
+- `public.json`
+- `verification_key.json`
+
+Those artifacts are normalized by `wrapper-backends`.
+
+### Domain and Planning Layer
+
+`wrapper-backends` builds a normalized
+`Groth16Bn254ArtifactBundle`, which then feeds:
+
+- `WrapperJob`
+- `WrapperExecutionPackage`
+- `WrapperExecutionResult`
+
+This planning layer lives mostly in `wrapper-core`, with parsing and adaptation
+owned by `wrapper-backends`.
+
+### Canonical Outer-Circuit Layer
+
+`wrapper-circuits` owns the canonical outer semantic circuit:
+
+- semantic type: `OuterWrapperCircuit`
+- canonical input: `OuterWrapperCircuitInput`
+
+This is the single outer-circuit source of truth in the current repository
+phase.
+
+### Backend Materialization Layer
+
+`wrapper-backends` owns setup/prove/verify materialization over that canonical
+outer circuit.
+
+Today there are two real direct outer host lanes:
+
+- `MidnightDirectOuterBackendBn254Host`
+- `MidnightDirectOuterBackendBls12Host`
+
+Both are real backend lanes.
+Neither should be treated as a neutral or abstract “default backend”.
+
+Current lane policy:
+
+- `BLS12-381` is the official outer lane
+- `BN254` remains a compatibility/testing lane
+- documentation, operator flows, and external integration planning should treat
+  `BLS12-381` as the public-facing target
+
+## Outer Statement and VK Binding
+
+### What The Outer Proof Claims
+
+The outer proof now claims three things:
+
+1. the supplied Groth16 BN254 proof verifies against the supplied normalized
+   verification key and ordered public inputs
+2. the outer public statement mirrors the ordered inner public inputs
+3. the witness-side inner verification key hashes to the public
+   `vk_commitment` carried by the outer statement
+
+This is a materially stronger claim than the older mirror-only statement.
+
+### Statement Shape
+
+The outer statement is no longer modeled as “just a flat vector”.
+
+The semantic statement now contains:
+
+- `mirrored_field_names`
+- `mirrored_public_inputs`
+- `vk_commitment`
+
+The current Halo2 exposure path still needs a flat vector, so the semantic
+statement also derives:
+
+- flat `field_names`
+- flat `public_inputs`
+
+The flattening rule is:
+
+1. mirrored public inputs in caller-supplied order
+2. flattened public limbs of the semantic `vk_commitment`
+
+Current commitment limb names are:
+
+- `vk_commitment_limb_0`
+- `vk_commitment_limb_1`
+- and so on
+
+### Commitment Primitive
+
+The current inner verification-key commitment is **not** an ad hoc field fold.
+
+It is now:
+
+- a Poseidon x^5 based commitment
+- defined over `BN254::Fq`
+- computed from the canonical normalized Rust
+  `Groth16Bn254VerifyingKey`
+- stable across the two hosted outer lanes because it is defined over the
+  semantic VK field, not over a host-lane-native hash domain
+
+The canonical coordinate stream is:
+
+1. `alpha_g1`
+2. `beta_g2`
+3. `gamma_g2`
+4. `delta_g2`
+5. `ic` in verifier order
+
+Point flattening order:
+
+- G1 as `(x, y)`, with identity encoded as `(0, 0)`
+- G2 as `(x.c0, x.c1, y.c0, y.c1)`
+
+Implementation entry point:
+
+- `crates/wrapper-circuits/src/groth16/commitment.rs`
+
+### Where The Binding Is Enforced
+
+The binding is enforced inside the outer circuit semantics.
+
+The circuit:
+
+1. assigns the witness-side normalized inner VK as non-native BN254 values
+2. recomputes the Poseidon-based VK commitment in-circuit
+3. constrains that computed value to equal the semantic `vk_commitment`
+4. then runs the narrow Groth16 verifier relation as before
+
+This means the public VK binding is a hard circuit constraint, not just a
+host-side planning convention.
 
 ## Why `wrapper-core` Stays Domain-Oriented
 
-`wrapper-core` is the anchor for stable concepts that should outlive changes in circuit frameworks or backend adapters. Keeping it mostly independent from Halo2 has several advantages:
+`wrapper-core` is the stable domain layer.
 
-- domain modeling can evolve without dragging proving-system dependencies into every consumer
-- CLI validation and backend parsing can remain lightweight
-- tests can exercise core logic without requiring cryptographic crates
-- future rewrites of circuit internals do not force broad public API churn
+It should remain mostly independent from Halo2 because:
 
-In the current repo state, `wrapper-core` now also owns:
+- package and planning contracts outlive circuit rewrites
+- CLI and loader logic stay lightweight
+- tests can exercise planning logic without full proving dependencies
+- backend churn should not force broad public API churn
+
+Today `wrapper-core` owns:
 
 - named public-input views
 - wrapper-job planning types
 - wrapper execution-package types
+- explicit wrapper statement modeling
+- explicit verification-key commitment modeling
 - expected wrapper output artifact shapes
-- execution results for both stub and direct backend flows
+- execution results for both stub and direct lanes
 
-## Why Circuits and Backends Are Separate
+`wrapper-core` should not absorb:
 
-Circuit code and backend integration change for different reasons.
+- host-lane-specific proving behavior
+- circuit chip details
+- region/layout concerns
+- parser quirks from external ecosystems
 
-`wrapper-circuits` will eventually own:
+## Why `wrapper-circuits` and `wrapper-backends` Stay Separate
 
-- Halo2 circuit composition
-- chip and gadget organization
-- layout and witness-shape planning
-- outer wrapper circuit boundary definitions
-- the BN254 foreign-field layer introduced in Week 1 and extended in Week 2 / Week 3 with Fp2, Fp6, and Fp12
-- the BN254 G1 abstraction layer introduced in Week 1
-- the BN254 G2 affine representation layer introduced in Week 2
-- the BN254 G2 Jacobian projective layer introduced in Week 2
-- the BN254 G2 Miller-path line-extraction layer introduced in Week 3
+These two crates evolve for different reasons.
 
-`wrapper-backends` will eventually own:
+`wrapper-circuits` owns:
+
+- canonical outer-circuit semantics
+- host-lane wrappers around that semantic circuit
+- the BN254 non-native primitive layer
+- the Groth16 verifier slice
+- the in-circuit VK binding check
+- layout and R1CS-lowering related circuit logic
+
+`wrapper-backends` owns:
 
 - artifact loading
-- verification key ingestion
-- proof metadata parsing
-- compatibility adapters for other libraries and ecosystems
+- external format parsing
+- bundle normalization
+- package adaptation into circuit inputs
+- backend metadata
+- setup/prove/verify materialization for concrete outer lanes
 
-Today it also owns:
+Keeping them separate prevents:
 
-- generic `snarkjs` Groth16 BN254 artifact-set parsing
-- a dedicated `ArtifactSetLoader` contract for complete `proof + public + vk` bundles
-- bundle-to-wrapper-job / package adapters for planning and fixture-driven experiments
-- an `OuterProofBackend` contract for direct outer-proof production
-- a planning-only `PlannedHalo2OuterBackend` that materializes the honest direct-output contract
-- a concrete `MidnightDirectOuterBackend` that treats the Halo2/Midnight outer circuit as canonical and now implements real setup/prove/verify
+- artifact-format churn from leaking into circuit modules
+- host-backend details from polluting domain contracts
+- circuit ownership from becoming ambiguous across backend lanes
 
-The repository now also contains a canonical R1CS line under
-`wrapper-circuits/src/r1cs/`, including deterministic lowering, canonical
-identity hashing, zkInterface-style export, and a first Arkworks adapter.
-That line should currently be treated as an alternate / future backend lane,
-not the critical path for the first real outer wrapper flow.
+## Crate Ownership
 
-The repository now also contains a direct canonical outer-circuit backend
-surface in `wrapper-backends/src/outer.rs`:
+### `wrapper-core`
 
-- `CanonicalOuterCircuitProofBackend`
-- `plan_direct_outer_circuit_setup(...)`
-- `plan_direct_outer_circuit_proof(...)`
+Primary responsibilities:
 
-This is the surface intended to host the first real setup / prove / verify path
-for `OuterWrapperCircuit`.
+- stable domain contracts
+- package and execution modeling
+- statement semantics at the domain level
+- expected output-artifact modeling
 
-The current expected outer-wrapper artifact model is now honest to the direct
-backend that actually exists:
+Must not own:
 
-- protocol label: `halo2-plonkish`
-- curve label: `bn254`
-- backend label: `midnight-direct-halo2-outer-backend`
-- proof / verification-key / verifier-params payloads serialized as hex-encoded
-  `SerdeFormat::Processed` byte strings inside `serde` JSON
+- Halo2 chip logic
+- witness assignment logic
+- backend-specific serialization internals
 
-That choice is encapsulated inside `wrapper-backends`; `wrapper-core` still
-only sees generic package, statement, and artifact-shape contracts.
-Current assumptions for that lane:
+### `wrapper-circuits`
 
-- the outer circuit implementation lives in Halo2/Midnight and remains the only circuit source of truth
-- one direct setup per circuit size / configuration
-- setup output is reusable across proofs for the same circuit configuration
-- proof generation and verification now run through `midnight_proofs`
-- backend-specific proving details must not leak into `wrapper-core`
+Primary responsibilities:
 
-The next unresolved architectural question is therefore not "which circuit
-stack owns the outer wrapper?" but "which prover/setup/verification backend can
-materialize real outer artifacts for the canonical Halo2/Midnight outer
-circuit?" That design pass is tracked in
-`docs/outer-prover-strategy-plan.md`.
+- Halo2-facing circuit logic
+- canonical `OuterWrapperCircuit`
+- BN254 non-native arithmetic
+- Groth16 verifier circuit semantics
+- in-circuit VK commitment recomputation
+- hosted circuit wrappers for outer lanes
 
-The canonical R1CS line still matters strategically:
+Must not own:
 
-- it is the long-term circuit-identity source
-- it provides an alternate backend path
-- it reduces future lock-in to one proving-system integration surface
+- raw `snarkjs` parsing
+- filesystem artifact loading
+- backend-specific artifact packaging
 
-However, until the full non-native BN254 pairing core is lowered into canonical
-R1CS, it should not be treated as the delivery critical path for the first real
-`.circom` -> outer-wrapper end-to-end flow.
+### `wrapper-backends`
 
-When an application wants semantic names for a `snarkjs` public-input array,
-that naming should stay at the domain or fixture layer. Backend parsing should
-remain generic over any Groth16 circuit artifact shape that is otherwise valid.
+Primary responsibilities:
 
-The Semaphore fixture is the current application-shaped validation case for this
-rule: the backend stays generic, while the fixture layer assigns names such as
-`merkle_root`, `nullifier`, `message_hash`, and `scope_hash`.
+- proof/VK/public-input parsing
+- normalized bundle construction
+- direct outer backend surfaces
+- backend metadata and artifact serialization contracts
 
-Separating these concerns prevents parser logic, serialization quirks, or artifact format churn from leaking into circuit modules.
+Must not own:
 
-## Halo2 Boundary Strategy
+- a second competing outer circuit definition
+- broad domain ownership better suited to `wrapper-core`
 
-The project expects Halo2-specific code to live primarily in `wrapper-circuits`. Week 1 now uses `midnight-circuits` and `midnight-proofs` directly for a first real non-native BN254 layer, while keeping the supported surface intentionally small. This gives the project real circuit feedback without overcommitting to later-stage pairing or verifier APIs.
+### `wrapper-cli`
 
-When Halo2 is introduced later:
+Primary responsibilities:
 
-- `wrapper-core` should still avoid direct dependence unless a boundary cannot be represented otherwise
-- `wrapper-circuits` should absorb the proving-system integration surface
-- `wrapper-backends` should remain focused on external artifact and ecosystem concerns
+- operator and developer workflows
+- inspection and planning commands
+- direct execution commands
+- user-facing summaries of package and statement shape
 
-## BN254 Foreign-Field Layer
+### `wrapper-tests`
 
-Week 1 adds an `AssignedFp` abstraction in `wrapper-circuits`, and Week 2 begins by layering `AssignedFp2` on top of it.
+Primary responsibilities:
 
-Current properties:
+- committed fixtures
+- integration helpers
+- cross-crate regression coverage
 
-- Midnight-backed assigned BN254 base-field values
-- circuit-backed `add`, `sub`, `neg`, `mul`, and `square`
-- circuit-backed BN254 Fp2 values represented as `(c0, c1)` for `c0 + c1 * u`
-- Fp2 `add`, `sub`, `neg`, `mul`, and specialized `square` expressed through the existing `AssignedFp` layer
-- tuple-based host/reference arithmetic shared across the BN254 tower now lives under `wrapper-circuits/src/bn254/host/` instead of being redefined in each extension-field or G2 module
-- real row and layout measurements via `midnight_proofs::dev::cost_model`
-- arkworks-backed randomized correctness tests
+## Canonical Outer Circuit
 
-Current limitations:
+The canonical outer circuit remains:
 
-- no production-oriented optimization or custom layout tuning yet
-- no pairing-specific arithmetic yet
-- row and query reporting is real, but still only for the narrow implemented circuits
+- file root: `crates/wrapper-circuits/src/outer/`
+- semantic type: `OuterWrapperCircuit`
 
-## BN254 Fp6 Layer
+This remains the only circuit source of truth for the outer wrapper in the
+current phase.
 
-The next extension-field slice adds an `AssignedFp6` abstraction in `wrapper-circuits`.
+`OuterWrapperCircuit` is the semantic object.
+The actual host-lane `Circuit<F>` implementations live in:
 
-Current properties:
+- `HostedOuterWrapperCircuitBn254`
+- `HostedOuterWrapperCircuitBls12`
 
-- Fp6 elements represented as `(c0, c1, c2)` for `c0 + c1 * v + c2 * v^2`
-- exact arkworks BN254 tower: `Fp2 = Fp[u] / (u^2 + 1)` and `Fp6 = Fp2[v] / (v^3 - (9 + u))`
-- exact arkworks BN254 cubic nonresidue `9 + u`
-- circuit-backed `add`, `sub`, `neg`, `mul`, and `square`
-- deterministic arkworks-backed randomized correctness tests
-- real layout metrics for `fp6_add`, `fp6_mul`, and `fp6_square`
+This split is intentional:
 
-Current limitations:
+- the semantic statement should not be redefined per host lane
+- hosted proving wrappers should not become the semantic source of truth
 
-- no inversion in this slice
-- no pairing-specific line-function or Miller-loop logic yet
+## Outer Backend Lanes
 
-## BN254 Fp12 Layer
+### Real Direct Lanes
 
-The current Week 3 slice adds an `AssignedFp12` abstraction in `wrapper-circuits`.
+The repository currently supports two real direct outer lanes:
 
-Current properties:
+- `MidnightDirectOuterBackendBn254Host`
+- `MidnightDirectOuterBackendBls12Host`
 
-- Fp12 elements represented as `(c0, c1)` for `c0 + c1 * w`
-- exact arkworks BN254 tower: `Fp2 = Fp[u] / (u^2 + 1)`, `Fp6 = Fp2[v] / (v^3 - (9 + u))`, and `Fp12 = Fp6[w] / (w^2 - v)`
-- exact arkworks BN254 quadratic nonresidue `v = Fp6(0, 1, 0)`
-- circuit-backed `add`, `sub`, `neg`, `mul`, and `square`
-- deterministic arkworks-backed randomized and structured correctness tests
-- real layout metrics for `fp12_add`, `fp12_mul`, and `fp12_square`
+Both support:
 
-Current limitations:
+- setup
+- prove
+- verify
+- split `prove-trace` / `prove-finalize`
 
-- no inversion in this slice
-- no Miller-loop or final-exponentiation logic yet
+However, they do not have the same product weight:
 
-## BN254 G1 Abstraction Layer
+- `MidnightDirectOuterBackendBls12Host` is the official lane
+- `MidnightDirectOuterBackendBn254Host` is retained for compatibility,
+  regression, and comparative profiling
 
-Week 1 also adds an `AssignedG1` abstraction in `wrapper-circuits`.
+### Planned Compatibility Lane
 
-Current properties:
+The planning-only lane remains:
 
-- Midnight-backed assigned BN254 G1 points
-- circuit-backed complete point addition
-- coordinate-to-point construction with on-curve enforcement
-- deterministic arkworks-backed correctness tests
-- real layout metrics for the Week 1 G1 addition circuit
+- `PlannedHalo2OuterBackend`
 
-Current limitations:
+It exists to materialize honest artifact contracts and planning expectations
+without claiming real proof production.
 
-- no public Week 1 MSM surface
-- no subgroup-check or cofactor-clearing workflow yet
-- no G2 or pairing support
+### Naming Contract
 
-## BN254 G2 Affine Layer
+There is no longer a repository-local alias that should be read as
+“the direct outer backend”.
 
-Week 2 adds a minimal `AssignedG2Affine` abstraction in `wrapper-circuits`.
+Code should use explicit lane names.
 
-Current properties:
+That matters because:
 
-- G2 affine points represented as `(x, y)` over `AssignedFp2`
-- circuit-backed non-infinity assignment from Fp2 coordinates
-- circuit-backed negation
-- circuit-backed equality checks
-- explicit twist on-curve validation against the BN254 G2 equation from arkworks
-- real layout metrics for narrow `g2 on_curve` and `g2 neg` sanity circuits
+- the repo maintains two real outer host lanes
+- the statement semantics are shared across them
+- backend naming should not imply a false architectural default
 
-Current limitations:
+## BN254 Primitive and Verifier Surface
 
-- no identity/infinity representation in this slice
-- no subgroup checks yet
-- no pairing support
+The current implemented BN254 line includes:
 
-## BN254 G2 Projective Layer
+- `Fp`
+- `Fp2`
+- `Fp6`
+- `Fp12`
+- G1
+- narrow G2 affine / projective support
+- Miller-path line extraction
+- final exponentiation
+- narrow pairing-product check
+- narrow Groth16 BN254 verification
 
-The current narrow Week 2 slice adds an `AssignedG2Projective` abstraction in `wrapper-circuits`.
+The repository still does **not** expose:
 
-Current properties:
+- broad G2 subgroup-check APIs
+- broad G2 scalar multiplication APIs
+- broad public pairing APIs
+- a generalized verifier framework
 
-- Jacobian coordinates `(X : Y : Z)` over `AssignedFp2`
-- affine model `x = X / Z^2`, `y = Y / Z^3` for `Z != 0`
-- explicit reserved infinity encoding via the conventional Jacobian representative `(1 : 1 : 0)`
-- circuit-backed `from_affine` embedding with `Z = 1`
-- circuit-backed `neg`
-- circuit-backed doubling with the standard short-Weierstrass Jacobian doubling formula for `a = 0` (`dbl-2009-l`)
-- circuit-backed Jacobian-Jacobian addition with the standard incomplete formula (`add-2007-bl`)
-- affine-equivalence checks used in tests and sanity circuits instead of full in-circuit normalization
-- deterministic arkworks-backed randomized correctness tests
-- real layout metrics for `g2_proj_from_affine`, `g2_proj_double`, and `g2_proj_add`
+The design remains verifier-shaped and intentionally narrow.
 
-Current limitations:
+## Hosted Outer Lanes vs Inner Verifier Field
 
-- arithmetic is intentionally incomplete and only intended for non-identity points
-- `add` does not yet support identity operands, `P = Q`, or `P = -Q`
-- no subgroup checks yet
-- no scalar multiplication yet
-- no pairing support
+The inner verifier remains BN254 in both hosted outer lanes.
 
-## BN254 G2 Miller-Step Layer
+That means the implementation must distinguish between:
 
-The current Week 3 line-extraction slice adds a dedicated Miller-path G2 step state and sparse line coefficients in `wrapper-circuits`.
+- the field and curve family of the **inner proof system**
+- the host field of the **outer Halo2 proof**
 
-Current properties:
+This distinction is why the VK commitment is defined over semantic BN254
+coordinates rather than over one host-lane-native hash field.
 
-- a dedicated `AssignedG2MillerPoint` homogeneous-projective state `(X : Y : Z)` with affine model `x = X / Z`, `y = Y / Z`
-- this state is intentionally separate from `AssignedG2Projective`, which remains Jacobian for the narrow general-purpose G2 arithmetic slice
-- a dedicated `AssignedG2LineCoeffs` type with the Miller-ready sparse layout `(ell_0, ell_w, ell_vw)`
-- a dedicated `AssignedMillerAccumulator` type as the public consumption boundary for those coefficients
-- the line layout is chosen for the BN254 D-twist sparse Fp12 embedding
-  `ell_0 * y_P + ell_w * x_P * w + ell_vw * v * w`
-- `double_with_line` follows the homogeneous-projective BN prepared-G2 doubling step used by arkworks `G2HomProjective::double_in_place`
-- `mixed_add_with_line` follows the homogeneous-projective BN prepared-G2 mixed-add step used by arkworks `G2HomProjective::add_in_place`
-- the public consumption boundary is `AssignedG2LineCoeffs -> AssignedMillerAccumulator::mul_by_line(...)`
-- sparse line evaluation into Fp12 remains an internal accumulator detail rather than an `AssignedFp12`-level public helper
-- the public `mul_by_line(...)` accumulator path now uses an internal sparse-specialized D-twist multiplication path instead of paying a near-full generic `Fp12` multiply
-- the previous generic line-consumption path remains available only as an explicit baseline circuit/metric so optimization progress stays measurable
-- a narrow accumulator-driven Miller loop now exists over the real fixed BN254 optimal-ate prepared-step schedule
-- the loop driver keeps step scheduling explicit and deterministic through a dedicated host-side BN254 schedule representation rather than witness-driven branching
-- the implemented loop shape now matches arkworks BN254 prepared-G2 traversal, including the fixed Frobenius tail
-- a narrow final exponentiation now exists on top of that Miller output using the standard BN easy-part / hard-part decomposition aligned with arkworks
-- a narrow multi-pairing product check now exists: compute each real Miller loop, multiply the Miller outputs together, apply exactly one final exponentiation, and compare the total product against the target-group identity
-- deterministic arkworks-backed reference tests cover point updates, extracted coefficients, sparse Fp12 embedding, and unsupported edge cases
-- real layout metrics for `g2_double_with_line`, `g2_mixed_add_with_line`, `miller accumulator square`, `miller accumulator mul_by_line` (generic baseline), `miller accumulator mul_by_line sparse` (optimized path), the narrow `miller loop` sanity circuit, the narrow `final exponentiation` sanity circuit, and the narrow `pairing check` sanity circuit
+## Canonical R1CS Line
 
-Current limitations:
+The repository also contains a canonical R1CS line under
+`crates/wrapper-circuits/src/r1cs/`.
 
-- the Miller-path state is intentionally non-identity only in this slice
-- `mixed_add_with_line` is intentionally unsupported for exceptional cases such as `P = Q` and `P = -Q`
-- the current pairing slice now covers single-pair Miller accumulation, final exponentiation, and a narrow multi-pairing product check for supported non-exceptional inputs
-- this is still not a broad public full-pairing or multi-pairing API beyond the narrow product-check boundary
-- only the first narrow Groth16 BN254 verification path exists: snarkjs fixture parsing, verifier-only IC accumulation, verifier-equation reduction to one pairing-product check, and end-to-end acceptance / rejection tests
-- no generalized wrapper verifier circuit or broader backend ecosystem exists yet
+Current role of that line:
+
+- deterministic lowering target
+- canonical identity-hash source
+- zkInterface-style export bridge
+- alternate or future backend direction
+
+Current non-role:
+
+- it is **not** the delivery-critical path for the current direct outer flow
+
+The practical outer delivery path still runs through the canonical Halo2 /
+Midnight circuit and the direct backend lanes.
 
 ## Current Architectural Contracts
 
-The current skeleton defines:
+The current architecture assumes:
 
-- wrapper phases and status reporting
-- wrapper capabilities and implementation status markers
-- repository configuration parsing and validation
-- layout descriptors for future circuit inspection
-- backend registry and artifact loader interfaces
-- backend artifact-set loader interfaces
-- BN254 field, Fp2, G1, and minimal G2 affine foundations with real layout visibility
-- a canonical primitive registry in `wrapper-circuits/src/planning.rs` that drives measured primitive metadata for CLI reporting and benchmark-info output
-- wrapper planning and export contracts for jobs, execution packages, expected output artifacts, and execution results
+- one canonical outer semantic circuit
+- explicit outer statement semantics
+- explicit public VK binding
+- backend lanes materialize the same semantic statement on different hosts
+- host-lane specifics stay in backend and hosted-circuit surfaces
+- external artifact parsing stays out of circuit modules
 
-These contracts are intentionally conservative and meant to support staged development rather than predict final cryptographic APIs in detail.
+In other words:
 
-For stage boundaries, pair this document with `docs/roadmap.md`. For
-file-by-file loading order, pair it with `AGENTS.md`. For the remaining
-implementation path from real `.circom` artifacts to a real outer proof, pair
-it with `docs/real-circom-wrapper-integration-plan.md`. For the remaining
-prover/backend decision on the canonical outer circuit, pair it with
-`docs/outer-prover-strategy-plan.md`.
+- `wrapper-core` defines what the system means
+- `wrapper-circuits` defines how that meaning is enforced in-circuit
+- `wrapper-backends` defines how concrete artifact ecosystems and hosted proof
+  lanes plug into that circuit
+
+## Practical Reading Routes
+
+If you need outer statement semantics and VK binding:
+
+1. `crates/wrapper-circuits/src/groth16/commitment.rs`
+2. `crates/wrapper-circuits/src/outer/statement.rs`
+3. `crates/wrapper-circuits/src/outer/input.rs`
+4. `crates/wrapper-circuits/src/outer/semantics.rs`
+
+If you need direct outer backend lane context:
+
+1. `crates/wrapper-backends/src/outer/direct/mod.rs`
+2. `crates/wrapper-backends/src/outer/direct/adaptation.rs`
+3. `crates/wrapper-backends/src/outer/direct/proving.rs`
+4. `docs/outer-prover-strategy-plan.md`
+
+If you need package/planning context:
+
+1. `crates/wrapper-backends/src/groth16.rs`
+2. `crates/wrapper-core/src/package.rs`
+3. `crates/wrapper-core/src/execution.rs`
+4. `crates/wrapper-core/src/output.rs`
+
+If you need committed integration coverage:
+
+1. `crates/wrapper-tests/src/lib.rs`
+2. `crates/wrapper-backends/src/outer/tests.rs`
+3. `crates/wrapper-circuits/src/outer/tests.rs`

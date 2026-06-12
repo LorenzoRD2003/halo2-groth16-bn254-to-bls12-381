@@ -3,11 +3,13 @@ use wrapper_core::WrapperExecutionPackage;
 
 use crate::snarkjs::{parse_groth16_bn254_proof, parse_groth16_bn254_verifying_key};
 
-use super::{MidnightDirectOuterBackend, MidnightDirectOuterBackendBls12Host};
+use super::{MidnightDirectOuterBackendBls12Host, MidnightDirectOuterBackendBn254Host};
 use crate::outer::{
   DirectOuterCircuitInput, DirectOuterStatementInput, OuterCircuitInputArtifacts,
-  OuterProofBackend, OuterProofBackendError, helpers::parse_native_input_value,
+  OuterProofBackend, OuterProofBackendError,
+  helpers::{parse_bls12_input_value, parse_foreign_input_value, parse_native_input_value},
 };
+use wrapper_circuits::OuterVerificationKeyCommitmentValue;
 
 macro_rules! impl_direct_backend_adaptation {
   ($backend:ty) => {
@@ -67,27 +69,48 @@ impl $backend {
       .map(|entry| parse_native_input_value("inner-witness", &entry.name, &entry.value))
       .collect::<Result<Vec<_>, _>>()?;
 
+    let mirrored_public_inputs = package
+      .statement
+      .mirrored_public_inputs
+      .entries
+      .iter()
+      .map(|entry| parse_native_input_value("outer-statement", &entry.name, &entry.value))
+      .collect::<Result<Vec<_>, _>>()?;
+
+    let vk_commitment_value = match self.metadata().outer_host {
+      wrapper_circuits::OuterHostFlavor::MidnightBn254 => {
+        OuterVerificationKeyCommitmentValue::Bn254(parse_foreign_input_value(
+          "outer-statement",
+          &package.statement.vk_commitment.field_name,
+          &package.statement.vk_commitment.value,
+        )?)
+      }
+      wrapper_circuits::OuterHostFlavor::MidnightBls12_381 => {
+        OuterVerificationKeyCommitmentValue::Bls12(parse_bls12_input_value(
+          "outer-statement",
+          &package.statement.vk_commitment.field_name,
+          &package.statement.vk_commitment.value,
+        )?)
+      }
+    };
+
     let outer_statement = DirectOuterStatementInput {
-      field_names: package
+      mirrored_field_names: package
         .statement
-        .public_inputs
+        .mirrored_public_inputs
         .entries
         .iter()
         .map(|entry| entry.name.clone())
         .collect(),
-      public_inputs: package
-        .statement
-        .public_inputs
-        .entries
-        .iter()
-        .map(|entry| parse_native_input_value("outer-statement", &entry.name, &entry.value))
-        .collect::<Result<Vec<_>, _>>()?,
+      mirrored_public_inputs,
+      vk_commitment: (package.statement.vk_commitment.field_name.clone(), vk_commitment_value),
     };
 
-    if outer_statement.public_inputs != inner_verifier_public_inputs {
+    if outer_statement.mirrored_public_inputs != inner_verifier_public_inputs {
       return Err(OuterProofBackendError::UnsupportedStatementLayout {
-        reason: "current arkworks outer lane only supports an outer statement that mirrors inner verifier public-input values exactly"
-          .to_owned(),
+        reason:
+          "current arkworks outer lane requires the explicit mirrored public-input component to match inner verifier public-input values exactly"
+            .to_owned(),
       });
     }
 
@@ -125,5 +148,5 @@ impl $backend {
   };
 }
 
-impl_direct_backend_adaptation!(MidnightDirectOuterBackend);
+impl_direct_backend_adaptation!(MidnightDirectOuterBackendBn254Host);
 impl_direct_backend_adaptation!(MidnightDirectOuterBackendBls12Host);

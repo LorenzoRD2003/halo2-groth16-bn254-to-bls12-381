@@ -1,9 +1,25 @@
+use std::cmp::max;
+
+use midnight_circuits::{
+  field::{
+    NativeChip, NativeConfig,
+    native::{NB_ARITH_COLS, NB_ARITH_FIXED_COLS},
+  },
+  hash::poseidon::{
+    NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, PoseidonChip, PoseidonConfig,
+  },
+  instructions::AssertionInstructions,
+  types::ComposableChip,
+};
 use midnight_circuits::midnight_proofs::{
   circuit::{Layouter, SimpleFloorPlanner},
-  plonk::{Circuit, ConstraintSystem, Error},
+  plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed},
 };
 
 use crate::bn254::{Bls12HostField, NativeField};
+use crate::{
+  OuterVerificationKeyCommitmentValue, assign_and_commit_verification_key_on_bls12_host,
+};
 
 use super::{
   Bn254InnerVerifierConfig, MidnightBls12_381HostConfigShell, MidnightBn254HostConfig,
@@ -22,6 +38,8 @@ pub struct OuterWrapperHostConfigBn254 {
 pub struct OuterWrapperHostConfigBls12 {
   host: MidnightBls12_381HostConfigShell,
   semantics: Bn254InnerVerifierConfig<Bls12HostField>,
+  poseidon_native: NativeConfig,
+  poseidon_hash: PoseidonConfig<Bls12HostField>,
 }
 
 /// BN254-hosted proving wrapper for the canonical outer semantic circuit.
@@ -128,9 +146,34 @@ impl Circuit<Bls12HostField> for HostedOuterWrapperCircuitBls12 {
 
   fn configure(meta: &mut ConstraintSystem<Bls12HostField>) -> Self::Config {
     let (host, instance_columns) = MidnightBls12_381HostConfigShell::configure(meta);
+    let nb_advice_cols = max(NB_POSEIDON_ADVICE_COLS, NB_ARITH_COLS);
+    let nb_fixed_cols = max(NB_POSEIDON_FIXED_COLS, NB_ARITH_FIXED_COLS);
+    let advice_cols = (0..nb_advice_cols).map(|_| meta.advice_column()).collect::<Vec<Column<Advice>>>();
+    let fixed_cols = (0..nb_fixed_cols).map(|_| meta.fixed_column()).collect::<Vec<Column<Fixed>>>();
+    let poseidon_native = NativeChip::configure(
+      meta,
+      &(
+        advice_cols[..NB_ARITH_COLS].try_into().expect("native advice width should match"),
+        fixed_cols[..NB_ARITH_FIXED_COLS].try_into().expect("native fixed width should match"),
+        instance_columns,
+      ),
+    );
+    let poseidon_hash = PoseidonChip::configure(
+      meta,
+      &(
+        advice_cols[..NB_POSEIDON_ADVICE_COLS]
+          .try_into()
+          .expect("poseidon advice width should match"),
+        fixed_cols[..NB_POSEIDON_FIXED_COLS]
+          .try_into()
+          .expect("poseidon fixed width should match"),
+      ),
+    );
     OuterWrapperHostConfigBls12 {
       host,
       semantics: Bn254InnerVerifierConfig::configure(meta, &instance_columns),
+      poseidon_native,
+      poseidon_hash,
     }
   }
 
@@ -141,11 +184,28 @@ impl Circuit<Bls12HostField> for HostedOuterWrapperCircuitBls12 {
   ) -> Result<(), Error> {
     self.assert_ready_for_synthesis().map_err(|error| Error::Synthesis(error.to_string()))?;
 
+    let native_chip = NativeChip::new(&config.poseidon_native, &());
+    let poseidon_chip = PoseidonChip::new(&config.poseidon_hash, &native_chip);
+    if let OuterVerificationKeyCommitmentValue::Bls12(expected_commitment) =
+      self.semantic.input.outer_statement.vk_commitment.value
+    {
+      let field_chip = crate::bn254::Bn254FieldChip::new(config.semantics.field_config());
+      let computed_commitment = assign_and_commit_verification_key_on_bls12_host(
+        &field_chip,
+        &native_chip,
+        &poseidon_chip,
+        &mut layouter,
+        &self.semantic.input.inner_verification_key,
+      )?;
+      native_chip.assert_equal_to_fixed(&mut layouter, &computed_commitment, expected_commitment)?;
+    }
+
     config.semantics.synthesize(&mut layouter, &self.semantic.input)?;
     let public_inputs = lift_outer_inputs_to_host::<Bls12HostField>(
       &self.semantic.input.outer_statement.public_inputs,
     );
-    config.host.expose_outer_statement(&mut layouter, &public_inputs)
+    config.host.expose_outer_statement(&mut layouter, &public_inputs)?;
+    native_chip.load(&mut layouter)
   }
 }
 
