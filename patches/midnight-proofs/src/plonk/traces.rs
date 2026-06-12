@@ -33,6 +33,67 @@ pub struct ProverTrace<F: PrimeField> {
     pub(crate) y: F,
 }
 
+impl<F: PrimeField> ProverTrace<F> {
+    /// Consumes the prover trace and prepares the sparse finalization inputs
+    /// needed by the optimized h-poly and opening stages.
+    pub(crate) fn into_finalization_parts<CS: PolynomialCommitmentScheme<F>>(
+        self,
+        vk: &VerifyingKey<F, CS>,
+        transcript_prefix: Vec<u8>,
+        transcript_state_snapshot: Vec<u8>,
+    ) -> (PreparedFinalizationTrace<F>, OpeningPolysTrace<F>)
+    where
+        F: WithSmallOrderMulGroup<3>,
+    {
+        let Self {
+            advice_polys,
+            instance_polys,
+            vanishing,
+            lookups,
+            trashcans,
+            permutations,
+            challenges,
+            beta,
+            gamma,
+            theta,
+            trash_challenge,
+            y,
+        } = self;
+        let domain = vk.get_domain();
+        let (used_advice_columns, used_instance_columns) = collect_used_columns(vk.cs());
+        let advice_cosets =
+            build_nested_optional_extended_from_coeffs(&advice_polys, domain, &used_advice_columns);
+        let instance_cosets = build_nested_optional_extended_from_coeffs(
+            &instance_polys,
+            domain,
+            &used_instance_columns,
+        );
+
+        (
+            PreparedFinalizationTrace {
+                transcript_prefix,
+                transcript_state_snapshot,
+                advice_cosets,
+                instance_cosets,
+                vanishing,
+                lookups,
+                trashcans,
+                permutations,
+                challenges,
+                beta,
+                gamma,
+                theta,
+                trash_challenge,
+                y,
+            },
+            OpeningPolysTrace {
+                advice_polys,
+                instance_polys,
+            },
+        )
+    }
+}
+
 /// Verifier's trace of a set of proofs. This type guarantees that the size of
 /// the outer vector of its fields has the same size.
 #[derive(Debug)]
@@ -119,6 +180,23 @@ impl<F: PrimeField> PersistedProverTrace<F> {
     /// Consumes the persisted artifact and returns the underlying prover trace.
     pub fn into_trace(self) -> ProverTrace<F> {
         self.trace
+    }
+
+    /// Consumes the persisted artifact and reconstructs the same prepared
+    /// finalization data that the on-disk split path would deserialize later.
+    pub fn into_finalization_parts<CS: PolynomialCommitmentScheme<F>>(
+        self,
+        vk: &VerifyingKey<F, CS>,
+    ) -> (PreparedFinalizationTrace<F>, OpeningPolysTrace<F>)
+    where
+        F: WithSmallOrderMulGroup<3>,
+    {
+        let Self {
+            transcript_prefix,
+            transcript_state_snapshot,
+            trace,
+        } = self;
+        trace.into_finalization_parts(vk, transcript_prefix, transcript_state_snapshot)
     }
 }
 
@@ -355,18 +433,41 @@ fn write_nested_optional_extended_from_coeffs<
     writer: &mut W,
 ) -> io::Result<()> {
     writer.write_all(&(values.len() as u32).to_be_bytes())?;
-    for group in values {
+    for group in build_nested_optional_extended_from_coeffs(values, domain, used_columns) {
         writer.write_all(&(group.len() as u32).to_be_bytes())?;
-        for (column_index, poly) in group.iter().enumerate() {
-            if used_columns.get(column_index).copied().unwrap_or(false) {
+        for poly in group {
+            if let Some(poly) = poly {
                 writer.write_all(&[1_u8])?;
-                domain.coeff_to_extended(poly.clone()).write(writer)?;
+                poly.write(writer)?;
             } else {
                 writer.write_all(&[0_u8])?;
             }
         }
     }
     Ok(())
+}
+
+fn build_nested_optional_extended_from_coeffs<F: PrimeField + WithSmallOrderMulGroup<3>>(
+    values: &[Vec<Polynomial<F, Coeff>>],
+    domain: &EvaluationDomain<F>,
+    used_columns: &[bool],
+) -> OptionalPolynomialGroups<F, ExtendedLagrangeCoeff> {
+    values
+        .iter()
+        .map(|group| {
+            group
+                .iter()
+                .enumerate()
+                .map(|(column_index, poly)| {
+                    used_columns
+                        .get(column_index)
+                        .copied()
+                        .unwrap_or(false)
+                        .then(|| domain.coeff_to_extended(poly.clone()))
+                })
+                .collect()
+        })
+        .collect()
 }
 
 fn read_nested_optional_polynomials<

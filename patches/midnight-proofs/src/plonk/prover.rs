@@ -593,7 +593,9 @@ where
         + Hashable<T::Hash>
         + Hash
         + Ord
-        + FromUniformBytes<64>,
+        + FromUniformBytes<64>
+        + PrimeField
+        + SerdeObject,
 {
     let trace = compute_trace_from_base(
         params,
@@ -605,13 +607,15 @@ where
         rng,
         transcript,
     )?;
-    let pk = pk.finalize_for_finalise();
-    finalise_proof(
+    let (prepared_trace, opening_polys) =
+        trace.into_finalization_parts(pk.get_vk(), Vec::new(), Vec::new());
+    finalise_prepared_proof_from_base_trace(
         params,
-        &pk,
+        pk,
         #[cfg(feature = "committed-instances")]
         nb_committed_instances,
-        trace,
+        prepared_trace,
+        opening_polys,
         transcript,
     )
 }
@@ -684,6 +688,58 @@ where
         + PrimeField
         + SerdeObject,
 {
+    let deserialize_opening_polys_started_at = Instant::now();
+    direct_logging::log_event(
+        "finalize",
+        "deserialize_opening_polys",
+        "start",
+        "proof_index=0",
+    );
+    let opening_polys = PersistedProverTrace::read_opening_polys(trace_reader)?;
+    direct_logging::log_elapsed(
+        "finalize",
+        "deserialize_opening_polys",
+        deserialize_opening_polys_started_at,
+        &format!(
+            "proof_index=0 advice_poly_sets={} instance_poly_sets={}",
+            opening_polys.advice_polys.len(),
+            opening_polys.instance_polys.len()
+        ),
+    );
+    finalise_prepared_proof_from_base_trace(
+        params,
+        pk,
+        #[cfg(feature = "committed-instances")]
+        nb_committed_instances,
+        prepared_trace,
+        opening_polys,
+        transcript,
+    )
+}
+
+fn finalise_prepared_proof_from_base_trace<
+    F,
+    CS: PolynomialCommitmentScheme<F>,
+    T: Transcript,
+>(
+    params: &CS::Parameters,
+    pk: BaseProvingKey<F, CS>,
+    #[cfg(feature = "committed-instances")] nb_committed_instances: usize,
+    prepared_trace: crate::plonk::traces::PreparedFinalizationTrace<F>,
+    opening_polys: crate::plonk::traces::OpeningPolysTrace<F>,
+    transcript: &mut T,
+) -> Result<(), Error>
+where
+    CS::Commitment: Hashable<T::Hash>,
+    F: WithSmallOrderMulGroup<3>
+        + Sampleable<T::Hash>
+        + Hashable<T::Hash>
+        + Hash
+        + Ord
+        + FromUniformBytes<64>
+        + PrimeField
+        + SerdeObject,
+{
     #[cfg(not(feature = "committed-instances"))]
     let nb_committed_instances: usize = 0;
 
@@ -702,6 +758,7 @@ where
         y,
         ..
     } = prepared_trace;
+    let crate::plonk::traces::OpeningPolysTrace { advice_polys, instance_polys } = opening_polys;
 
     let build_h_poly_key_started_at = Instant::now();
     direct_logging::log_event(
@@ -787,26 +844,6 @@ where
         "proof_index=0",
     );
     let x: F = transcript.squeeze_challenge();
-
-    let deserialize_opening_polys_started_at = Instant::now();
-    direct_logging::log_event(
-        "finalize",
-        "deserialize_opening_polys",
-        "start",
-        "proof_index=0",
-    );
-    let crate::plonk::traces::OpeningPolysTrace { advice_polys, instance_polys } =
-        PersistedProverTrace::read_opening_polys(trace_reader)?;
-    direct_logging::log_elapsed(
-        "finalize",
-        "deserialize_opening_polys",
-        deserialize_opening_polys_started_at,
-        &format!(
-            "proof_index=0 advice_poly_sets={} instance_poly_sets={}",
-            advice_polys.len(),
-            instance_polys.len()
-        ),
-    );
 
     let transcript_evals_started_at = Instant::now();
     direct_logging::log_event(

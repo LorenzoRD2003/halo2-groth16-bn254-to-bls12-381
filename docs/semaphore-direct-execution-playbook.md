@@ -231,42 +231,10 @@ Most likely follow-up themes:
 Treat this playbook as "ready to run", not as a promise that the first run will
 be cheap or effortless.
 
-## First Measured Split-Prove Baseline
+## Current Prove Baseline
 
-The repository now has one first measured split direct-lane baseline for the
-committed Semaphore fixture on the recommended BLS12-381 host lane.
+Current measured Semaphore baseline for the recommended BLS12-381 host lane on
+this machine:
 
-Measured commands:
-
-- `execute-wrapper-direct-prove-trace`
-- `execute-wrapper-direct-prove-finalize`
-
-Host/backend:
-
-- `midnight-direct-halo2-outer-backend-bls12-host`
-
-Chunk setting used for finalize:
-
-- `--h-poly-row-chunk-size 13`
-
-Measured wall-clock:
-
-- `prove-trace`: `507734 ms`
-- `prove-finalize`: `751588 ms`
-- total split `prove`: `1259322 ms`
-
-Converted time:
-
-- `prove-trace`: about `8.46 min`
-- `prove-finalize`: about `12.53 min`
-- total split `prove`: about `20.99 min`
-
-Useful interpretation:
-
-- the current direct Semaphore run is much closer to the
-  `circom_multiplier2` direct-lane cost than one might expect from the inner
-  circuit size alone
-- the largest cost is still in `prove-finalize`, but `prove-trace` remains a
-  substantial part of the total wall-clock
-- this baseline should be treated as the current first operational reference,
-  not as a permanent performance target
+- monolithic `execute-wrapper-direct-prove`: `1094972 ms` (about `18.25 min`)
+- split `execute-wrapper-direct-prove-trace` + `execute-wrapper-direct-prove-finalize`: `1270078 ms` (about `21.17 min`)

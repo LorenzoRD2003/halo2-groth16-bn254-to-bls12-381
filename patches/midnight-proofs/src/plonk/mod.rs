@@ -669,6 +669,12 @@ where
                 &mut used_instance_columns,
             );
         }
+        for trash in &self.vk.cs.trashcans {
+            collect_fixed_columns_from_expression(trash.selector(), &mut trash_fixed_columns);
+            for expression in trash.constraint_expressions() {
+                collect_fixed_columns_from_expression(expression, &mut trash_fixed_columns);
+            }
+        }
         for column in &self.vk.cs.permutation.columns {
             if let Any::Fixed = column.column_type() {
                 permutation_fixed_columns.insert(column.index());

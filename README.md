@@ -111,23 +111,13 @@ cargo run -p wrapper-cli -- execute-wrapper-direct-setup \
   --backend midnight-bls12381-host \
   --output artifacts/my-circuit/setup.json
 
-cargo run -p wrapper-cli -- execute-wrapper-direct-prove-trace \
+cargo run -p wrapper-cli -- execute-wrapper-direct-prove \
   --id my-circuit \
   --proof /absolute/path/to/proof.json \
   --public /absolute/path/to/public.json \
   --vk /absolute/path/to/verification_key.json \
   --backend midnight-bls12381-host \
   --setup artifacts/my-circuit/setup.json \
-  --output artifacts/my-circuit/trace.bin
-
-cargo run -p wrapper-cli -- execute-wrapper-direct-prove-finalize \
-  --id my-circuit \
-  --proof /absolute/path/to/proof.json \
-  --public /absolute/path/to/public.json \
-  --vk /absolute/path/to/verification_key.json \
-  --backend midnight-bls12381-host \
-  --setup artifacts/my-circuit/setup.json \
-  --trace artifacts/my-circuit/trace.bin \
   --output artifacts/my-circuit/proof-bundle.json
 
 cargo run -p wrapper-cli -- execute-wrapper-direct-verify \
@@ -141,6 +131,18 @@ cargo run -p wrapper-cli -- execute-wrapper-direct-verify \
 
 If the inner public inputs have semantic names, add repeated
 `--public-input-name <name>` flags in the same order as `public.json`.
+
+Use the split `execute-wrapper-direct-prove-trace` /
+`execute-wrapper-direct-prove-finalize` flow only when you specifically want:
+
+- finer-grained finalize diagnostics
+- persisted pre-`compute_h_poly` traces between experiments
+- manual `h_poly` chunk-size tuning
+
+Current Semaphore BLS12 baseline on this machine:
+
+- monolithic `execute-wrapper-direct-prove`: `1094972 ms` (about `18.25 min`)
+- split `execute-wrapper-direct-prove-trace` + `execute-wrapper-direct-prove-finalize`: `1270078 ms` (about `21.17 min`)
 
 ### Compatibility Note About BN254 Outer
 
@@ -175,23 +177,13 @@ cargo run -p wrapper-cli -- execute-wrapper-direct-setup \
   --backend midnight-bn254-host \
   --output artifacts/direct-profile-circom-multiplier2/setup.json
 
-cargo run -p wrapper-cli -- execute-wrapper-direct-prove-trace \
+cargo run -p wrapper-cli -- execute-wrapper-direct-prove \
   --id circom-multiplier2 \
   --proof crates/wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json \
   --public crates/wrapper-tests/fixtures/groth16/circom_multiplier2/public.json \
   --vk crates/wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json \
   --backend midnight-bn254-host \
   --setup artifacts/direct-profile-circom-multiplier2/setup.json \
-  --output artifacts/direct-profile-circom-multiplier2/trace.bin
-
-cargo run -p wrapper-cli -- execute-wrapper-direct-prove-finalize \
-  --id circom-multiplier2 \
-  --proof crates/wrapper-tests/fixtures/groth16/circom_multiplier2/proof.json \
-  --public crates/wrapper-tests/fixtures/groth16/circom_multiplier2/public.json \
-  --vk crates/wrapper-tests/fixtures/groth16/circom_multiplier2/verification_key.json \
-  --backend midnight-bn254-host \
-  --setup artifacts/direct-profile-circom-multiplier2/setup.json \
-  --trace artifacts/direct-profile-circom-multiplier2/trace.bin \
   --output artifacts/direct-profile-circom-multiplier2/proof-bundle.json
 
 cargo run -p wrapper-cli -- execute-wrapper-direct-verify \
@@ -220,7 +212,7 @@ cargo run -p wrapper-cli -- execute-wrapper-direct-setup \
   --backend midnight-bls12381-host \
   --output artifacts/direct-profile-semaphore/semaphore-setup.json
 
-cargo run -p wrapper-cli -- execute-wrapper-direct-prove-trace \
+cargo run -p wrapper-cli -- execute-wrapper-direct-prove \
   --id semaphore-depth-10 \
   --proof crates/wrapper-tests/fixtures/groth16/semaphore/proof.json \
   --public crates/wrapper-tests/fixtures/groth16/semaphore/public.json \
@@ -230,24 +222,7 @@ cargo run -p wrapper-cli -- execute-wrapper-direct-prove-trace \
   --public-input-name message_hash \
   --public-input-name scope_hash \
   --backend midnight-bls12381-host \
-  --log-mode efficient \
   --setup artifacts/direct-profile-semaphore/semaphore-setup.json \
-  --output artifacts/direct-profile-semaphore/semaphore-trace.bin
-
-cargo run -p wrapper-cli -- execute-wrapper-direct-prove-finalize \
-  --id semaphore-depth-10 \
-  --proof crates/wrapper-tests/fixtures/groth16/semaphore/proof.json \
-  --public crates/wrapper-tests/fixtures/groth16/semaphore/public.json \
-  --vk crates/wrapper-tests/fixtures/groth16/semaphore/verification_key.json \
-  --public-input-name merkle_root \
-  --public-input-name nullifier \
-  --public-input-name message_hash \
-  --public-input-name scope_hash \
-  --backend midnight-bls12381-host \
-  --log-mode efficient \
-  --setup artifacts/direct-profile-semaphore/semaphore-setup.json \
-  --trace artifacts/direct-profile-semaphore/semaphore-trace.bin \
-  --h-poly-row-chunk-size 13 \
   --output artifacts/direct-profile-semaphore/semaphore-proof-bundle.json
 
 cargo run -p wrapper-cli -- execute-wrapper-direct-verify \
@@ -322,7 +297,7 @@ cargo run -p wrapper-cli -- execute-wrapper-direct-setup \
   --backend midnight-bls12381-host \
   --output artifacts/direct-profile-risc0-stark-verify/risc0-stark-verify-setup.json
 
-cargo run -p wrapper-cli -- execute-wrapper-direct-prove-trace \
+cargo run -p wrapper-cli -- execute-wrapper-direct-prove \
   --id risc0-stark-verify \
   --proof crates/wrapper-tests/fixtures/groth16/risc0_stark_verify_vk_only/proof.json \
   --public crates/wrapper-tests/fixtures/groth16/risc0_stark_verify_vk_only/public.json \
@@ -333,24 +308,7 @@ cargo run -p wrapper-cli -- execute-wrapper-direct-prove-trace \
   --public-input-name claim_digest_1 \
   --public-input-name bn254_control_id \
   --backend midnight-bls12381-host \
-  --log-mode efficient \
   --setup artifacts/direct-profile-risc0-stark-verify/risc0-stark-verify-setup.json \
-  --output artifacts/direct-profile-risc0-stark-verify/risc0-stark-verify-trace.bin
-
-cargo run -p wrapper-cli -- execute-wrapper-direct-prove-finalize \
-  --id risc0-stark-verify \
-  --proof crates/wrapper-tests/fixtures/groth16/risc0_stark_verify_vk_only/proof.json \
-  --public crates/wrapper-tests/fixtures/groth16/risc0_stark_verify_vk_only/public.json \
-  --vk crates/wrapper-tests/fixtures/groth16/risc0_stark_verify_vk_only/verification_key.json \
-  --public-input-name control_root_0 \
-  --public-input-name control_root_1 \
-  --public-input-name claim_digest_0 \
-  --public-input-name claim_digest_1 \
-  --public-input-name bn254_control_id \
-  --backend midnight-bls12381-host \
-  --log-mode efficient \
-  --setup artifacts/direct-profile-risc0-stark-verify/risc0-stark-verify-setup.json \
-  --trace artifacts/direct-profile-risc0-stark-verify/risc0-stark-verify-trace.bin \
   --output artifacts/direct-profile-risc0-stark-verify/risc0-stark-verify-proof-bundle.json
 
 cargo run -p wrapper-cli -- execute-wrapper-direct-verify \
